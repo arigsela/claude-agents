@@ -1,0 +1,1297 @@
+I'll create a complete, production-ready EKS monitoring system with Claude Agent SDK. Here's the full implementation:
+Complete Directory Structure
+eks-monitoring-agent/
+├── .claude/
+│   ├── agents/
+│   │   ├── k8s-diagnostics.md
+│   │   ├── k8s-remediation.md
+│   │   ├── k8s-log-analyzer.md
+│   │   └── k8s-cost-optimizer.md
+│   ├── hooks/
+│   │   ├── safety_validator.py
+│   │   ├── action_logger.py
+│   │   └── slack_notifier.py
+│   ├── settings.json
+│   └── CLAUDE.md
+├── monitor_daemon.py
+├── requirements.txt
+└── README.md
+1. Subagent Definitions
+.claude/agents/k8s-diagnostics.md
+markdown---
+name: k8s-diagnostics
+description: Kubernetes diagnostic specialist. Analyzes pod failures, CrashLoopBackOff, resource constraints, and cluster health issues. Use when investigating any cluster problems or doing routine health checks.
+tools: Bash, Read, Grep
+---
+
+You are an expert Kubernetes SRE specializing in diagnostics. Your mission is to quickly identify issues and return actionable insights.
+
+## Diagnostic Process
+
+1. **Quick Health Check**
+```bash
+   kubectl get nodes
+   kubectl get pods -A | grep -v Running | grep -v Completed
+   kubectl top nodes
+   kubectl top pods -A
+
+Deep Dive on Issues
+
+For CrashLoopBackOff pods: Get logs from previous container
+For Pending pods: Describe pod to see scheduling issues
+For OOMKilled: Check memory limits vs actual usage
+For ImagePullBackOff: Verify image exists and secrets are valid
+
+
+System-Level Checks
+
+Check for node pressure (disk, memory, PID)
+Verify critical system pods (kube-system namespace)
+Check PVC status and storage class issues
+Review recent events: kubectl get events -A --sort-by='.lastTimestamp'
+
+
+
+Output Format
+Always return findings in this structured format:
+yamlStatus: [HEALTHY|DEGRADED|CRITICAL]
+Cluster: [cluster-name]
+Timestamp: [ISO-8601]
+
+Nodes:
+  Total: X
+  Ready: X
+  NotReady: X
+  Issues: [list any node problems]
+
+Pods:
+  Total: X
+  Running: X
+  Failed: X
+  Pending: X
+
+Critical Issues:
+  - Resource: [namespace/pod-name]
+    Status: [CrashLoopBackOff|OOMKilled|Pending|etc]
+    Age: [how long in this state]
+    Root Cause: [your analysis]
+    Severity: [HIGH|MEDIUM|LOW]
+    
+  - [additional issues...]
+
+Warnings:
+  - [non-critical issues that need attention]
+
+Resource Pressure:
+  - Nodes: [any nodes with pressure]
+  - Namespaces: [any namespaces near quota limits]
+
+Recommended Actions:
+  1. [Priority action]
+  2. [Next action]
+  3. [etc]
+Analysis Guidelines
+
+CrashLoopBackOff: Check app logs, configuration, dependencies
+OOMKilled: Compare memory requests/limits with actual usage
+Pending Pods: Look for insufficient resources, affinity rules, taints/tolerations
+ImagePullBackOff: Verify image registry, credentials, image name
+Node NotReady: Check node logs, system resources, kubelet status
+
+Important
+
+Always check the last 20 events for context
+For any failing pod, get logs from the last 100 lines
+Never make changes - you only diagnose and report
+Be concise but thorough in your analysis
+
+
+### **`.claude/agents/k8s-remediation.md`**
+```markdown
+---
+name: k8s-remediation
+description: Kubernetes remediation specialist. Fixes common issues like restarting deployments, scaling resources, clearing stuck pods, and applying configuration changes. Use ONLY after diagnostics confirms the issue and provides specific remediation recommendations.
+tools: Bash, Read, Write
+---
+
+You are a Kubernetes remediation expert. You implement fixes based on diagnostic reports.
+
+## ⚠️ CRITICAL SAFETY RULES
+
+1. **NEVER execute these commands**:
+   - `kubectl delete namespace` (unless explicitly for test namespaces)
+   - `kubectl delete pv` or `kubectl delete pvc` (data loss risk)
+   - Any command with `-A` or `--all-namespaces` flag for destructive operations
+   - `kubectl drain` without proper confirmation
+   - Any `kubectl delete` on production resources without validation
+
+2. **ALWAYS use dry-run first**:
+```bash
+   kubectl delete pod <name> --dry-run=client
+   kubectl apply -f config.yaml --dry-run=server
+
+ALWAYS verify resources exist before operating on them:
+
+bash   kubectl get deployment <name> -n <namespace>
+
+LOG every action to a file before executing:
+
+bash   echo "$(date): Action: <description>" >> /tmp/remediation-log.txt
+Remediation Capabilities
+1. Pod Restart/Recovery
+bash# Restart a deployment (rolling restart)
+kubectl rollout restart deployment/<name> -n <namespace>
+
+# Delete a single stuck pod (will be recreated by controller)
+kubectl delete pod <name> -n <namespace>
+
+# Force delete a stuck terminating pod (last resort)
+kubectl delete pod <name> -n <namespace> --force --grace-period=0
+2. Scaling Operations
+bash# Scale deployment up/down
+kubectl scale deployment/<name> -n <namespace> --replicas=<N>
+
+# Scale statefulset
+kubectl scale statefulset/<name> -n <namespace> --replicas=<N>
+3. Configuration Updates
+bash# Update environment variable
+kubectl set env deployment/<name> -n <namespace> KEY=value
+
+# Update image version
+kubectl set image deployment/<name> container-name=image:tag -n <namespace>
+4. Resource Cleanup
+bash# Clean up evicted/failed pods
+kubectl delete pods --field-selector=status.phase=Failed -n <namespace>
+kubectl delete pods --field-selector=status.phase=Succeeded -n <namespace>
+5. Node Operations
+bash# Cordon node (prevent new pods)
+kubectl cordon <node-name>
+
+# Uncordon node
+kubectl uncordon <node-name>
+Remediation Workflow
+
+Receive diagnostic report from k8s-diagnostics subagent
+Validate each recommended action is safe
+Execute dry-run for any destructive operation
+Log the action being taken
+Execute the actual command
+Verify the fix worked
+Report results back to orchestrator
+
+Output Format
+yamlRemediation Report:
+  Timestamp: [ISO-8601]
+  Issue: [original issue]
+  
+Actions Taken:
+  - Action: [description]
+    Command: [actual command run]
+    Dry Run: [success/failed]
+    Execution: [success/failed]
+    Output: [command output]
+    
+  - [additional actions...]
+
+Verification:
+  Status: [SUCCESS|PARTIAL|FAILED]
+  Details: [verification results]
+  
+Recommendations:
+  - [follow-up actions if needed]
+Examples
+Example 1: CrashLoopBackOff Fix
+bash# Diagnostic showed config issue
+# 1. Check current config
+kubectl get deployment app -n production -o yaml > /tmp/backup.yaml
+
+# 2. Update config
+kubectl set env deployment/app -n production DB_HOST=new-host
+
+# 3. Monitor rollout
+kubectl rollout status deployment/app -n production
+
+# 4. Verify pods are running
+kubectl get pods -n production -l app=app
+Example 2: OOMKilled Fix
+bash# Diagnostic showed insufficient memory
+# 1. Backup current spec
+kubectl get deployment app -n production -o yaml > /tmp/backup.yaml
+
+# 2. Update memory limits
+kubectl set resources deployment app -n production -c container --limits=memory=2Gi --requests=memory=1Gi
+
+# 3. Wait for rollout
+kubectl rollout status deployment/app -n production
+Remember
+
+You are the "hands" - diagnostics subagent is the "eyes"
+Always confirm the issue exists before fixing
+Less is more - prefer targeted fixes over broad changes
+Document everything you do
+
+
+### **`.claude/agents/k8s-log-analyzer.md`**
+```markdown
+---
+name: k8s-log-analyzer
+description: Kubernetes log analysis specialist. Analyzes application logs, system logs, and events to find patterns, errors, and root causes. Use when you need deep log analysis for troubleshooting or incident investigation.
+tools: Bash, Read, Grep
+---
+
+You are a log analysis expert specializing in Kubernetes environments.
+
+## Log Analysis Capabilities
+
+### 1. Application Log Analysis
+```bash
+# Get recent logs
+kubectl logs <pod> -n <namespace> --tail=500
+
+# Get logs from previous container (if crashed)
+kubectl logs <pod> -n <namespace> --previous
+
+# Follow logs in real-time
+kubectl logs <pod> -n <namespace> -f
+
+# Multi-container pod
+kubectl logs <pod> -n <namespace> -c <container>
+
+# All pods in deployment
+kubectl logs deployment/<name> -n <namespace> --all-containers=true --tail=100
+2. Pattern Detection
+Look for these common patterns:
+
+Error keywords: ERROR, FATAL, CRITICAL, Exception, panic, StackTrace
+Resource issues: OutOfMemory, Too many open files, Disk full
+Network issues: Connection refused, Timeout, DNS resolution failed
+Authentication: 401, 403, Unauthorized, Forbidden
+Database: Connection pool exhausted, Deadlock, Query timeout
+
+3. Event Analysis
+bash# Recent events across cluster
+kubectl get events -A --sort-by='.lastTimestamp' | head -50
+
+# Events for specific resource
+kubectl get events -n <namespace> --field-selector involvedObject.name=<pod>
+
+# Warning/error events only
+kubectl get events -A --field-selector type=Warning
+Analysis Process
+
+Collect logs from the problematic resource
+Identify error patterns using grep/regex
+Correlate with events to understand context
+Timeline analysis to see what changed
+Root cause hypothesis based on evidence
+
+Output Format
+yamlLog Analysis Report:
+  Resource: [namespace/pod-name]
+  Time Range: [start - end]
+  Lines Analyzed: [count]
+  
+Error Summary:
+  Total Errors: X
+  Unique Error Types: Y
+  
+Top Errors:
+  1. Error: [error message]
+     Occurrences: X
+     First Seen: [timestamp]
+     Last Seen: [timestamp]
+     Likely Cause: [analysis]
+     
+  2. [next error...]
+
+Timeline:
+  [HH:MM:SS] [EVENT] - description
+  [HH:MM:SS] [ERROR] - error description
+  [HH:MM:SS] [EVENT] - next event
+
+Root Cause Analysis:
+  Primary Cause: [your conclusion]
+  Contributing Factors: [list]
+  Evidence: [specific log lines or events]
+  
+Recommendations:
+  1. [action to fix]
+  2. [action to prevent]
+Example Analysis
+When analyzing logs, show the actual log snippets:
+Found repeating error pattern (23 occurrences):
+---
+2025-10-11T10:15:23Z ERROR Connection timeout to db.example.com:5432
+2025-10-11T10:15:28Z ERROR Connection timeout to db.example.com:5432
+...
+---
+
+This correlates with event:
+Event: Network policy changed at 10:15:20Z
+
+Root cause: Network policy update blocked database egress traffic
+Advanced Techniques
+
+Use grep -C 5 to show context around errors
+Count error frequencies: grep ERROR | wc -l
+Find unique errors: grep ERROR | sort | uniq -c
+Time-based analysis: Look for error rate changes
+Cross-reference with metrics if available
+
+
+### **`.claude/agents/k8s-cost-optimizer.md`**
+```markdown
+---
+name: k8s-cost-optimizer
+description: Kubernetes cost optimization specialist. Analyzes resource utilization, identifies over-provisioned workloads, and recommends right-sizing. Use for cost optimization reviews or when addressing budget concerns.
+tools: Bash, Read
+---
+
+You are a FinOps specialist for Kubernetes environments.
+
+## Cost Analysis Process
+
+### 1. Resource Utilization Analysis
+```bash
+# Current resource requests vs limits
+kubectl top pods -A
+kubectl top nodes
+
+# Get resource requests/limits for all deployments
+kubectl get pods -A -o json | jq '.items[] | {
+  name: .metadata.name,
+  namespace: .metadata.namespace,
+  containers: .spec.containers[] | {
+    name: .name,
+    requests: .resources.requests,
+    limits: .resources.limits
+  }
+}'
+2. Identify Over-Provisioned Workloads
+Compare actual usage (kubectl top) with requested resources:
+
+CPU usage < 20% of request = significantly over-provisioned
+Memory usage < 40% of request = potentially over-provisioned
+No limits set = cost risk (can burst indefinitely)
+
+3. Identify Under-Provisioned Workloads
+
+CPU usage > 80% of limit = likely throttled
+Memory usage > 85% of limit = OOMKill risk
+Frequent restarts = possibly under-resourced
+
+Output Format
+yamlCost Optimization Report:
+  Cluster: [name]
+  Total Nodes: X
+  Total Pods: Y
+  Analysis Date: [ISO-8601]
+
+Cluster-Level Insights:
+  Total CPU Requested: [cores]
+  Total CPU Used: [cores]
+  CPU Waste: [cores] ([percentage]%)
+  
+  Total Memory Requested: [GB]
+  Total Memory Used: [GB]
+  Memory Waste: [GB] ([percentage]%)
+  
+  Estimated Monthly Cost Impact: $[amount]
+
+Over-Provisioned Workloads:
+  - Namespace/Deployment: production/api-server
+    Current Request: 2 CPU, 4Gi Memory
+    Actual Usage: 0.3 CPU (15%), 1.2Gi Memory (30%)
+    Recommended: 0.5 CPU, 2Gi Memory
+    Potential Savings: $[amount]/month
+    
+  - [additional workloads...]
+
+Under-Provisioned Workloads:
+  - Namespace/Deployment: production/worker
+    Current Limit: 1 CPU, 2Gi Memory
+    Actual Usage: 0.95 CPU (95%), 1.8Gi Memory (90%)
+    Issue: CPU throttling detected, OOMKill risk
+    Recommended: 1.5 CPU, 3Gi Memory
+    
+Right-Sized Workloads:
+  - [workloads with optimal resource allocation]
+
+Quick Wins (High Impact, Low Risk):
+  1. [specific action] - Estimated savings: $X/month
+  2. [next action] - Estimated savings: $X/month
+
+Recommendations:
+  - Enable Vertical Pod Autoscaler (VPA) for automatic right-sizing
+  - Implement resource quotas per namespace
+  - Set up monitoring alerts for resource waste
+  - Consider spot instances for non-critical workloads
+Example Recommendations
+Over-Provisioned Fix
+yaml# Current
+resources:
+  requests:
+    cpu: "2000m"
+    memory: "4Gi"
+  limits:
+    cpu: "4000m"
+    memory: "8Gi"
+
+# Recommended (based on 30% usage)
+resources:
+  requests:
+    cpu: "500m"
+    memory: "2Gi"
+  limits:
+    cpu: "1000m"
+    memory: "4Gi"
+Analysis Tips
+
+Run analysis during typical load (not during off-hours)
+Consider usage patterns (spiky vs consistent)
+Account for growth headroom (10-20%)
+Check HPA settings - may need room to scale
+Consider burstable workloads separately
+
+
+## **2. Hooks for Safety and Logging**
+
+### **`.claude/hooks/safety_validator.py`**
+```python
+#!/usr/bin/env python3
+"""
+Safety validator hook - Blocks dangerous Kubernetes commands
+"""
+import sys
+import json
+import re
+
+# Dangerous command patterns to block
+DANGEROUS_PATTERNS = [
+    r'kubectl\s+delete\s+namespace',
+    r'kubectl\s+delete\s+pv\b',
+    r'kubectl\s+delete.*--all-namespaces',
+    r'kubectl\s+delete.*-A\b',
+    r'rm\s+-rf\s+/',
+    r'kubectl\s+drain.*(?!--ignore-daemonsets)',
+]
+
+# Production namespaces that require extra caution
+PROTECTED_NAMESPACES = ['production', 'prod', 'kube-system', 'default']
+
+def main():
+    try:
+        # Read hook input from stdin
+        input_data = json.loads(sys.stdin.read())
+        
+        tool_name = input_data.get("tool_name")
+        tool_input = input_data.get("tool_input", {})
+        
+        # Only validate Bash commands
+        if tool_name != "Bash":
+            print("{}")
+            return 0
+        
+        command = tool_input.get("command", "")
+        
+        # Check for dangerous patterns
+        for pattern in DANGEROUS_PATTERNS:
+            if re.search(pattern, command, re.IGNORECASE):
+                result = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": f"🚫 BLOCKED: Dangerous command pattern detected: {pattern}\nCommand: {command}"
+                    }
+                }
+                print(json.dumps(result))
+                return 0
+        
+        # Extra validation for production namespace operations
+        for ns in PROTECTED_NAMESPACES:
+            if f'-n {ns}' in command or f'--namespace {ns}' in command or f'--namespace={ns}' in command:
+                if 'delete' in command.lower():
+                    # Log warning but allow (can adjust to deny if needed)
+                    print(f"⚠️ WARNING: Dangerous operation on protected namespace '{ns}': {command}", file=sys.stderr)
+        
+        # Command is safe - allow it
+        print("{}")
+        return 0
+        
+    except Exception as e:
+        print(f"Error in safety validator: {e}", file=sys.stderr)
+        print("{}")
+        return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+.claude/hooks/action_logger.py
+python#!/usr/bin/env python3
+"""
+Action logger hook - Logs all tool usage to a file
+"""
+import sys
+import json
+from datetime import datetime
+import os
+
+LOG_FILE = "/tmp/claude-k8s-agent-actions.log"
+
+def main():
+    try:
+        input_data = json.loads(sys.stdin.read())
+        
+        tool_name = input_data.get("tool_name")
+        tool_input = input_data.get("tool_input", {})
+        
+        # Create log entry
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "tool": tool_name,
+            "input": tool_input
+        }
+        
+        # Append to log file
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        with open(LOG_FILE, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+        
+        # Also log to stderr for real-time visibility
+        if tool_name == "Bash":
+            cmd = tool_input.get("command", "")
+            print(f"📝 Executing: {cmd}", file=sys.stderr)
+        
+        # Allow the action
+        print("{}")
+        return 0
+        
+    except Exception as e:
+        print(f"Error in action logger: {e}", file=sys.stderr)
+        print("{}")
+        return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+.claude/hooks/slack_notifier.py
+python#!/usr/bin/env python3
+"""
+Slack notifier hook - Sends notifications for critical events
+"""
+import sys
+import json
+import os
+import requests
+from datetime import datetime
+
+SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL', '')
+
+def send_slack_notification(message, severity="info"):
+    if not SLACK_WEBHOOK:
+        return
+    
+    colors = {
+        "critical": "#FF0000",
+        "warning": "#FFA500",
+        "info": "#36A64F"
+    }
+    
+    payload = {
+        "attachments": [{
+            "color": colors.get(severity, colors["info"]),
+            "title": f"EKS Monitoring Agent - {severity.upper()}",
+            "text": message,
+            "ts": int(datetime.utcnow().timestamp())
+        }]
+    }
+    
+    try:
+        requests.post(SLACK_WEBHOOK, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Failed to send Slack notification: {e}", file=sys.stderr)
+
+def main():
+    try:
+        input_data = json.loads(sys.stdin.read())
+        
+        # Check for remediation actions
+        tool_name = input_data.get("tool_name")
+        tool_input = input_data.get("tool_input", {})
+        
+        if tool_name == "Bash":
+            cmd = tool_input.get("command", "")
+            
+            # Notify on specific actions
+            if "kubectl delete" in cmd:
+                send_slack_notification(
+                    f"🗑️ Deletion command executed:\n```{cmd}```",
+                    severity="warning"
+                )
+            elif "kubectl scale" in cmd:
+                send_slack_notification(
+                    f"📊 Scaling operation:\n```{cmd}```",
+                    severity="info"
+                )
+            elif "rollout restart" in cmd:
+                send_slack_notification(
+                    f"🔄 Deployment restart:\n```{cmd}```",
+                    severity="warning"
+                )
+        
+        # Allow the action
+        print("{}")
+        return 0
+        
+    except Exception as e:
+        print(f"Error in slack notifier: {e}", file=sys.stderr)
+        print("{}")
+        return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+.claude/settings.json
+json{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/safety_validator.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/action_logger.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/slack_notifier.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+3. Memory/Context File
+.claude/CLAUDE.md
+markdown# EKS Cluster Monitoring Context
+
+## Cluster Information
+- **Cluster Name**: production-eks-us-west-2
+- **Region**: us-west-2
+- **Kubernetes Version**: 1.28
+- **Node Count**: 15 (mix of t3.large and t3.xlarge)
+
+## Critical Namespaces
+- `production`: Main application workloads
+- `staging`: Staging environment
+- `monitoring`: Prometheus, Grafana
+- `logging`: EFK stack
+- `kube-system`: System components
+
+## Known Issues & Patterns
+
+### Recurring Issues
+1. **auth-service memory leaks**
+   - Symptom: OOMKilled every 2-3 days
+   - Workaround: Restart every 48 hours
+   - Long-term fix: Code optimization in progress
+
+2. **payment-processor HA requirements**
+   - Must maintain minimum 2 replicas
+   - Uses sticky sessions - be careful with rolling updates
+
+3. **Image pull rate limits**
+   - Docker Hub rate limiting affects us occasionally
+   - Workaround: Use ECR mirror when possible
+
+## Standard Operating Procedures
+
+### Before Any Remediation
+1. Confirm issue exists via diagnostics
+2. Check if it's a known recurring issue
+3. Verify the resource name and namespace
+4. Use dry-run for destructive operations
+5. Log all actions
+
+### Escalation Criteria
+Escalate to human if:
+- Any operation on `kube-system` namespace
+- Deletion of PersistentVolumes
+- Node drain/cordon operations
+- More than 5 pods failing in same namespace
+- Any operation that could cause downtime
+
+### Approved Auto-Remediation
+- Restart single pods in non-production namespaces
+- Clear Failed/Evicted pods
+- Scale deployments by ±2 replicas (if not already at min/max)
+- Restart deployments in staging namespace
+
+## Recent Changes
+- 2025-10-10: Migrated to IMDSv2 for all node groups
+- 2025-10-09: Added HPA to api-gateway (min: 3, max: 20)
+- 2025-10-08: Upgraded to Kubernetes 1.28
+- 2025-10-05: Enabled Pod Security Standards
+
+## Team Contacts
+- On-call: #oncall-engineering
+- Kubernetes Team: #platform-team
+- Incidents: #incidents
+
+## Monitoring & Alerts
+- Grafana: https://grafana.example.com
+- AlertManager: https://alerts.example.com
+- CloudWatch: EKS cluster logs and metrics
+4. Main Daemon Script
+monitor_daemon.py
+python#!/usr/bin/env python3
+"""
+EKS Monitoring Daemon with Claude Agent SDK
+
+This daemon continuously monitors your EKS cluster and automatically
+remediates common issues using specialized subagents.
+"""
+import asyncio
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+# Configuration
+CHECK_INTERVAL = 300  # 5 minutes
+REPORT_DIR = Path("/tmp/eks-monitoring-reports")
+LOG_FILE = Path("/tmp/eks-monitoring-daemon.log")
+
+class EKSMonitoringDaemon:
+    def __init__(self, check_interval: int = CHECK_INTERVAL):
+        self.check_interval = check_interval
+        self.client: Optional[ClaudeSDKClient] = None
+        self.running = False
+        
+        # Ensure directories exist
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    
+    def log(self, message: str, level: str = "INFO"):
+        """Log message to file and stdout"""
+        timestamp = datetime.utcnow().isoformat()
+        log_entry = f"[{timestamp}] [{level}] {message}"
+        
+        print(log_entry)
+        with open(LOG_FILE, 'a') as f:
+            f.write(log_entry + '\n')
+    
+    async def initialize_client(self):
+        """Initialize the Claude SDK client"""
+        self.log("Initializing Claude Agent SDK client...")
+        
+        options = ClaudeAgentOptions(
+            model="claude-sonnet-4-5",
+            cwd=".",  # Current directory where .claude/ is located
+            
+            # Enable reading from .claude/ directory
+            setting_sources=["project"],
+            
+            # Main orchestrator's allowed tools
+            allowed_tools=["Read", "Bash", "Grep", "Write"],
+            
+            # Permission mode - use "manual" for safer operations
+            # or "acceptAll" for fully autonomous (riskier)
+            permission_mode="acceptAll",
+            
+            # System prompt for the main orchestrator
+            system_prompt="""You are the main orchestrator for an EKS cluster monitoring system.
+
+Your role is to coordinate specialized subagents to maintain cluster health:
+- k8s-diagnostics: Identifies issues
+- k8s-remediation: Fixes issues
+- k8s-log-analyzer: Analyzes logs for root cause
+- k8s-cost-optimizer: Optimizes resource usage
+
+You have access to CLAUDE.md which contains critical cluster context, SOPs, and known issues.
+
+IMPORTANT RULES:
+1. Always start with k8s-diagnostics subagent
+2. Only use k8s-remediation if diagnostics confirms an issue
+3. Use k8s-log-analyzer for deep troubleshooting
+4. Never make changes without understanding the problem
+5. Follow the escalation criteria in CLAUDE.md
+6. Write a report after each monitoring cycle
+"""
+        )
+        
+        self.client = ClaudeSDKClient(options=options)
+        await self.client.__aenter__()
+        self.log("Client initialized successfully")
+    
+    async def run_monitoring_cycle(self):
+        """Execute one complete monitoring cycle"""
+        cycle_start = datetime.utcnow()
+        self.log(f"========== Starting Monitoring Cycle ==========")
+        
+        try:
+            # Send monitoring workflow to main orchestrator
+            await self.client.query(f"""
+Execute a comprehensive cluster monitoring workflow:
+
+1. DIAGNOSTIC PHASE:
+   - Use the k8s-diagnostics subagent to perform a full cluster health check
+   - Focus on: pod status, node health, resource usage, recent events
+   
+2. ANALYSIS PHASE:
+   - Review the diagnostic report
+   - Categorize issues by severity: CRITICAL, WARNING, INFO
+   - For any CRITICAL issues, use k8s-log-analyzer subagent to investigate root cause
+   
+3. DECISION PHASE:
+   - Determine if auto-remediation is appropriate
+   - Check CLAUDE.md for known issues and approved auto-remediation
+   - Follow escalation criteria
+   
+4. REMEDIATION PHASE (if applicable):
+   - For approved issues: use k8s-remediation subagent
+   - For unknown issues: log and alert but do NOT auto-remediate
+   - Verify each fix after applying
+   
+5. REPORTING PHASE:
+   - Create a summary report with:
+     * Current cluster status
+     * Issues found and severity
+     * Actions taken (if any)
+     * Recommendations for human review
+   - Save report to {REPORT_DIR}/report-{cycle_start.strftime('%Y%m%d-%H%M%S')}.md
+
+Current time: {cycle_start.isoformat()}
+Previous cycle: {self.check_interval} seconds ago
+
+Begin monitoring now.
+""")
+            
+            # Collect all responses
+            full_response = []
+            async for message in self.client.receive_response():
+                # Print message type for debugging
+                if hasattr(message, 'type'):
+                    if message.type == 'text':
+                        text = str(message.text) if hasattr(message, 'text') else str(message)
+                        self.log(f"[AGENT] {text[:200]}...")  # Log first 200 chars
+                        full_response.append(text)
+                    elif message.type == 'tool_use':
+                        tool_name = message.name if hasattr(message, 'name') else 'unknown'
+                        self.log(f"[TOOL] Using {tool_name}")
+                else:
+                    msg_str = str(message)
+                    self.log(f"[MESSAGE] {msg_str[:200]}...")
+                    full_response.append(msg_str)
+            
+            cycle_duration = (datetime.utcnow() - cycle_start).total_seconds()
+            self.log(f"Monitoring cycle completed in {cycle_duration:.1f}s")
+            
+            return True
+            
+        except Exception as e:
+            self.log(f"Error during monitoring cycle: {e}", level="ERROR")
+            import traceback
+            self.log(traceback.format_exc(), level="ERROR")
+            return False
+    
+    async def run(self):
+        """Main daemon loop"""
+        self.log("EKS Monitoring Daemon starting...")
+        self.running = True
+        
+        try:
+            await self.initialize_client()
+            
+            cycle_count = 0
+            while self.running:
+                cycle_count += 1
+                self.log(f"===== Cycle {cycle_count} =====")
+                
+                success = await self.run_monitoring_cycle()
+                
+                if success:
+                    self.log(f"Cycle {cycle_count} completed successfully")
+                else:
+                    self.log(f"Cycle {cycle_count} completed with errors", level="WARNING")
+                
+                # Wait for next cycle
+                self.log(f"Waiting {self.check_interval}s until next check...")
+                await asyncio.sleep(self.check_interval)
+                
+        except KeyboardInterrupt:
+            self.log("Received shutdown signal")
+        except Exception as e:
+            self.log(f"Fatal error: {e}", level="ERROR")
+            import traceback
+            self.log(traceback.format_exc(), level="ERROR")
+        finally:
+            await self.shutdown()
+    
+    async def shutdown(self):
+        """Cleanup and shutdown"""
+        self.log("Shutting down daemon...")
+        self.running = False
+        
+        if self.client:
+            try:
+                await self.client.__aexit__(None, None, None)
+                self.log("Client shutdown complete")
+            except Exception as e:
+                self.log(f"Error during client shutdown: {e}", level="ERROR")
+
+def main():
+    """Entry point"""
+    # Check for required environment variables
+    if not os.getenv('ANTHROPIC_API_KEY'):
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set")
+        sys.exit(1)
+    
+    # Optional: Set custom check interval
+    interval = int(os.getenv('CHECK_INTERVAL', CHECK_INTERVAL))
+    
+    daemon = EKSMonitoringDaemon(check_interval=interval)
+    
+    try:
+        asyncio.run(daemon.run())
+    except Exception as e:
+        print(f"Failed to start daemon: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+5. Requirements and Setup
+requirements.txt
+txtclaude-agent-sdk>=0.1.0
+requests>=2.31.0
+README.md
+markdown# EKS Monitoring Agent with Claude Agent SDK
+
+Autonomous EKS cluster monitoring and remediation using Claude Agent SDK with specialized subagents.
+
+## Features
+
+- ✅ **Automated Health Checks**: Continuous monitoring every 5 minutes
+- ✅ **Specialized Subagents**: Diagnostics, remediation, log analysis, cost optimization
+- ✅ **Safety Hooks**: Prevents dangerous operations
+- ✅ **Action Logging**: All operations logged for audit
+- ✅ **Slack Integration**: Optional notifications for critical events
+- ✅ **Context Memory**: Learns from your cluster over time
+
+## Architecture
+Main Orchestrator (monitor_daemon.py)
+├── k8s-diagnostics subagent (identifies issues)
+├── k8s-remediation subagent (fixes issues)
+├── k8s-log-analyzer subagent (deep analysis)
+└── k8s-cost-optimizer subagent (optimization)
+Safety Hooks (on every action)
+├── safety_validator.py (blocks dangerous commands)
+├── action_logger.py (logs all actions)
+└── slack_notifier.py (sends alerts)
+
+## Prerequisites
+
+1. **Python 3.10+**
+2. **Node.js 18+** (for Claude Code CLI)
+3. **kubectl** configured with EKS access
+4. **Claude API Key** or subscription
+
+## Installation
+
+### 1. Install Claude Code CLI
+```bash
+npm install -g @anthropic-ai/claude-code
+2. Install Python Dependencies
+bashpip install -r requirements.txt
+3. Configure Environment
+bash# Set your Claude API key
+export ANTHROPIC_API_KEY="your-api-key-here"
+
+# Optional: Slack webhook for notifications
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# Optional: Custom check interval (seconds)
+export CHECK_INTERVAL=300
+4. Verify kubectl Access
+bashkubectl get nodes
+# Should show your EKS nodes
+5. Customize CLAUDE.md
+Edit .claude/CLAUDE.md with your cluster details:
+
+Cluster name and region
+Critical namespaces
+Known issues
+Team contacts
+
+Usage
+Run Daemon (Continuous Monitoring)
+bashpython monitor_daemon.py
+Run One-Time Check
+python# one_time_check.py
+import asyncio
+from monitor_daemon import EKSMonitoringDaemon
+
+async def main():
+    daemon = EKSMonitoringDaemon()
+    await daemon.initialize_client()
+    await daemon.run_monitoring_cycle()
+    await daemon.shutdown()
+
+asyncio.run(main())
+Manual Subagent Testing
+bash# Start Claude Code CLI
+claude
+
+# Then in the Claude Code session:
+> Use the k8s-diagnostics subagent to check the production namespace
+
+> Use the k8s-log-analyzer subagent to analyze logs for pod/auth-service-xyz
+Configuration
+Adjust Auto-Remediation Scope
+Edit .claude/CLAUDE.md under "Approved Auto-Remediation" to control what the agent can fix automatically.
+Add Custom Subagents
+Create new .md files in .claude/agents/:
+markdown---
+name: my-custom-agent
+description: When to use this agent
+tools: Bash, Read
+---
+
+Your agent's system prompt here...
+Modify Safety Rules
+Edit .claude/hooks/safety_validator.py to add/remove blocked commands.
+Monitoring
+View Daemon Logs
+bashtail -f /tmp/eks-monitoring-daemon.log
+View Action History
+bashtail -f /tmp/claude-k8s-agent-actions.log
+View Generated Reports
+bashls -lt /tmp/eks-monitoring-reports/
+cat /tmp/eks-monitoring-reports/report-20251011-143022.md
+Safety Features
+
+Command Blocking: Dangerous kubectl commands are blocked
+Dry-Run First: Destructive operations use --dry-run
+Protected Namespaces: Extra validation for production
+Action Logging: Every command is logged
+Human Escalation: Complex issues require approval
+
+Troubleshooting
+"CLINotFoundError"
+Ensure Claude Code CLI is installed and in PATH:
+bashwhich claude
+# Should return path to claude binary
+Subagents Not Found
+Ensure setting_sources=["project"] is set in ClaudeAgentOptions:
+pythonoptions = ClaudeAgentOptions(
+    setting_sources=["project"],  # This is required!
+    ...
+)
+Hooks Not Running
+
+Make hook scripts executable:
+
+bashchmod +x .claude/hooks/*.py
+
+Verify hooks are registered in .claude/settings.json
+
+Permission Issues
+Set appropriate permission mode:
+
+"manual": Requires approval for each action (safer)
+"acceptAll": Fully autonomous (riskier but faster)
+
+Cost Considerations
+
+Each monitoring cycle = 1 Claude API call
+Subagent invocations = Additional API calls
+At 5-minute intervals: ~288 cycles/day
+Estimated cost: $5-15/day depending on cluster complexity
+
+To reduce costs:
+
+Increase CHECK_INTERVAL
+Use during business hours only
+Run on-demand instead of continuous
+
+Next Steps
+
+Add More Subagents: Create specialized agents for your needs
+Custom Hooks: Add hooks for deployment notifications, metric tracking
+Integration: Connect to your monitoring/alerting system
+Dashboards: Build dashboards from generated reports
+Multi-Cluster: Run separate daemons for each cluster
+
+License
+MIT
+
+## **6. Deployment to Container**
+
+### **`Dockerfile`**
+```dockerfile
+FROM python:3.10-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x kubectl \
+    && mv kubectl /usr/local/bin/
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Set working directory
+WORKDIR /app
+
+# Copy application files
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Make hooks executable
+RUN chmod +x .claude/hooks/*.py
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV CHECK_INTERVAL=300
+
+# Run the daemon
+CMD ["python", "monitor_daemon.py"]
+kubernetes-deployment.yaml
+yamlapiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eks-monitoring-agent-config
+  namespace: monitoring
+data:
+  CHECK_INTERVAL: "300"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eks-monitoring-agent-secrets
+  namespace: monitoring
+type: Opaque
+stringData:
+  ANTHROPIC_API_KEY: "your-api-key-here"
+  SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eks-monitoring-agent
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eks-monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: eks-monitoring-agent
+    spec:
+      serviceAccountName: eks-monitoring-agent
+      containers:
+      - name: agent
+        image: your-registry/eks-monitoring-agent:latest
+        envFrom:
+        - configMapRef:
+            name: eks-monitoring-agent-config
+        - secretRef:
+            name: eks-monitoring-agent-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: reports
+          mountPath: /tmp/eks-monitoring-reports
+      volumes:
+      - name: reports
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eks-monitoring-agent
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eks-monitoring-agent
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "events", "namespaces", "services", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-monitoring-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eks-monitoring-agent
+subjects:
+- kind: ServiceAccount
+  name: eks-monitoring-agent
+  namespace: monitoring
+
+Quick Start
+bash# 1. Clone/create the directory structure
+mkdir -p eks-monitoring-agent/.claude/{agents,hooks}
+cd eks-monitoring-agent
+
+# 2. Copy all the files above into their respective locations
+
+# 3. Make hooks executable
+chmod +x .claude/hooks/*.py
+
+# 4. Install dependencies
+pip install -r requirements.txt
+
+# 5. Set API key
+export ANTHROPIC_API_KEY="your-key"
+
+# 6. Test with one cycle
+python -c "
+import asyncio
+from monitor_daemon import EKSMonitoringDaemon
+
+async def test():
+    daemon = EKSMonitoringDaemon()
+    await daemon.initialize_client()
+    await daemon.run_monitoring_cycle()
+    await daemon.shutdown()
+
+asyncio.run(test())
+"
+
+# 7. Run continuous monitoring
+python monitor_daemon.py
+This gives you a complete, production-ready EKS monitoring system with autonomous agents! The system will intelligently coordinate subagents to diagnose, remediate, and optimize your cluster. 🚀

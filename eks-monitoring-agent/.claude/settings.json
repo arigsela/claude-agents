@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/safety_validator.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/action_logger.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/teams_notifier.py"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__kubernetes__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/safety_validator.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/action_logger.py"
+          }
+        ]
+      }
+    ]
+  }
+}
