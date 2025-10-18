@@ -1,0 +1,240 @@
+# NAT Gateway Configuration for OnCall Agent
+# Defines NAT gateways to monitor and correlation settings for Zeus refresh jobs
+
+nat_gateways:
+  # dev-eks NAT gateway (us-east-1c) - PRIMARY
+  - nat_id: nat-07eb006676096fcd3
+    name: dev-eks-nat-us-east-1c
+    cluster: dev-eks
+    vpc_id: vpc-00a81b349b5975c2e
+    availability_zone: us-east-1c
+    public_ip: 35.170.107.204
+    subnet_id: subnet-06c18641f68e9ffe2
+
+    # Traffic thresholds for spike detection
+    normal_baseline_gb: 5.0      # Typical traffic per 5-min period
+    spike_threshold_gb: 10.0     # Alert if exceeds this in 5-min period
+    critical_threshold_gb: 20.0  # Critical alert threshold
+
+    # Metadata
+    tags:
+      Environment: dev
+      Owner: devops@artemishealth.com
+      Name: dev-kubernetes-vpc-nat-us-east-1c
+
+  # dev-eks NAT gateway from Datadog alert (nat-02af4947fd44058b9)
+  - nat_id: nat-02af4947fd44058b9
+    name: dev-eks-nat-unknown-az
+    cluster: dev-eks
+    vpc_id: vpc-00a81b349b5975c2e  # Same VPC as above
+    availability_zone: unknown  # To be determined
+
+    # Traffic thresholds (from Datadog: 285MB = ~0.28 GB warning, 8GB critical)
+    normal_baseline_gb: 0.3      # 285 MB warning threshold
+    spike_threshold_gb: 3.0      # Alert threshold
+    critical_threshold_gb: 8.0   # Datadog critical threshold
+
+    # Metadata
+    tags:
+      Environment: dev
+      Owner: devops@artemishealth.com
+      Source: Datadog monitor alert
+
+  # TODO: Add other availability zones when identified
+  # - nat_id: nat-[id-for-1a]
+  #   name: dev-eks-nat-us-east-1a
+  #   cluster: dev-eks
+  #   vpc_id: vpc-00a81b349b5975c2e
+  #   availability_zone: us-east-1a
+
+  # - nat_id: nat-[id-for-1b]
+  #   name: dev-eks-nat-us-east-1b
+  #   cluster: dev-eks
+  #   vpc_id: vpc-00a81b349b5975c2e
+  #   availability_zone: us-east-1b
+
+# Zeus refresh job correlation settings
+zeus_job_search:
+  # Namespaces to search for Zeus refresh jobs
+  # Zeus jobs run in environment-based namespaces in dev-eks
+  namespaces:
+    - preprod
+    - qa
+    - prod
+    - devmatt
+    - devjeff
+    - merlindev1
+    - merlindev2
+    - merlindev3
+    - merlindev4
+    - merlindev5
+    - merlinqa
+
+  # Kubernetes label selectors for Zeus jobs
+  label_selectors:
+    - app.kubernetes.io/instance=zeus-orchestrator
+    - app.kubernetes.io/name~refresh-
+
+  # Log patterns to search for upload activity
+  log_patterns:
+    - "uploading file"
+    - "sending.*request"
+    - "lifeCycleState.*RUNNING"
+    - "Databricks.*runId"
+    - "MEG"
+
+  # Log retrieval settings
+  log_tail_lines: 1000
+  log_timeout_seconds: 5
+
+  # Time correlation settings
+  correlation_window_minutes: 30  # Look ±30 min from spike time
+  confidence_scoring:
+    perfect_overlap: 1.0    # Job started before spike, ended after
+    started_during: 0.8     # Job started during spike window
+    ended_during: 0.6       # Job ended during spike window
+    nearby: 0.4             # Job within correlation window but not overlapping
+    none: 0.0               # No temporal correlation
+
+# CloudWatch query settings
+cloudwatch:
+  default_time_window_hours: 1
+  max_time_window_hours: 168  # 7 days
+  metric_period_seconds: 300  # 5-minute granularity
+
+  # Metrics to fetch (all available NAT gateway metrics)
+  metrics:
+    - BytesOutToDestination  # Primary metric for egress traffic
+    - BytesOutToSource       # Return traffic
+    - BytesInFromDestination # Ingress traffic
+    - BytesInFromSource      #
+    - PeakBytesPerSecond     # Maximum throughput
+    - ActiveConnectionCount  # Concurrent connections
+    - ConnectionEstablishedCount  # New connections
+    - ErrorPortAllocation    # Port exhaustion errors (anomaly indicator)
+    - PacketsDropCount       # Dropped packets (QoS issues)
+
+  # Cache settings to prevent excessive API calls
+  cache_ttl_seconds: 300  # 5-minute cache
+
+# Analysis settings
+analysis:
+  # Severity classification for spikes
+  severity_rules:
+    critical:
+      - multiplier_over_baseline: 10.0
+      - absolute_threshold_gb: 50.0
+      - description: "Extreme spike, likely anomalous"
+
+    high:
+      - multiplier_over_baseline: 5.0
+      - absolute_threshold_gb: 20.0
+      - description: "Large spike, requires investigation"
+
+    medium:
+      - multiplier_over_baseline: 2.0
+      - absolute_threshold_gb: 10.0
+      - description: "Moderate spike, correlate with workloads"
+
+    info:
+      - multiplier_over_baseline: 1.0
+      - absolute_threshold_gb: 5.0
+      - description: "Minor elevation, document if recurring"
+
+  # Expected traffic patterns for Zeus refresh jobs
+  zeus_refresh_expectations:
+    MULTI_CLIENT_FULL:
+      typical_gb: 12.0
+      max_gb: 20.0
+      duration_hours: 3
+
+    SINGLE_CLIENT:
+      typical_gb: 3.0
+      max_gb: 8.0
+      duration_hours: 1
+
+    INCREMENTAL:
+      typical_gb: 1.0
+      max_gb: 3.0
+      duration_hours: 0.5
+
+# VPC Endpoint Configuration (traffic that DOES NOT use NAT gateway)
+vpc_endpoints:
+  # These services have VPC PrivateLink/Endpoints configured
+  # Traffic to these services bypasses NAT gateway (zero NAT cost)
+  bypass_nat:
+    - service: s3
+      type: Gateway
+      note: "S3 traffic uses VPC Gateway Endpoint"
+
+    - service: ecr
+      type: Interface
+      note: "ECR (dkr, api) traffic uses VPC Interface Endpoints"
+
+    - service: databricks
+      type: Interface
+      note: "Databricks traffic uses PrivateLink"
+
+    - service: secretsmanager
+      type: Interface
+      note: "Secrets Manager uses VPC Interface Endpoint"
+
+  # Services that REQUIRE NAT gateway (external to AWS)
+  uses_nat:
+    - service: MEG
+      description: "Member Eligibility Gateway (external vendor)"
+      typical_upload_gb: 10.0
+
+    - service: Confluent Cloud Kafka
+      description: "us-east-1.aws.confluent.cloud (external SaaS)"
+      typical_upload_gb: 2.0
+
+    - service: Snowflake
+      description: "External data warehouse (if used)"
+      typical_upload_gb: 5.0
+
+# Known external vendor destinations (these CAUSE NAT traffic)
+external_vendors:
+  - name: MEG
+    patterns:
+      - "meg.*api"
+      - "medicalevidencegaps"
+    typical_upload_size_gb: 10.0
+    uses_nat: true
+
+  - name: Confluent Cloud Kafka
+    patterns:
+      - "confluent.cloud"
+      - "aws.confluent.cloud"
+    typical_upload_size_gb: 2.0
+    uses_nat: true
+
+  - name: Snowflake
+    patterns:
+      - "snowflake"
+      - "snowflakecomputing"
+    typical_upload_size_gb: 5.0
+    uses_nat: true
+
+# Services that DON'T cause NAT traffic (VPC endpoints configured)
+vpc_endpoint_services:
+  - name: S3
+    patterns:
+      - "s3.amazonaws.com"
+      - "s3-.*amazonaws.com"
+    uses_nat: false
+    note: "VPC Gateway Endpoint configured"
+
+  - name: Databricks
+    patterns:
+      - "databricks.com"
+      - "dbc-.*cloud.databricks"
+    uses_nat: false
+    note: "PrivateLink configured"
+
+  - name: ECR
+    patterns:
+      - "ecr.*amazonaws.com"
+      - "dkr.ecr.*amazonaws.com"
+    uses_nat: false
+    note: "VPC Interface Endpoints configured"
