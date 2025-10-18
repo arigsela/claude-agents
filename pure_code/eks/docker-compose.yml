@@ -1,0 +1,97 @@
+services:
+  # EKS Monitoring Daemon - Continuous monitoring with multi-agent system
+  eks-monitoring-daemon:
+    platform: linux/arm64  # Match Mac ARM architecture (change to linux/amd64 for Intel)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eks-monitoring-agent:local
+    container_name: eks-monitoring-daemon
+    restart: unless-stopped
+
+    # Environment variables from .env file
+    environment:
+      # Required: Anthropic and GitHub
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
+      # Agent Models (all configurable)
+      - ORCHESTRATOR_MODEL=${ORCHESTRATOR_MODEL:-claude-sonnet-4-5-20250929}
+      - DIAGNOSTIC_MODEL=${DIAGNOSTIC_MODEL:-claude-sonnet-4-20250514}
+      - REMEDIATION_MODEL=${REMEDIATION_MODEL:-claude-sonnet-4-5-20250929}
+      - LOG_ANALYZER_MODEL=${LOG_ANALYZER_MODEL:-claude-sonnet-4-5-20250929}
+      - COST_OPTIMIZER_MODEL=${COST_OPTIMIZER_MODEL:-claude-sonnet-4-20250514}
+      - GITHUB_AGENT_MODEL=${GITHUB_AGENT_MODEL:-claude-sonnet-4-20250514}
+      - JIRA_AGENT_MODEL=${JIRA_AGENT_MODEL:-claude-sonnet-4-5-20250929}
+
+      # Monitoring Configuration
+      - CLUSTER_NAME=${CLUSTER_NAME:-dev-eks}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-600}
+      - LOG_LEVEL=${LOG_LEVEL:-NORMAL}
+      - LOG_TO_FILE=${LOG_TO_FILE:-false}  # stdout-only for Docker logs
+
+      # Kubernetes MCP Configuration
+      - KUBE_CONTEXT=${KUBE_CONTEXT:-}
+      - K8S_MCP_LOG_LEVEL=${K8S_MCP_LOG_LEVEL:-2}
+      - K8S_MCP_READ_ONLY=${K8S_MCP_READ_ONLY:-false}
+      - K8S_MCP_DISABLE_DESTRUCTIVE=${K8S_MCP_DISABLE_DESTRUCTIVE:-false}
+
+      # GitHub MCP Configuration
+      - GITHUB_TOOLSETS=${GITHUB_TOOLSETS:-context,repos,issues,pull_requests}
+      - GITHUB_READ_ONLY=${GITHUB_READ_ONLY:-false}
+      - GITHUB_DEFAULT_ORG=${GITHUB_DEFAULT_ORG:-artemishealth}
+      - GITHUB_INCIDENT_REPO=${GITHUB_INCIDENT_REPO:-olympus}
+      - GITHUB_K8S_CONFIG_REPO=${GITHUB_K8S_CONFIG_REPO:-deployments}
+
+      # Jira Integration (optional)
+      - JIRA_URL=${JIRA_URL:-}
+      - JIRA_USERNAME=${JIRA_USERNAME:-}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+      - JIRA_PROJECTS_FILTER=${JIRA_PROJECTS_FILTER:-DEVOPS}
+      - JIRA_READ_ONLY=${JIRA_READ_ONLY:-false}
+
+      # Microsoft Teams (optional)
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - TEAMS_NOTIFICATIONS_ENABLED=${TEAMS_NOTIFICATIONS_ENABLED:-true}
+
+      # AWS (for EKS authentication)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+
+      # Advanced
+      - DEBUG=${DEBUG:-false}
+
+    # Mount kubeconfig and Docker socket
+    volumes:
+      # Kubeconfig for cluster access
+      - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+
+      # Docker socket for Atlassian MCP server
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Optional: Mount .claude/ for live configuration updates (no rebuild)
+      # Uncomment to enable hot-reload of subagent definitions
+      # - ./.claude:/app/.claude:ro
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Health check - verify daemon process is running
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -q '[m]onitor_daemon.py' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # MCP servers take ~60s to initialize
+
+# Usage:
+# Start:        docker compose up -d
+# Logs:         docker compose logs -f
+# Stop:         docker compose down
+# Rebuild:      docker compose build
+# Shell:        docker compose exec eks-monitoring-daemon sh
