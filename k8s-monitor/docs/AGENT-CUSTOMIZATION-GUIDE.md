@@ -66,22 +66,59 @@ kubectl get configmap -n k8s-monitor k8s-monitor-agents -o yaml
 # Shows all agent definitions as YAML data
 ```
 
-### 3. Volume Mount
+### 3. Volume Mounts
+
+k8s-monitor uses **two separate ConfigMaps** for operational flexibility:
+
+#### ConfigMap 1: Orchestrator Context (`k8s-monitor-orchestrator`)
+- **Location**: `k8s/orchestrator-configmap.yaml`
+- **Contents**: CLAUDE.md (cluster-specific context for orchestrator)
+- **Mount point**: `/app/.claude/CLAUDE.md`
+- **Purpose**: Orchestrator reads cluster configuration, services list, known issues, escalation policy
+- **Frequency**: Most frequently updated (changes as cluster evolves)
+- **Change Example**: Add new critical service, update known issues, modify escalation policy
+
+#### ConfigMap 2: Agent Definitions (`k8s-monitor-agents`)
+- **Location**: `k8s/agents-configmap.yaml`
+- **Contents**: k8s-analyzer.md, escalation-manager.md, slack-notifier.md, github-reviewer.md
+- **Mount point**: `/app/.claude/agents/`
+- **Purpose**: Subagent definitions with instructions and behavior rules
+- **Frequency**: Less frequently updated (behavioral changes)
+- **Change Example**: Adjust analysis thresholds, change Slack message format, modify severity rules
+
+#### Volume Mount Configuration
 
 In `deployment.yaml`:
 ```yaml
 containers:
   - name: k8s-monitor
     volumeMounts:
+      - name: orchestrator-context
+        mountPath: /app/.claude
+        readOnly: true
       - name: agent-definitions
         mountPath: /app/.claude/agents
         readOnly: true
 
 volumes:
+  - name: orchestrator-context
+    configMap:
+      name: k8s-monitor-orchestrator
+      items:
+        - key: CLAUDE.md
+          path: CLAUDE.md
+
   - name: agent-definitions
     configMap:
       name: k8s-monitor-agents
 ```
+
+**Why Two ConfigMaps?**
+- ✅ Independent lifecycle: Orchestrator context changes separately from agent definitions
+- ✅ Clear separation: Cluster config vs. behavior definitions
+- ✅ Version control friendly: Different files in git, easier to track changes
+- ✅ Team collaboration: Ops team updates orchestrator context, Dev team updates agent definitions
+- ✅ No conflicts: Each ConfigMap is separate, no overlapping path issues
 
 ## Customization Workflow
 

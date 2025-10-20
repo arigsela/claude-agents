@@ -29,21 +29,36 @@ This guide walks through deploying the k8s-monitor to a production K3s cluster. 
 - **Persistent Storage**: 5GB PVC for logs and incident history
 - **Security**: NetworkPolicy for ingress/egress control
 - **Monitoring**: ServiceMonitor for Prometheus integration (optional)
-- **Configuration**: ConfigMap + Secret for environment setup
+- **Configuration**: ConfigMaps for environment and hot-reload agent customization
+- **Hot-Reload**: Agent behavior changes without container rebuilds
 
 ### Key Manifests
 
 ```
 k8s/
-├── namespace.yaml              # k8s-monitor namespace
-├── serviceaccount.yaml         # RBAC configuration
-├── configmap.yaml              # Non-sensitive configuration
-├── secret.yaml                 # Secrets template (create from this)
-├── persistentvolumeclaim.yaml  # 5GB log storage
-├── deployment.yaml             # Main pod deployment
-├── networkpolicy.yaml          # Security policies
-└── servicemonitor.yaml         # Prometheus monitoring (optional)
+├── namespace.yaml                  # k8s-monitor namespace
+├── serviceaccount.yaml             # RBAC configuration
+├── configmap.yaml                  # Non-sensitive configuration
+├── secret.yaml                     # Secrets template (create from this)
+├── persistentvolumeclaim.yaml      # 5GB log storage
+├── deployment.yaml                 # Main pod deployment
+├── networkpolicy.yaml              # Security policies
+├── servicemonitor.yaml             # Prometheus monitoring (optional)
+├── orchestrator-configmap.yaml     # Cluster context (hot-reload)
+└── agents-configmap.yaml           # Agent definitions (hot-reload)
 ```
+
+### Hot-Reload Capability
+
+k8s-monitor supports **runtime agent customization** via Kubernetes ConfigMaps:
+
+- ✅ Update cluster context (critical services, known issues, escalation policy)
+- ✅ Modify agent behavior (analysis criteria, alert format, severity rules)
+- ✅ All without container rebuilds or pod restarts
+- ✅ Changes take effect on next monitoring cycle
+- ✅ Full version control via git
+
+**See also**: [Hot-Reload Architecture Guide](./HOT-RELOAD-ARCHITECTURE.md)
 
 ---
 
@@ -190,6 +205,33 @@ kubectl apply -f k8s/secret.prod.yaml
 kubectl get cm -n k8s-monitor
 kubectl get secrets -n k8s-monitor
 ```
+
+### Step 3.5: Deploy Hot-Reload Configuration
+
+k8s-monitor supports runtime agent customization via ConfigMaps (no rebuilds needed!):
+
+```bash
+# Deploy orchestrator context (cluster-specific configuration)
+kubectl apply -f k8s/orchestrator-configmap.yaml
+
+# Deploy agent definitions (behavior and instructions)
+kubectl apply -f k8s/agents-configmap.yaml
+
+# Verify both ConfigMaps are loaded
+kubectl get cm -n k8s-monitor | grep -E "orchestrator|agents"
+
+# Expected output:
+# k8s-monitor-orchestrator   1      2m
+# k8s-monitor-agents         1      2m
+```
+
+**Note**: These ConfigMaps contain:
+- `orchestrator-configmap.yaml`: Cluster context, services list, known issues, escalation policy
+- `agents-configmap.yaml`: Agent definitions (analyzer, escalation-manager, slack-notifier, github-reviewer)
+
+You can update these ConfigMaps anytime to change agent behavior without rebuilding the container.
+
+**See also**: [Hot-Reload Architecture Guide](./HOT-RELOAD-ARCHITECTURE.md) for complete customization examples.
 
 ### Step 4: Deploy Application
 

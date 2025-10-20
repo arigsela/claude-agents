@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-monitor-config
+  namespace: k8s-monitor
+  labels:
+    app: k8s-monitor
+data:
+  # K3s cluster context (from KUBECONFIG)
+  K3S_CONTEXT: "default"
+
+  # Monitoring interval (hours)
+  MONITORING_INTERVAL_HOURS: "1"
+
+  # Log level
+  LOG_LEVEL: "INFO"
+
+  # MCP server paths (same as in container)
+  GITHUB_MCP_PATH: "/app/mcp-servers/github/dist/index.js"
+  SLACK_MCP_PATH: "/app/mcp-servers/slack/dist/index.js"
+
+  # Services reference file path
+  SERVICES_FILE: "/app/docs/reference/services.txt"
+
+  # Model configuration (can be overridden per environment)
+  ORCHESTRATOR_MODEL: "claude-haiku-4-5-20250514"
+  K8S_ANALYZER_MODEL: "claude-haiku-4-5-20250514"
+  ESCALATION_MANAGER_MODEL: "claude-haiku-4-5-20250514"
+  SLACK_NOTIFIER_MODEL: "claude-haiku-4-5-20250514"
+  GITHUB_REVIEWER_MODEL: "claude-haiku-4-5-20250514"

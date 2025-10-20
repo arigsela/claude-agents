@@ -1,0 +1,57 @@
+services:
+  k8s-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: k8s-monitor
+
+    # Environment variables - load from .env if it exists
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=INFO
+      - MONITORING_INTERVAL_HOURS=1
+
+    # Volume mounts
+    volumes:
+      # Mount kubeconfig for K8s access
+      - ~/.kube/config:/root/.kube/config:ro
+
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Network
+    networks:
+      - k8s-monitor-net
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  k8s-monitor-net:
+    driver: bridge

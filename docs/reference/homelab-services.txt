@@ -1,0 +1,272 @@
+1. Critical Services (P0 - Business Critical)
+
+  All production workloads and their dependencies are P0 as they are customer-facing or business-critical automation.
+
+  1.1 chores-tracker-backend
+
+  - Purpose: Family chore tracking system backend (FastAPI/Python, JWT auth)
+  - GitOps:
+    - ArgoCD App: base-apps/chores-tracker-backend.yaml
+    - Manifests: base-apps/chores-tracker-backend/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: chores-tracker-backend
+  - Dependencies: mysql, vault (secrets), ecr-auth (image pull)
+  - Dependents: chores-tracker-frontend
+  - Max Downtime: 0 minutes (customer-facing application)
+  - Known Issues:
+    - ⚠️ VERY SLOW STARTUP: 5-6 minutes to be ready (initialDelaySeconds: 300-360s) - slowest in cluster
+  - Health Check: /health on port 8000
+  - Replicas: 2 (HA enabled)
+  - Image: 852893458518.dkr.ecr.us-east-2.amazonaws.com/chores-tracker:5.8.0
+  - Ingress: https://api.chores.arigsela.com
+  - Resources: 256Mi-512Mi RAM, 200m-500m CPU
+
+  1.2 chores-tracker-frontend
+
+  - Purpose: HTMX-based frontend for chores system
+  - GitOps:
+    - ArgoCD App: base-apps/chores-tracker-frontend.yaml
+    - Manifests: base-apps/chores-tracker-frontend/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: chores-tracker-frontend
+  - Dependencies: chores-tracker-backend, nginx-ingress
+  - Max Downtime: 0 minutes (customer-facing)
+  - Ingress: https://chores.arigsela.com
+
+  1.3 mysql
+
+  - Purpose: MySQL database for chores-tracker application
+  - GitOps:
+    - ArgoCD App: base-apps/mysql.yaml (app name: mysql-application)
+    - Manifests: base-apps/mysql/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: mysql
+  - Dependencies: vault (root password)
+  - Dependents: chores-tracker-backend
+  - Max Downtime: 0 minutes (data layer for customer app)
+  - Known Issues:
+    - ⚠️ Single replica (no HA) - data loss risk
+    - Has automated backup CronJob to S3
+  - Health Check: TCP on port 3306
+  - Image: mysql:8.4.0-oraclelinux8
+  - Resources: 1Gi-2Gi RAM, 500m-1000m CPU
+
+  1.4 n8n
+
+  - Purpose: Workflow automation and integration platform for AI workflows
+  - GitOps:
+    - ArgoCD App: base-apps/n8n.yaml
+    - Manifests: base-apps/n8n/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: n8n
+  - Dependencies: postgresql, vault (secrets)
+  - Max Downtime: 0 minutes (AI automation workflows - business critical)
+  - Known Issues:
+    - Single replica
+    - Uses basic authentication
+    - Split ingress pattern (admin UI vs webhooks)
+  - Health Check: /healthz on port 5678
+  - Image: n8nio/n8n:latest
+  - Ingress: https://n8n.arigsela.com
+  - Resources: 500Mi-1Gi RAM, 500m-1000m CPU
+  - Quirk: Exposes webhooks for external integrations (NAT gateway traffic)
+
+  1.5 postgresql
+
+  - Purpose: PostgreSQL database for n8n workflows
+  - GitOps:
+    - ArgoCD App: base-apps/postgresql.yaml
+    - Manifests: base-apps/postgresql/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: postgresql
+  - Dependencies: vault (credentials)
+  - Dependents: n8n
+  - Max Downtime: 0 minutes (data layer for AI automation)
+  - Known Issues:
+    - ⚠️ Single replica (no HA)
+  - Health Check: pg_isready exec command on port 5432
+  - Image: postgres:15.3
+  - Resources: 500Mi-1Gi RAM, 250m-500m CPU
+
+  1.6 nginx-ingress
+
+  - Purpose: Ingress controller for all external HTTP/HTTPS traffic
+  - GitOps:
+    - ArgoCD App: base-apps/nginx-ingress.yaml
+    - Manifests: base-apps/nginx-ingress/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: ingress-nginx
+  - Dependencies: None
+  - Dependents: chores-tracker, n8n, oncall-agent, vault UI
+  - Max Downtime: 0 minutes (all external access depends on this)
+
+  1.7 oncall-agent
+
+  - Purpose: AI-powered Kubernetes incident response and troubleshooting
+  - GitOps:
+    - ArgoCD App: base-apps/oncall-agent.yaml
+    - Manifests: base-apps/oncall-agent/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: oncall-agent
+  - Dependencies: vault, AWS (CloudWatch/EC2), Datadog API, GitHub API
+  - Max Downtime: 0 minutes (operational tool - business critical for incident response)
+  - Health Check: /health on port 8000
+  - Replicas: 2 (HA)
+  - Image: 852893458518.dkr.ecr.us-east-2.amazonaws.com/oncall-agent:v0.0.1
+  - Resources: 512Mi-1Gi RAM, 500m-1000m CPU
+  - Quirks:
+    - Integrates with Anthropic API (Claude)
+    - Requires cluster-admin RBAC permissions
+    - Kyverno security policies enforced
+    - Provisions AWS IAM resources via Crossplane
+
+  ---
+  2. High Priority Services (P1 - Infrastructure Dependencies)
+
+  These services support P0 workloads but have some resilience (pods can run without them temporarily until restart/redeploy).
+
+  2.1 vault
+
+  - Purpose: Secret management for entire cluster (HashiCorp Vault)
+  - GitOps:
+    - ArgoCD App: base-apps/vault.yaml
+    - Manifests: base-apps/vault/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: vault
+  - Dependencies: None (foundational service)
+  - Dependents: ALL services via external-secrets-operator
+  - Max Downtime: 5-15 minutes (pods work until restart, but can't deploy new pods without secrets)
+  - Known Issues:
+    - ⚠️ Requires manual unsealing after pod restart
+    - Single replica (no HA)
+  - Health Check: vault status exec command on port 8200
+  - Image: hashicorp/vault:1.18.1
+  - Ingress: https://vault.arigsela.com
+
+  2.2 external-secrets-operator
+
+  - Purpose: Syncs secrets from Vault to Kubernetes secrets
+  - GitOps:
+    - ArgoCD App: base-apps/external-secrets-operator.yaml
+    - Chart: Helm chart from https://charts.external-secrets.io
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: external-secrets
+  - Dependencies: vault
+  - Dependents: ALL application services
+  - Max Downtime: 5-15 minutes (pods work with existing secrets until restart)
+
+  2.3 cert-manager
+
+  - Purpose: Automated TLS certificate provisioning (Let's Encrypt + Route 53 DNS)
+  - GitOps:
+    - ArgoCD App: base-apps/cert-manager.yaml
+    - Chart: Helm chart from https://charts.jetstack.io (v1.18.2)
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: cert-manager
+  - Dependencies: nginx-ingress, AWS Route 53
+  - Dependents: All HTTPS services
+  - Max Downtime: Hours to days (certs valid 90 days, renewed automatically)
+
+  2.4 ecr-auth (ecr-credentials-sync)
+
+  - Purpose: Sync AWS ECR registry credentials to Kubernetes
+  - GitOps:
+    - ArgoCD App: base-apps/ecr-credentials-sync.yaml
+    - Manifests: base-apps/ecr-auth/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: ecr-auth
+  - Dependencies: vault (AWS credentials)
+  - Dependents: All services using ECR images (chores-tracker, oncall-agent)
+  - Max Downtime: 12 hours (ECR tokens expire, but existing pods work)
+  - Pattern: CronJob syncing credentials periodically to kube-system namespace
+
+  2.5 crossplane
+
+  - Purpose: Infrastructure as Code platform for AWS resources (RDS, S3, IAM)
+  - GitOps:
+    - ArgoCD App: base-apps/crossplane.yaml
+    - Chart: Helm chart from https://charts.crossplane.io/stable (v2.0.2)
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: crossplane-system
+  - Dependencies: vault (AWS credentials)
+  - Max Downtime: N/A (infrastructure provisioning - doesn't affect running workloads)
+  - Provisions: RDS databases, S3 buckets, IAM users/policies/keys
+  - Used By: chores-tracker (RDS), loki (S3), oncall-agent (IAM)
+
+  ---
+  3. Support Services (P2-P3)
+
+  3.1 crossplane-aws-provider
+
+  - GitOps:
+    - ArgoCD App: base-apps/crossplane-aws-provider.yaml
+    - Manifests: base-apps/crossplane-aws-provider/
+  - Namespace: crossplane-system
+  - Purpose: AWS provider configuration for Crossplane
+
+  3.2 loki-aws-infrastructure
+
+  - GitOps:
+    - ArgoCD App: base-apps/loki-aws-infrastructure.yaml
+    - Manifests: base-apps/loki-aws-infrastructure/
+  - Namespace: crossplane-system (provisions resources)
+  - Purpose: Provisions AWS S3 bucket and IAM for Loki logging
+
+  3.3 whoami-test
+
+  - GitOps:
+    - ArgoCD App: base-apps/whoami-test.yaml
+    - Manifests: base-apps/whoami-test/
+  - Namespace: whoami-test
+  - Purpose: Test application
+
+  ---
+  4. Common Patterns & Operational Knowledge
+
+  4.1 GitOps Pattern
+
+  - Repository: https://github.com/arigsela/kubernetes
+  - Organization: arigsela
+  - ArgoCD Applications: All .yaml files in base-apps/ directory
+  - Application Manifests: Corresponding subdirectories in base-apps/{app-name}/
+  - Pattern: Each ArgoCD Application YAML correlates to a folder with the same name
+    - Example: base-apps/chores-tracker-backend.yaml → base-apps/chores-tracker-backend/
+    - Example: base-apps/n8n.yaml → base-apps/n8n/
+    - Example: base-apps/vault.yaml → base-apps/vault/
+
+  4.2 Namespace Mapping (Explicit List)
+
+  | Service                 | ArgoCD App Name         | ArgoCD App File                          | Namespace               |
+  |-------------------------|-------------------------|------------------------------------------|-------------------------|
+  | chores-tracker-backend  | chores-tracker-backend  | base-apps/chores-tracker-backend.yaml    | chores-tracker-backend  |
+  | chores-tracker-frontend | chores-tracker-frontend | base-apps/chores-tracker-frontend.yaml   | chores-tracker-frontend |
+  | mysql                   | mysql-application       | base-apps/mysql.yaml                     | mysql                   |
+  | postgresql              | postgresql              | base-apps/postgresql.yaml                | postgresql              |
+  | n8n                     | n8n                     | base-apps/n8n.yaml                       | n8n                     |
+  | vault                   | vault                   | base-apps/vault.yaml                     | vault                   |
+  | nginx-ingress           | nginx-ingress           | base-apps/nginx-ingress.yaml             | ingress-nginx           |
+  | oncall-agent            | oncall-agent            | base-apps/oncall-agent.yaml              | oncall-agent            |
+  | cert-manager            | cert-manager            | base-apps/cert-manager.yaml              | cert-manager            |
+  | external-secrets        | external-secrets        | base-apps/external-secrets-operator.yaml | external-secrets        |
+  | ecr-credentials-sync    | ecr-credentials-sync    | base-apps/ecr-credentials-sync.yaml      | ecr-auth                |
+  | crossplane              | crossplane              | base-apps/crossplane.yaml                | crossplane-system       |
+  | crossplane-aws-provider | crossplane-aws-provider | base-apps/crossplane-aws-provider.yaml   | crossplane-system       |
+  | loki-aws-infrastructure | loki-aws-infrastructure | base-apps/loki-aws-infrastructure.yaml   | crossplane-system       |
+  | whoami-test             | whoami-test             | base-apps/whoami-test.yaml               | whoami-test             |
+
+  Namespace Convention: {service-name} (single production environment, NOT {service}-{env})
+
+  4.3 Health Check Patterns
+
+  - /health - chores-tracker-backend, oncall-agent
+  - /healthz - n8n
+  - TCP probes - mysql:3306, postgresql:5432
+  - Exec commands - vault (vault status), postgresql (pg_isready)
+
+  4.4 Image Registry Pattern
+
+  - ECR Account: 852893458518.dkr.ecr.us-east-2.amazonaws.com
+    - chores-tracker:5.8.0
+    - oncall-agent:v0.0.1
+  - Authentication: ecr-registry secret (synced by ecr-auth cronjob to kube-system)
+  - Public Images: n8n, mysql, postgresql, vault (Docker Hub/official registries)
