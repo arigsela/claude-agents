@@ -1,0 +1,292 @@
+{
+  "name": "oncall-agent-slack",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "  // Extract Slack message data and prepare for AI Agent\n  // Slack Trigger provides data directly, not nested in \"event\"\n\n  const slackEvent = $input.item.json;\n\n  // DEBUG: Log the entire input to see what Slack sends\n  console.log('=== SLACK EVENT DEBUG ===');\n  console.log('Full event:', JSON.stringify(slackEvent, null, 2));\n  console.log('thread_ts:', slackEvent.thread_ts);\n  console.log('ts:', slackEvent.ts);\n  console.log('========================');\n\n  // Extract message text (remove bot mention)\n  let messageText = slackEvent.text || '';\n  // Remove bot mention (e.g., \"<@U12345> check pods\" -> \"check pods\")\n  messageText = messageText.replace(/<@[A-Z0-9]+>/g, '').trim();\n\n  // Use thread_ts for threading, or ts if this is a new message (not in thread)\n  const threadId = slackEvent.thread_ts || slackEvent.ts;\n\n  // Build session ID from thread ID (for memory persistence)\n  const sessionId = `slack-thread-${threadId}`;\n\n  return {\n    json: {\n      userMessage: messageText,\n      threadId: threadId,\n      sessionId: sessionId,\n      userId: slackEvent.user,\n      channel: slackEvent.channel,\n      timestamp: slackEvent.ts,\n    systemMessage: \"You are an intelligent On-Call Engineering Assistant helping DevOps teams troubleshoot Kubernetes clusters.\\n\\nAvailable Tools:\\n- oncall_agent_query: Deep Kubernetes analysis (pod status, logs, events, deployments). Use this for any K8s-related questions.\\n- website_health_query: Check website/API endpoint health. Use this to verify external service availability.\\n\\nInstructions:\\n- For website issues: Check the site first with website_health_query, then investigate backend pods with oncall_agent_query\\n- For pod/namespace questions: Use oncall_agent_query directly\\n- Remember conversation history and reference previous questions when relevant\\n- Provide actionable remediation steps when issues are found\\n- Be concise but thorough in your analysis\"\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        352
+      ],
+      "id": "baf76c9d-4ef5-4565-9329-6da1c6ae930d",
+      "name": "extract_slack_data"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('extract_slack_data').first().json.userMessage }}",
+        "options": {
+          "systemMessage": "={{ $('extract_slack_data').first().json.systemMessage }}\n",
+          "maxIterations": 10
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        352
+      ],
+      "id": "a87abec3-e728-4cd0-aa1b-b863b34a504e",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        592,
+        576
+      ],
+      "id": "8a28d33d-5b25-436d-9d9e-fecc60b1b8d7",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "KTMGjkzLrUXJrFRF",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Deep Kubernetes cluster analysis with pod status, logs, events, and deployments. Use this to check pod health, restart counts, and troubleshoot issues in any namespace.",
+        "method": "POST",
+        "url": "http://oncall-agent.oncall-agent.svc.cluster.local/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $fromAI('prompt', '', 'string') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        848,
+        576
+      ],
+      "id": "aff849e6-adfe-4a4d-bacc-32a944d5fac7",
+      "name": "oncall_agent_query"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Check if a website or API endpoint is responding correctly. Returns HTTP status code, response time, and body preview to determine availability and performance.",
+        "url": "={{ $fromAI('url', '', 'string') }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        576
+      ],
+      "id": "1f38fa30-a8ea-4e96-a1de-db7aa4429e17",
+      "name": "website_health_query"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('extract_slack_data').first().json.sessionId }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        576
+      ],
+      "id": "a0f52abd-3fca-48f1-9bb9-8a42dc7a6690",
+      "name": "conversation_memory"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09LWTRDQUX",
+          "mode": "list",
+          "cachedResultName": "oncall-agent"
+        },
+        "text": "={{ $json.output }}",
+        "otherOptions": {
+          "thread_ts": {
+            "replyValues": {
+              "thread_ts": "=      \"otherOptions\": {\n        \"thread_ts\": \"={{ $('extract_slack_data').first().json.threadId }}\"\n      }"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1184,
+        352
+      ],
+      "id": "b31b84ad-27cc-4fe0-a554-b68b35b3e258",
+      "name": "send_slack_response",
+      "webhookId": "195e76f8-e86a-4a10-8843-eaaa9baf8515",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "vGA5WuA39OUcqOGd",
+          "name": "slack-oauth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "trigger": [
+          "app_mention"
+        ],
+        "watchWorkspace": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        352
+      ],
+      "id": "131cbbcd-331e-40b7-8c21-135c1f0261ab",
+      "name": "Slack Trigger",
+      "webhookId": "ebcaad5a-6b1c-40c1-aaca-f537794d1ce2",
+      "credentials": {
+        "slackApi": {
+          "id": "zdDewloX2qOtH2To",
+          "name": "chores-arigsela-com-slack"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "extract_slack_data": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "send_slack_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "oncall_agent_query": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "website_health_query": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "conversation_memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "extract_slack_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0e027a4b-899c-4d50-86e6-1005233e7497",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "260fb3ae0081ce3b9ce29644be117d777383438b7271b6493786a73693ada027"
+  },
+  "id": "59GzUnDWajA8l08t",
+  "tags": [
+    {
+      "createdAt": "2025-10-18T17:55:23.592Z",
+      "updatedAt": "2025-10-18T17:55:23.592Z",
+      "id": "WL6kPTdlSvkfL3cR",
+      "name": "devops"
+    },
+    {
+      "createdAt": "2025-10-18T23:51:24.412Z",
+      "updatedAt": "2025-10-18T23:51:24.412Z",
+      "id": "uBtPJjOmUZ4nLNFK",
+      "name": "slack"
+    }
+  ]
+}
