@@ -1,0 +1,55 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8s-monitor
+  namespace: k8s-monitor
+  labels:
+    app: k8s-monitor
+    release: prometheus  # Match your Prometheus operator release name
+spec:
+  selector:
+    matchLabels:
+      app: k8s-monitor
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+
+---
+# Service to expose metrics for Prometheus
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-monitor-metrics
+  namespace: k8s-monitor
+  labels:
+    app: k8s-monitor
+    component: monitoring
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for monitoring
+  selector:
+    app: k8s-monitor
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+# Notes on Prometheus Integration:
+# 1. This ServiceMonitor assumes you have Prometheus Operator installed
+# 2. The Service exposes a metrics endpoint on port 8080
+# 3. Currently, the k8s-monitor application doesn't expose metrics
+# 4. To enable metrics collection:
+#    - Add prometheus_client library to requirements.txt
+#    - Create a metrics endpoint in the application (e.g., GET /metrics)
+#    - Export metrics like:
+#      * k8s_monitor_cycle_duration_seconds
+#      * k8s_monitor_findings_total
+#      * k8s_monitor_errors_total
+#      * k8s_monitor_notifications_sent_total
+#
+# 5. If you don't have Prometheus Operator, you can query metrics directly:
+#    kubectl port-forward -n k8s-monitor svc/k8s-monitor-metrics 8080:8080
+#    curl http://localhost:8080/metrics

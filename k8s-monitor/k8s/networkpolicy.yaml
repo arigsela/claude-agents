@@ -1,0 +1,78 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k8s-monitor
+  namespace: k8s-monitor
+  labels:
+    app: k8s-monitor
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: k8s-monitor
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules (who can talk TO this pod)
+  ingress:
+    # Allow from same namespace (for debugging/port-forward)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: k8s-monitor
+      ports:
+        - protocol: TCP
+          port: 8080  # If we ever expose metrics/API
+
+  # Egress rules (who this pod can talk to)
+  egress:
+    # Allow DNS (required for hostname resolution)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow outbound to Kubernetes API
+    - to:
+        - namespaceSelector: {}
+        - podSelector:
+            matchLabels:
+              component: kube-apiserver
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+
+    # Allow outbound to external APIs (Anthropic, GitHub, Slack)
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS for API calls
+
+    # Allow internal pod-to-pod communication (for future multi-pod scenarios)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: k8s-monitor
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow ICMP for diagnostics
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: ICMP
+
+# Notes:
+# - This policy is restrictive (deny-all by default, whitelist explicit traffic)
+# - Ingress: Only allows traffic from same namespace (monitoring pod itself)
+# - Egress: Allows DNS, Kubernetes API, external HTTPS (Anthropic/GitHub/Slack), and ICMP
+# - For development, you can temporarily disable this policy or add broader rules
+# - If using private APIs/webhooks, add additional egress rules as needed

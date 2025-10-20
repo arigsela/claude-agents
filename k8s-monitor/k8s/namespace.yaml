@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-monitor
+  labels:
+    app: k8s-monitor
+    version: v1
