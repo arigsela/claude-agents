@@ -61,15 +61,23 @@ class Monitor:
         self.logger.info(f"🔍 GITHUB_REVIEWER MODEL: {GITHUB_REVIEWER_MODEL}")
         self.logger.info("=" * 80)
 
-        # Configure MCP servers
-        mcp_servers = {
-            "github": {
+        # Configure MCP servers (optional - only if available)
+        mcp_servers = {}
+
+        # GitHub MCP server (optional)
+        if Path(self.settings.github_mcp_path).exists():
+            mcp_servers["github"] = {
                 "type": "stdio",
                 "command": "node",
                 "args": [str(self.settings.github_mcp_path)],
                 "env": {"GITHUB_TOKEN": self.settings.github_token or ""},
-            },
-            "slack": {
+            }
+        else:
+            self.logger.warning(f"GitHub MCP server not found at {self.settings.github_mcp_path}")
+
+        # Slack MCP server (optional)
+        if Path(self.settings.slack_mcp_path).exists():
+            mcp_servers["slack"] = {
                 "type": "stdio",
                 "command": "node",
                 "args": [str(self.settings.slack_mcp_path)],
@@ -77,8 +85,9 @@ class Monitor:
                     "SLACK_BOT_TOKEN": self.settings.slack_bot_token or "",
                     "SLACK_DEFAULT_CHANNEL": self.settings.slack_channel or "",
                 },
-            },
-        }
+            }
+        else:
+            self.logger.warning(f"Slack MCP server not found at {self.settings.slack_mcp_path}")
 
         # Configure Claude Agent SDK with programmatic agent definitions
         # Per SDK docs: Programmatic agents take precedence and allow full control
@@ -109,13 +118,13 @@ class Monitor:
             "github-reviewer": AgentDefinition(
                 description="Correlate cluster issues with recent GitHub commits for deployment context.",
                 prompt=github_reviewer_prompt,
-                tools=["mcp__github__*", "Read", "Bash"],
+                tools=["Read", "Bash"],
                 model="haiku",
             ),
             "slack-notifier": AgentDefinition(
                 description="Format and deliver Slack alerts for critical incidents.",
                 prompt=slack_notifier_prompt,
-                tools=["mcp__slack__*"],
+                tools=["Bash"],
                 model="haiku",
             ),
         }
@@ -125,16 +134,14 @@ class Monitor:
             agents=agents_config,
             # Do NOT load filesystem agents - use programmatic definitions only
             setting_sources=[],
-            # MCP Servers for GitHub and Slack integration
-            mcp_servers=mcp_servers,
+            # MCP Servers (optional - only if available)
+            mcp_servers=mcp_servers if mcp_servers else None,
             # Tools available to orchestrator
             allowed_tools=[
                 "Bash",
                 "Read",
                 "Grep",
                 "Glob",
-                "mcp__github__*",
-                "mcp__slack__*",
             ],
             # Use Claude Code preset
             system_prompt={"type": "preset", "preset": "claude_code"},
