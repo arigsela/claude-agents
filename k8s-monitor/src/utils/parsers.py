@@ -54,6 +54,13 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
             # Look for **bold service names** with issues (pattern: **service-name** followed by description)
             findings_dicts.extend(_parse_key_findings_section(key_findings_section))
 
+    # Fallback: If still no findings but response indicates issues, parse entire response
+    # This handles responses that mention "Cluster Status: DEGRADED" with numbered lists
+    if not findings_dicts:
+        if 'DEGRADED' in response or 'Critical Issues' in response or '🔴' in response:
+            # Try to parse the entire response for issues
+            findings_dicts.extend(_parse_key_findings_section(response))
+
     # Convert dicts to Finding objects
     findings = []
     for finding_dict in findings_dicts:
@@ -62,7 +69,9 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
             findings.append(finding)
         except Exception as e:
             # Log conversion errors but continue processing other findings
-            pass
+            import sys
+            print(f"Warning: Failed to convert finding dict to Finding object: {e}", file=sys.stderr)
+            print(f"  Dict: {finding_dict}", file=sys.stderr)
 
     return findings
 
@@ -97,6 +106,9 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
     - **service-name** description
     - More details
 
+    Also handles numbered lists like:
+    1. **MySQL** - Issue description
+
     Args:
         section: Key Findings section content
 
@@ -105,7 +117,45 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
     """
     findings = []
 
-    # Look for all bulleted items with **service-name** pattern
+    # Strategy 1: Look for numbered items like "1. **MySQL** - Issue"
+    numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n\n|$)'
+    matches = list(re.finditer(numbered_pattern, section, re.MULTILINE | re.DOTALL))
+
+    if matches:
+        for match in matches:
+            service_name = match.group(1).strip()
+            description = match.group(2).strip()
+
+            if description and len(description) > 5:
+                # Infer severity from context
+                match_start = match.start()
+                preceding_text = section[:match_start]
+
+                last_critical = preceding_text.rfind('🔴')
+                last_warning = preceding_text.rfind('⚠️')
+                last_degraded = preceding_text.rfind('DEGRADED')
+
+                # If we see DEGRADED or 🔴, mark as critical
+                if last_degraded > last_critical and last_degraded > last_warning:
+                    severity = "critical"
+                    priority = "P0"
+                elif last_critical > last_warning:
+                    severity = "critical"
+                    priority = "P0"
+                else:
+                    severity = "warning"
+                    priority = "P2"  # Use P2 instead of P2/P3 combination
+
+                findings.append({
+                    "severity": severity,
+                    "priority": priority,
+                    "description": f"{service_name} - {description}",
+                })
+
+        if findings:
+            return findings
+
+    # Strategy 2: Look for all bulleted items with **service-name** pattern
     # Pattern: "- **service-name** description"
     bullet_pattern = r'^[\s]*[-*]\s+\*\*([^*]+)\*\*\s*(.+?)(?=\n|$)'
     matches = re.finditer(bullet_pattern, section, re.MULTILINE)
@@ -130,7 +180,7 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
                 priority = "P0"
             else:
                 severity = "warning"
-                priority = "P2/P3"
+                priority = "P2"  # Use P2 instead of P2/P3 combination
 
             findings.append({
                 "severity": severity,
