@@ -4,8 +4,10 @@ import json
 import re
 from typing import Any
 
+from src.models import Finding
 
-def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
+
+def parse_k8s_analyzer_output(response: str) -> list[Finding]:
     """Parse k8s-analyzer subagent output (markdown format).
 
     The k8s-analyzer returns structured markdown with sections:
@@ -19,38 +21,48 @@ def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
         response: Raw markdown response from k8s-analyzer
 
     Returns:
-        List of parsed findings with severity and details
+        List of Finding objects parsed from markdown
     """
-    findings = []
+    findings_dicts = []
 
     # Parse Critical Issues (P0) - try multiple patterns
     critical_section = _extract_section(response, "Critical Issues|P0|🔴 Critical")
     if critical_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(critical_section, severity="critical", priority="P0")
         )
 
     # Parse High Priority Issues (P1) - try multiple patterns
     high_section = _extract_section(response, "High Priority|P1|⚠️.*?Issue")
     if high_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(high_section, severity="high", priority="P1")
         )
 
     # Parse Warnings (P2/P3) - handle multiple naming conventions
     warning_section = _extract_section(response, "Warnings|P2|P3|Minor Issues|Issues Found")
     if warning_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(warning_section, severity="warning", priority="P2/P3")
         )
 
     # Parse generic Key Findings section if no structured sections found
     # This handles analyzer responses that don't use strict P0/P1/P2 format
-    if not findings:
+    if not findings_dicts:
         key_findings_section = _extract_section(response, "Key Findings")
         if key_findings_section:
             # Look for **bold service names** with issues (pattern: **service-name** followed by description)
-            findings.extend(_parse_key_findings_section(key_findings_section))
+            findings_dicts.extend(_parse_key_findings_section(key_findings_section))
+
+    # Convert dicts to Finding objects
+    findings = []
+    for finding_dict in findings_dicts:
+        try:
+            finding = Finding(**finding_dict)
+            findings.append(finding)
+        except Exception as e:
+            # Log conversion errors but continue processing other findings
+            pass
 
     return findings
 

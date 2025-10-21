@@ -158,22 +158,22 @@ data:
 
     ## Monitoring Cycle Workflow
 
-    Here's what happens each monitoring cycle (all agents use Haiku for cost optimization):
+    Here's what happens each monitoring cycle:
 
-    1. **Orchestrator** starts monitoring cycle
-    2. **k8s-analyzer** checks pod health
+    1. **Orchestrator** (Claude Haiku) starts monitoring cycle
+    2. **k8s-analyzer** (Claude Haiku) checks pod health
        - Runs kubectl commands
        - Checks for crashes, errors, resource issues
        - Returns structured findings
-    3. **escalation-manager** assesses severity
+    3. **escalation-manager** (Claude Haiku) assesses severity
        - Maps findings to P0/P1/P2/P3 services
        - Checks against known issues
        - Determines if escalation needed
-    4. **github-reviewer** - if issues found
+    4. **github-reviewer** (Claude Haiku) - if issues found
        - Searches recent commits
        - Correlates with deployment timing
        - Identifies possible root causes
-    5. **slack-notifier** - if needed
+    5. **slack-notifier** (Claude Haiku) - if needed
        - Formats alert message
        - Sends to appropriate channel
     6. **Orchestrator** saves cycle report with results

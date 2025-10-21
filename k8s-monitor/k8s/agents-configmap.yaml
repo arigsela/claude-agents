@@ -16,7 +16,7 @@ data:
     name: k8s-analyzer
     description: Use PROACTIVELY for Kubernetes cluster health checks. MUST BE USED every monitoring cycle to analyze critical services.
     tools: Bash, Read, Grep
-    model: $K8S_ANALYZER_MODEL
+    model: haiku
     ---
 
     # Kubernetes Health Analyzer
@@ -113,7 +113,7 @@ data:
     name: escalation-manager
     description: Assess cluster health findings and determine severity level. Decides whether to escalate to notifications.
     tools: Read
-    model: $ESCALATION_MANAGER_MODEL
+    model: haiku
     ---
 
     # Escalation Manager
@@ -175,7 +175,7 @@ data:
     name: slack-notifier
     description: Format Slack alert messages and send to configured channel.
     tools: Slack
-    model: $SLACK_NOTIFIER_MODEL
+    model: haiku
     ---
 
     # Slack Notifier
@@ -246,7 +246,7 @@ data:
     name: github-reviewer
     description: Analyze recent GitHub commits and correlate with detected cluster issues. Only used if issues found.
     tools: Read, Bash
-    model: $GITHUB_REVIEWER_MODEL
+    model: haiku
     ---
 
     # GitHub Deployment Correlator

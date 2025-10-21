@@ -6,12 +6,11 @@ metadata:
   labels:
     app: k8s-monitor
 data:
-  # K3s cluster context (used only for local testing with kubeconfig)
-  # When running in-cluster, this is ignored and ServiceAccount auth is used automatically
+  # K3s cluster context (from KUBECONFIG)
   K3S_CONTEXT: "default"
 
   # Monitoring interval (hours)
-  MONITORING_INTERVAL_HOURS: "1"
+  MONITORING_INTERVAL_HOURS: "24"
 
   # Log level
   LOG_LEVEL: "INFO"
@@ -24,7 +23,6 @@ data:
   SERVICES_FILE: "/app/docs/reference/services.txt"
 
   # Model configuration (can be overridden per environment)
-  # Using claude-haiku for cost optimization (~12x cheaper than Sonnet)
   ORCHESTRATOR_MODEL: "claude-haiku-4-5-20251001"
   K8S_ANALYZER_MODEL: "claude-haiku-4-5-20251001"
   ESCALATION_MANAGER_MODEL: "claude-haiku-4-5-20251001"

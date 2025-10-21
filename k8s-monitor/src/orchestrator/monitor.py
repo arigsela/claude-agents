@@ -80,13 +80,51 @@ class Monitor:
             },
         }
 
-        # Configure Claude Agent SDK options with HARDCODED Haiku model
-        # NOTE: Removed setting_sources=["project"] because it was causing SDK to load
-        # conflicting agent definitions that override our hardcoded Haiku models!
-        # The SDK has internal defaults that prefer Sonnet, so we must NOT load project files
+        # Configure Claude Agent SDK with programmatic agent definitions
+        # Per SDK docs: Programmatic agents take precedence and allow full control
+        # https://docs.claude.com/en/api/agent-sdk/subagents
+
+        # Load agent prompts from .md files
+        k8s_analyzer_prompt = self._load_agent_prompt("k8s-analyzer")
+        escalation_manager_prompt = self._load_agent_prompt("escalation-manager")
+        github_reviewer_prompt = self._load_agent_prompt("github-reviewer")
+        slack_notifier_prompt = self._load_agent_prompt("slack-notifier")
+
+        # Define agents programmatically with explicit Haiku model
+        from claude_agent_sdk.types import AgentDefinition
+
+        agents_config = {
+            "k8s-analyzer": AgentDefinition(
+                description="Use PROACTIVELY for Kubernetes cluster health checks. MUST BE USED every monitoring cycle.",
+                prompt=k8s_analyzer_prompt,
+                tools=["Bash", "Read", "Grep"],
+                model="haiku",
+            ),
+            "escalation-manager": AgentDefinition(
+                description="Assess incident severity and determine notification requirements based on service criticality.",
+                prompt=escalation_manager_prompt,
+                tools=["Read"],
+                model="haiku",
+            ),
+            "github-reviewer": AgentDefinition(
+                description="Correlate cluster issues with recent GitHub commits for deployment context.",
+                prompt=github_reviewer_prompt,
+                tools=["mcp__github__*", "Read", "Bash"],
+                model="haiku",
+            ),
+            "slack-notifier": AgentDefinition(
+                description="Format and deliver Slack alerts for critical incidents.",
+                prompt=slack_notifier_prompt,
+                tools=["mcp__slack__*"],
+                model="haiku",
+            ),
+        }
+
         options = ClaudeAgentOptions(
-            # DO NOT load .claude/ project files - they conflict with hardcoding!
-            # setting_sources=["project"],  # DISABLED - causes Sonnet override
+            # Pass agents programmatically (recommended per SDK docs)
+            agents=agents_config,
+            # Do NOT load filesystem agents - use programmatic definitions only
+            setting_sources=[],
             # MCP Servers for GitHub and Slack integration
             mcp_servers=mcp_servers,
             # Tools available to orchestrator
@@ -180,11 +218,20 @@ class Monitor:
                     exc_info=True,
                 )
                 # Fallback: conservative default
+                # Extract service names, handling both Finding objects and dicts
+                affected_services = []
+                for f in k8s_results:
+                    service = f.service if hasattr(f, 'service') else f.get('service')
+                    if service:
+                        affected_services.append(service)
+                    else:
+                        affected_services.append("unknown")
+
                 escalation_decision = EscalationDecision(
                     severity="SEV-2",
                     confidence=50,
                     should_notify=True,
-                    affected_services=[f.service or "unknown" for f in k8s_results],
+                    affected_services=affected_services,
                     root_cause="Unable to assess escalation, conservative default",
                     immediate_actions=["Manual review required"],
                     business_impact="Potential incident detected",
@@ -335,9 +382,14 @@ class Monitor:
             self.logger.info(f"🚨 Using model: {self.settings.escalation_manager_model}")
 
             # Prepare findings summary for escalation-manager
-            findings_summary = "\n".join(
-                [f"- {f.service}: {f.description}" for f in findings]
-            )
+            findings_summary_parts = []
+            for f in findings:
+                # Handle both Finding objects and dicts
+                service = f.service if hasattr(f, 'service') else f.get('service', 'unknown')
+                description = f.description if hasattr(f, 'description') else f.get('description', '')
+                if service or description:
+                    findings_summary_parts.append(f"- {service}: {description}")
+            findings_summary = "\n".join(findings_summary_parts)
 
             # Query orchestrator to use escalation-manager subagent
             query = f"""Use the escalation-manager subagent to assess incident severity based on these findings:
@@ -461,3 +513,28 @@ Determine the SEV level (SEV-1 through SEV-4) and whether notification is requir
             "last_cycle_status": self.last_cycle_status,
             "health": "healthy" if self.failed_cycles < 3 else "degraded",
         }
+
+    def _load_agent_prompt(self, agent_name: str) -> str:
+        """Load agent system prompt from .md file.
+
+        Args:
+            agent_name: Name of the agent (e.g., 'k8s-analyzer')
+
+        Returns:
+            Agent's system prompt (text after YAML frontmatter)
+        """
+        agent_file = Path(".claude/agents") / f"{agent_name}.md"
+
+        if not agent_file.exists():
+            raise FileNotFoundError(f"Agent file not found: {agent_file}")
+
+        with open(agent_file, "r") as f:
+            content = f.read()
+
+        # Extract content after YAML frontmatter (after second ---)
+        parts = content.split("---", 2)
+        if len(parts) < 3:
+            raise ValueError(f"Invalid agent file format: {agent_file}")
+
+        # Return everything after the frontmatter
+        return parts[2].strip()
