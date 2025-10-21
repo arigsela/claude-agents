@@ -74,11 +74,25 @@ class SlackNotifier:
             await client.query(query)
 
             # Receive response from slack-notifier (async generator)
-            response_parts = []
+            # Messages are AssistantMessage/SystemMessage objects with content blocks
+            response_text = ""
             async for message in client.receive_response():
-                response_parts.append(message)
+                # Extract text from message content blocks
+                if hasattr(message, 'content'):
+                    content_list = message.content
+                    if isinstance(content_list, list):
+                        for block in content_list:
+                            if hasattr(block, 'text'):
+                                # TextBlock with text content
+                                response_text += block.text
+                    elif hasattr(content_list, 'text'):
+                        # Single text block
+                        response_text += content_list.text
+                elif hasattr(message, 'text'):
+                    # Direct text attribute
+                    response_text += message.text
 
-            response = "".join(response_parts)
+            response = response_text
 
             self.logger.debug(f"Slack notifier response: {response[:300]}...")
 
