@@ -118,13 +118,13 @@ class Monitor:
             "github-reviewer": AgentDefinition(
                 description="Correlate cluster issues with recent GitHub commits for deployment context.",
                 prompt=github_reviewer_prompt,
-                tools=["Read", "Bash"],
+                tools=["Read", "Bash"],  # GitHub tool via bash commands
                 model="haiku",
             ),
             "slack-notifier": AgentDefinition(
                 description="Format and deliver Slack alerts for critical incidents.",
                 prompt=slack_notifier_prompt,
-                tools=["Bash"],
+                tools=["Bash"],  # Slack tool via bash commands
                 model="haiku",
             ),
         }

@@ -21,9 +21,10 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
 # Install Claude Code CLI (required for Claude Agent SDK)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create MCP server directories (will be populated at runtime or during deployment)
+# Copy MCP server files
 RUN mkdir -p /app/mcp-servers/github/dist && \
     mkdir -p /app/mcp-servers/slack/dist
+COPY docs/mcp-reference/slack-mcp-server/npm/slack-mcp-server/bin/index.js /app/mcp-servers/slack/dist/
 
 # Copy Python requirements and install
 COPY requirements.txt .
