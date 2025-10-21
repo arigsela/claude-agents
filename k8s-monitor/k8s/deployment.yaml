@@ -25,6 +25,8 @@ spec:
 
     spec:
       # Use service account with cluster read access
+      # In-cluster: ServiceAccount tokens are automatically mounted at /var/run/secrets/kubernetes.io/serviceaccount/
+      # Local/Docker: KUBECONFIG environment variable is used (via settings.py validation)
       serviceAccountName: k8s-monitor
 
       # Security context
@@ -75,10 +77,6 @@ spec:
                 secretKeyRef:
                   name: k8s-monitor-secrets
                   key: SLACK_CHANNEL
-
-            # Kubeconfig setup for in-cluster access
-            - name: KUBECONFIG
-              value: /var/run/secrets/kubernetes.io/serviceaccount/kubeconfig
 
           # Resource limits
           resources:

@@ -2,7 +2,7 @@
 name: slack-notifier
 description: Use ONLY when escalation-manager determines notification is required (SEV-1 or SEV-2). Formats and sends alerts to Slack.
 tools: mcp__slack__post_message, mcp__slack__list_channels, mcp__slack__update_message
-model: $SLACK_NOTIFIER_MODEL
+model: claude-haiku-4-5-20251001
 ---
 
 # Slack Alert Notifier

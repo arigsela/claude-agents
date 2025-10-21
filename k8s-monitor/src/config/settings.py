@@ -1,5 +1,6 @@
 """Pydantic settings for k8s-monitor configuration."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -34,25 +35,29 @@ class Settings(BaseSettings):
     k3s_context: str = Field(default="default", description="K3s context name")
 
     # Model Configuration (Cost Optimization)
+    # ⚠️ IMPORTANT: These settings are NO LONGER USED
+    # All models are HARDCODED in src/orchestrator/monitor.py to ensure Haiku usage
+    # These fields are kept for backward compatibility only
+    # To change models, edit the HARDCODED constants in monitor.py, not these fields
     orchestrator_model: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="Model for orchestrator (complex coordination)",
+        default="claude-haiku-4-5-20251001",
+        description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
     k8s_analyzer_model: str = Field(
         default="claude-haiku-4-5-20251001",
-        description="Model for k8s-analyzer (fast kubectl parsing)",
+        description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
     escalation_manager_model: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="Model for escalation-manager (critical decisions)",
+        default="claude-haiku-4-5-20251001",
+        description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
     slack_notifier_model: str = Field(
         default="claude-haiku-4-5-20251001",
-        description="Model for slack-notifier (message formatting)",
+        description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
     github_reviewer_model: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="Model for github-reviewer (deployment correlation)",
+        default="claude-haiku-4-5-20251001",
+        description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
 
     # Monitoring Settings
@@ -84,12 +89,27 @@ class Settings(BaseSettings):
     def validate_paths(self) -> None:
         """Validate required paths exist and resolve kubeconfig intelligently.
 
-        This method handles kubeconfig path resolution for both local and Docker execution:
+        This method handles kubeconfig path resolution for both local, Docker, and in-cluster execution:
+        - If running in-cluster (ServiceAccount tokens detected), use in-cluster auth
         - If KUBECONFIG env var is set, try it first
         - If that path doesn't exist, fall back to ~/.kube/config
-        - This allows a single .env file to work in both contexts
+        - This allows a single .env file to work in all contexts
         """
-        # Resolve kubeconfig intelligently
+        # Check if running in-cluster (Kubernetes ServiceAccount available)
+        in_cluster_ca = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+        in_cluster_token = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+
+        if in_cluster_ca.exists() and in_cluster_token.exists():
+            # Running in-cluster: use None to signal in-cluster auth
+            self.kubeconfig = None
+            logger = logging.getLogger(__name__)
+            logger.info("Running in-cluster: using Kubernetes ServiceAccount authentication")
+            # Validate services file
+            if self.services_file and not self.services_file.exists():
+                raise FileNotFoundError(f"Services file not found at {self.services_file}")
+            return
+
+        # Resolve kubeconfig intelligently for local/Docker execution
         kubeconfig_path = None
 
         # Try the configured path first (could be from env var or default)

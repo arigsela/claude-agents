@@ -18,6 +18,9 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/
 
+# Install Claude Code CLI (required for Claude Agent SDK)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Create MCP server directories (will be populated at runtime or during deployment)
 RUN mkdir -p /app/mcp-servers/github/dist && \
     mkdir -p /app/mcp-servers/slack/dist

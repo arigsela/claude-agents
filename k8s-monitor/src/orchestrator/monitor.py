@@ -13,6 +13,15 @@ from src.escalation import EscalationManager
 from src.models import EscalationDecision, Finding
 from src.notifications import SlackNotifier
 from src.utils.parsers import parse_k8s_analyzer_output
+from src.utils.model_inspector import ModelInspector
+
+# HARDCODED MODELS - NO VARIABLES, NO SUBSTITUTION
+# All models set to Haiku for cost optimization (~12x cheaper than Sonnet)
+ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"
+K8S_ANALYZER_MODEL = "claude-haiku-4-5-20251001"
+ESCALATION_MANAGER_MODEL = "claude-haiku-4-5-20251001"
+SLACK_NOTIFIER_MODEL = "claude-haiku-4-5-20251001"
+GITHUB_REVIEWER_MODEL = "claude-haiku-4-5-20251001"
 
 
 class Monitor:
@@ -41,7 +50,16 @@ class Monitor:
         Returns:
             Initialized ClaudeSDKClient instance
         """
+        self.logger.info("=" * 80)
+        self.logger.info("CLAUDE AGENT SDK INITIALIZATION - HARDCODED HAIKU MODELS")
+        self.logger.info("=" * 80)
         self.logger.info(f"Initializing ClaudeSDKClient for cycle {self.cycle_id}")
+        self.logger.info(f"🤖 ORCHESTRATOR MODEL: {ORCHESTRATOR_MODEL}")
+        self.logger.info(f"📊 K8S_ANALYZER MODEL: {K8S_ANALYZER_MODEL}")
+        self.logger.info(f"🚨 ESCALATION_MANAGER MODEL: {ESCALATION_MANAGER_MODEL}")
+        self.logger.info(f"💬 SLACK_NOTIFIER MODEL: {SLACK_NOTIFIER_MODEL}")
+        self.logger.info(f"🔍 GITHUB_REVIEWER MODEL: {GITHUB_REVIEWER_MODEL}")
+        self.logger.info("=" * 80)
 
         # Configure MCP servers
         mcp_servers = {
@@ -62,10 +80,13 @@ class Monitor:
             },
         }
 
-        # Configure Claude Agent SDK options
+        # Configure Claude Agent SDK options with HARDCODED Haiku model
+        # NOTE: Removed setting_sources=["project"] because it was causing SDK to load
+        # conflicting agent definitions that override our hardcoded Haiku models!
+        # The SDK has internal defaults that prefer Sonnet, so we must NOT load project files
         options = ClaudeAgentOptions(
-            # Load .claude/CLAUDE.md and .claude/agents/*.md
-            setting_sources=["project"],
+            # DO NOT load .claude/ project files - they conflict with hardcoding!
+            # setting_sources=["project"],  # DISABLED - causes Sonnet override
             # MCP Servers for GitHub and Slack integration
             mcp_servers=mcp_servers,
             # Tools available to orchestrator
@@ -81,8 +102,8 @@ class Monitor:
             system_prompt={"type": "preset", "preset": "claude_code"},
             # Auto-approve kubectl and file reads
             permission_mode="acceptEdits",
-            # Model configuration
-            model=self.settings.orchestrator_model,
+            # HARDCODED Model - Haiku for cost optimization
+            model=ORCHESTRATOR_MODEL,
         )
 
         # Create orchestrator client
@@ -91,7 +112,13 @@ class Monitor:
         # Connect to the client
         await client.connect()
 
-        self.logger.info("ClaudeSDKClient initialized successfully")
+        self.logger.info("✅ ClaudeSDKClient initialized successfully with HARDCODED Haiku models")
+
+        # INSPECTION: Log which models the SDK actually loaded
+        inspector = ModelInspector(logger=self.logger)
+        detected_models = await inspector.inspect_client_initialization(client)
+        self.logger.info(f"🔍 SDK Model Detection: {detected_models}")
+
         return client
 
     async def run_monitoring_cycle(self) -> dict[str, Any]:
@@ -241,6 +268,8 @@ class Monitor:
         """
         try:
             self.logger.info("Invoking k8s-analyzer subagent")
+            self.logger.info(f"📊 Configured model: {K8S_ANALYZER_MODEL}")
+            self.logger.info(f"📊 Settings model: {self.settings.k8s_analyzer_model}")
 
             # Query orchestrator to use k8s-analyzer subagent
             query = "Use the k8s-analyzer subagent to check the K3s cluster health. Analyze pod status, node conditions, recent events, and service health."
@@ -249,8 +278,14 @@ class Monitor:
 
             # Receive response from k8s-analyzer (iterate over async generator)
             response_text = ""
+            response_model = None
             async for message in client.receive_response():
                 self.logger.debug(f"Received message type: {type(message).__name__}")
+
+                # Try to extract model from message
+                if hasattr(message, 'model'):
+                    response_model = message.model
+                    self.logger.info(f"🔍 Response message model: {response_model}")
 
                 # AssistantMessage has a 'content' list of TextBlock/ToolUseBlock objects
                 if hasattr(message, 'content'):
@@ -266,6 +301,10 @@ class Monitor:
                                 pass
 
             self.logger.debug(f"k8s-analyzer response: {response_text}")
+            if response_model:
+                self.logger.info(f"✅ k8s-analyzer used model: {response_model}")
+            else:
+                self.logger.warning(f"⚠️ Could not detect model used by k8s-analyzer")
 
             # Parse the response
             findings = parse_k8s_analyzer_output(response_text)
@@ -293,6 +332,7 @@ class Monitor:
         """
         try:
             self.logger.info("Invoking escalation-manager subagent")
+            self.logger.info(f"🚨 Using model: {self.settings.escalation_manager_model}")
 
             # Prepare findings summary for escalation-manager
             findings_summary = "\n".join(
@@ -342,6 +382,7 @@ Determine the SEV level (SEV-1 through SEV-4) and whether notification is requir
         """
         try:
             self.logger.info(f"Sending {decision.severity} notification to Slack")
+            self.logger.info(f"💬 Using model: {self.settings.slack_notifier_model}")
 
             # Use SlackNotifier to send the notification
             notification_result = await self.slack_notifier.send_notification(

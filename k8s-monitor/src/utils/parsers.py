@@ -9,10 +9,11 @@ def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
     """Parse k8s-analyzer subagent output (markdown format).
 
     The k8s-analyzer returns structured markdown with sections:
-    - Critical Issues (P0)
-    - High Priority Issues (P1)
+    - Critical Issues (P0) / 🔴 Critical Issue
+    - High Priority Issues (P1) / ⚠️ Other Issues
     - Warnings (P2/P3)
     - All Clear (if healthy)
+    - Key Findings (generic findings section)
 
     Args:
         response: Raw markdown response from k8s-analyzer
@@ -22,15 +23,15 @@ def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
     """
     findings = []
 
-    # Parse Critical Issues (P0)
-    critical_section = _extract_section(response, "Critical Issues|P0")
+    # Parse Critical Issues (P0) - try multiple patterns
+    critical_section = _extract_section(response, "Critical Issues|P0|🔴 Critical")
     if critical_section:
         findings.extend(
             _parse_issue_section(critical_section, severity="critical", priority="P0")
         )
 
-    # Parse High Priority Issues (P1)
-    high_section = _extract_section(response, "High Priority|P1")
+    # Parse High Priority Issues (P1) - try multiple patterns
+    high_section = _extract_section(response, "High Priority|P1|⚠️.*?Issue")
     if high_section:
         findings.extend(
             _parse_issue_section(high_section, severity="high", priority="P1")
@@ -42,6 +43,14 @@ def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
         findings.extend(
             _parse_issue_section(warning_section, severity="warning", priority="P2/P3")
         )
+
+    # Parse generic Key Findings section if no structured sections found
+    # This handles analyzer responses that don't use strict P0/P1/P2 format
+    if not findings:
+        key_findings_section = _extract_section(response, "Key Findings")
+        if key_findings_section:
+            # Look for **bold service names** with issues (pattern: **service-name** followed by description)
+            findings.extend(_parse_key_findings_section(key_findings_section))
 
     return findings
 
@@ -66,6 +75,58 @@ def _extract_section(content: str, section_pattern: str) -> str:
     if match:
         return match.group(0)
     return ""
+
+
+def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
+    """Parse findings from generic Key Findings section.
+
+    Looks for patterns like:
+    **🔴 Critical Issue:**
+    - **service-name** description
+    - More details
+
+    Args:
+        section: Key Findings section content
+
+    Returns:
+        List of issue dictionaries with inferred severity
+    """
+    findings = []
+
+    # Look for all bulleted items with **service-name** pattern
+    # Pattern: "- **service-name** description"
+    bullet_pattern = r'^[\s]*[-*]\s+\*\*([^*]+)\*\*\s*(.+?)(?=\n|$)'
+    matches = re.finditer(bullet_pattern, section, re.MULTILINE)
+
+    for match in matches:
+        service_name = match.group(1).strip()
+        description = match.group(2).strip()
+
+        # Skip metadata lines like "Service:", "Namespace:", etc.
+        if description and not description.startswith(('Service', 'Namespace', 'Issue', 'Impact')) and len(description) > 5:
+            # Infer severity from context - check if we're in a critical section
+            # Look back in the section to see if we're under 🔴 or ⚠️
+            match_start = match.start()
+            preceding_text = section[:match_start]
+
+            # Find the last severity marker before this match
+            last_critical = preceding_text.rfind('🔴')
+            last_warning = preceding_text.rfind('⚠️')
+
+            if last_critical > last_warning:
+                severity = "critical"
+                priority = "P0"
+            else:
+                severity = "warning"
+                priority = "P2/P3"
+
+            findings.append({
+                "severity": severity,
+                "priority": priority,
+                "description": f"{service_name} - {description}",
+            })
+
+    return findings
 
 
 def _parse_issue_section(

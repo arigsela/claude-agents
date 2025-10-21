@@ -23,13 +23,14 @@ class Scheduler:
         self._job = None
 
     def schedule_job(
-        self, func: Callable[[], Awaitable[None]], job_name: str = "monitoring"
+        self, func: Callable[[], Awaitable[None]], job_name: str = "monitoring", run_immediately: bool = True
     ) -> None:
         """Schedule a job to run on interval.
 
         Args:
             func: Async function to execute on schedule
             job_name: Human-readable name for the job
+            run_immediately: If True, run the job immediately on startup before waiting for interval
         """
         self.logger.info(
             f"Scheduling {job_name} to run every {self.interval_hours} hour(s)"
@@ -39,6 +40,12 @@ class Scheduler:
         self._job = schedule.every(self.interval_hours).hours.do(
             self._run_async, func=func, job_name=job_name
         )
+
+        # Store the function for immediate execution if requested
+        if run_immediately:
+            self._immediate_func = (func, job_name)
+        else:
+            self._immediate_func = None
 
     def _run_async(
         self, func: Callable[[], Awaitable[None]], job_name: str
@@ -59,9 +66,16 @@ class Scheduler:
         """Run the scheduler in an async loop.
 
         This blocks until interrupted (Ctrl+C) or stop() is called.
+        Runs the immediate job first if configured, then continues with scheduled jobs.
         """
         self.is_running = True
         self.logger.info("Scheduler starting")
+
+        # Run immediate job if configured
+        if hasattr(self, '_immediate_func') and self._immediate_func:
+            func, job_name = self._immediate_func
+            self.logger.info(f"Running immediate startup job: {job_name}")
+            await func()
 
         # Set up signal handlers for graceful shutdown
         loop = asyncio.get_event_loop()
