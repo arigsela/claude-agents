@@ -73,8 +73,12 @@ class SlackNotifier:
 
             await client.query(query)
 
-            # Receive response from slack-notifier
-            response = await client.receive_response()
+            # Receive response from slack-notifier (async generator)
+            response_parts = []
+            async for message in client.receive_response():
+                response_parts.append(message)
+
+            response = "".join(response_parts)
 
             self.logger.debug(f"Slack notifier response: {response[:300]}...")
 
