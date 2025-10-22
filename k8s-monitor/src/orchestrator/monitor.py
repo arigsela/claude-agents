@@ -324,7 +324,24 @@ class Monitor:
             self.logger.info(f"📊 Settings model: {self.settings.k8s_analyzer_model}")
 
             # Query orchestrator to use k8s-analyzer subagent
-            query = "Use the k8s-analyzer subagent to check the K3s cluster health. Analyze pod status, node conditions, recent events, and service health."
+            # IMPORTANT: Be very explicit and directive to force actual kubectl execution
+            query = """Use the k8s-analyzer subagent to perform a complete cluster health analysis.
+
+Execute these commands and provide detailed findings:
+1. kubectl get pods --all-namespaces
+2. kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -50
+3. kubectl get nodes
+4. kubectl get deployments --all-namespaces
+5. kubectl get ingress --all-namespaces
+
+Analyze the results specifically looking for:
+- MySQL pod status (especially in mysql namespace)
+- PostgreSQL pod status
+- Any pods in CrashLoopBackOff, ImagePullBackOff, OOMKilled, or Pending states
+- Recent error events
+- Node capacity/pressure issues
+
+Report FINDINGS section with identified issues, not just status summaries."""
 
             await client.query(query)
 
