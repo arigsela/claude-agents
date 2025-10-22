@@ -79,6 +79,88 @@ pytest tests/test_parsers.py -v
 pytest test_context_accumulation.py test_trend_detection.py test_context_pruning.py -v
 ```
 
+## Helper Scripts
+
+The project includes 4 bash scripts for different use cases:
+
+### `./run_once.sh` - Quick Testing
+**Purpose:** Run a single monitoring cycle for testing
+
+```bash
+./run_once.sh
+```
+
+**Features:**
+- ✅ Activates virtual environment
+- ✅ Runs one monitoring cycle
+- ✅ Exits immediately after completion
+- ⚠️ Minimal validation (fast startup)
+
+**Use when:** Testing configuration changes, quick health checks, debugging
+
+---
+
+### `./start.sh` - Production Monitoring
+**Purpose:** Start continuous monitoring daemon
+
+```bash
+./start.sh
+```
+
+**Features:**
+- ✅ Validates configuration (API keys, kubectl access)
+- ✅ Tests cluster connectivity
+- ✅ Runs monitoring cycles continuously (every 15 min)
+- ✅ Keeps running until Ctrl+C
+
+**Use when:** Production deployment, long-running monitoring, automated incident detection
+
+---
+
+### `./run_debug.sh` - Troubleshooting
+**Purpose:** Run single cycle with DEBUG logging
+
+```bash
+./run_debug.sh
+```
+
+**Features:**
+- ✅ Enables DEBUG log level
+- ✅ Shows full k8s-analyzer response
+- ✅ Displays detailed findings
+- ✅ Prints escalation decisions
+
+**Use when:** Investigating parsing issues, debugging subagent responses, verifying findings
+
+---
+
+### `./deploy-to-ecr.sh` - AWS Deployment
+**Purpose:** Build and push Docker image to AWS ECR
+
+```bash
+./deploy-to-ecr.sh v1.1.0
+```
+
+**Features:**
+- ✅ Builds Docker image
+- ✅ Tags with version + latest
+- ✅ Authenticates with AWS ECR
+- ✅ Pushes to registry
+- ✅ Provides kubectl update commands
+
+**Use when:** Deploying to Kubernetes, creating releases, CI/CD pipelines
+
+---
+
+### Quick Reference Table
+
+| Script | Mode | Validation | Duration | Best For |
+|--------|------|------------|----------|----------|
+| `run_once.sh` | Single cycle | Minimal | ~2 min | Testing, debugging |
+| `start.sh` | Continuous | Full | Until Ctrl+C | Production |
+| `run_debug.sh` | Debug mode | Minimal | ~2 min | Troubleshooting |
+| `deploy-to-ecr.sh` | Build/Push | N/A | ~5 min | Deployment |
+
 ## Long-Context Monitoring (Phase 5)
 
 ### What is Long-Context Monitoring?
