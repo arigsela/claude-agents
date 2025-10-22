@@ -77,13 +77,15 @@ class Monitor:
 
         # Slack MCP server (optional)
         if Path(self.settings.slack_mcp_path).exists():
+            slack_channel_for_mcp = self.settings.slack_channel or ""
+            self.logger.info(f"🎯 Slack MCP Configuration: SLACK_DEFAULT_CHANNEL={slack_channel_for_mcp}")
             mcp_servers["slack"] = {
                 "type": "stdio",
                 "command": "node",
                 "args": [str(self.settings.slack_mcp_path)],
                 "env": {
                     "SLACK_BOT_TOKEN": self.settings.slack_bot_token or "",
-                    "SLACK_DEFAULT_CHANNEL": self.settings.slack_channel or "",
+                    "SLACK_DEFAULT_CHANNEL": slack_channel_for_mcp,
                 },
             }
         else:
