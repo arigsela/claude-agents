@@ -288,36 +288,6 @@ Monitor over next 24 hours
 
         return message
 
-    def _build_slack_query(self, payload: Dict[str, Any], decision: EscalationDecision) -> str:
-        """Build query for slack-notifier subagent.
-
-        Args:
-            payload: Notification payload
-            decision: Escalation decision
-
-        Returns:
-            Query string for subagent
-        """
-        channel = payload.get("channel", "#infrastructure-alerts")
-        severity = decision.severity
-        services = ", ".join(payload["affected_services"])
-
-        query = f"""Use the slack-notifier subagent to send a {severity} alert to {channel}:
-
-Incident ID: {payload['incident_id']}
-Severity: {severity}
-Confidence: {payload['confidence']}%
-Affected Services: {services}
-Root Cause: {payload.get('root_cause', 'Unknown')}
-Business Impact: {payload.get('business_impact', 'N/A')}
-
-Immediate Actions:
-{chr(10).join(f'• {action}' for action in payload['immediate_actions'])}
-
-Format the message appropriately for {severity} level with clear formatting, emojis, and actionable steps."""
-
-        return query
-
     def _parse_slack_response(self, response: str, incident_id: str) -> Dict[str, Any]:
         """Parse slack-notifier response.
 
