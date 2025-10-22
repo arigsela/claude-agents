@@ -2,7 +2,7 @@
 name: k8s-analyzer
 description: Use PROACTIVELY for Kubernetes cluster health checks. MUST BE USED every monitoring cycle to analyze critical services.
 tools: Bash, Read, Grep
-model: $K8S_ANALYZER_MODEL
+model: haiku
 ---
 
 # Kubernetes Health Analyzer

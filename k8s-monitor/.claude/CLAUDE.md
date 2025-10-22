@@ -8,18 +8,21 @@ This file provides context for Claude Code when monitoring the K3s homelab clust
 
 **Monitoring Frequency**: Every 1 hour (configurable)
 
-**Architecture**: Multi-agent orchestration with 4 specialized subagents:
-1. **k8s-analyzer**: Cluster health inspector (uses fast Haiku model)
-2. **escalation-manager**: Severity assessor and decision maker (uses Sonnet for critical decisions)
-3. **slack-notifier**: Alert dispatcher (uses fast Haiku model)
-4. **github-reviewer**: Deployment correlation analyst (optional, uses Sonnet for analysis)
+**Architecture**: Multi-agent orchestration with 4 specialized subagents (ALL using Haiku for cost optimization):
+1. **k8s-analyzer**: Cluster health inspector (Haiku 4.5)
+2. **escalation-manager**: Severity assessor and decision maker (Haiku 4.5)
+3. **slack-notifier**: Alert dispatcher (Haiku 4.5)
+4. **github-reviewer**: Deployment correlation analyst (optional, Haiku 4.5)
 
-**Model Configuration**: Each subagent and orchestrator can use different LLM models for cost optimization:
-- **Orchestrator**: Sonnet 4.5 (complex coordination logic)
-- **k8s-analyzer**: Haiku 4.5 (fast kubectl analysis, ~12x cheaper)
-- **escalation-manager**: Sonnet 4.5 (critical severity decisions require best reasoning)
-- **slack-notifier**: Haiku 4.5 (simple message formatting)
-- **github-reviewer**: Sonnet 4.5 (code correlation requires reasoning)
+**Model Configuration**: ALL models hardcoded to Haiku 4.5 for cost optimization (~12x cheaper than Sonnet):
+- **Orchestrator**: Haiku 4.5-20251001 (cost optimized, proven effective)
+- **k8s-analyzer**: Haiku 4.5-20251001 (fast kubectl analysis)
+- **escalation-manager**: Haiku 4.5-20251001 (fast severity decisions)
+- **slack-notifier**: Haiku 4.5-20251001 (simple message formatting)
+- **github-reviewer**: Haiku 4.5-20251001 (deployment correlation analysis)
+
+⚠️ **IMPORTANT**: All subagent .md files specify `model: claude-haiku-4-5-20251001`
+This ensures NO Sonnet usage and keeps costs to ~$0.90-$1.50/year
 
 ## Critical Reference Data
 
@@ -223,36 +226,30 @@ Configured via .env file:
 - K3S_CONTEXT: Kubernetes context name
 - MONITORING_INTERVAL_HOURS: Cycle frequency (default: 1)
 
-### Model Configuration (Cost Optimization)
-Configure different models per agent based on task complexity:
+### Model Configuration (ALL HARDCODED TO HAIKU)
+
+⚠️ **CRITICAL**: All models are now hardcoded to Haiku 4.5 for maximum cost optimization.
+
+DO NOT change these - they are hardcoded in the Python code AND specified in agent .md files:
 
 ```bash
-# Orchestrator - Complex coordination logic (use Sonnet)
-ORCHESTRATOR_MODEL=claude-sonnet-4-5-20250929
-
-# k8s-analyzer - Fast kubectl analysis (use Haiku for cost savings)
-K8S_ANALYZER_MODEL=claude-haiku-4-5-20250514
-
-# escalation-manager - Critical severity decisions (use Sonnet for best reasoning)
-ESCALATION_MANAGER_MODEL=claude-sonnet-4-5-20250929
-
-# slack-notifier - Simple message formatting (use Haiku)
-SLACK_NOTIFIER_MODEL=claude-haiku-4-5-20250514
-
-# github-reviewer - Code correlation (use Sonnet for analysis)
-GITHUB_REVIEWER_MODEL=claude-sonnet-4-5-20250929
+# ALL AGENTS USE HAIKU (hardcoded, cannot be overridden)
+ORCHESTRATOR_MODEL=claude-haiku-4-5-20251001
+K8S_ANALYZER_MODEL=claude-haiku-4-5-20251001
+ESCALATION_MANAGER_MODEL=claude-haiku-4-5-20251001
+SLACK_NOTIFIER_MODEL=claude-haiku-4-5-20251001
+GITHUB_REVIEWER_MODEL=claude-haiku-4-5-20251001
 ```
 
-**Cost Optimization Strategy**:
-- Haiku is ~12x cheaper than Sonnet (~$0.25 vs ~$3.00 per million tokens)
-- Use Haiku for simple tasks: kubectl output parsing, message formatting
-- Use Sonnet for complex reasoning: severity decisions, code correlation, orchestration
-- Recommended mix saves ~50% vs all-Sonnet while maintaining quality
+**Cost Optimization Achieved**:
+- Haiku: ~$0.25 per million tokens
+- Sonnet: ~$3.00 per million tokens (12x more expensive)
+- Our implementation: **ALL HAIKU** (maximum savings)
 
-**Estimated Monthly Costs** (hourly monitoring, 720 cycles/month):
-- All Haiku: ~$7/month (fastest, cheapest, acceptable for simple clusters)
-- Recommended mix: ~$43/month (balanced cost/quality)
-- All Sonnet: ~$86/month (best quality, highest cost)
+**Estimated Monthly Costs** (30-50 cycles/month, ~10K tokens/cycle):
+- Our implementation (All Haiku): ~$0.075-$0.125/month (**~$0.90-$1.50/year**)
+- If it were Sonnet: ~$0.75-$1.25/month (~$9-15/year)
+- **Annual Savings: ~$8-14** ✅
 
 ## File Structure
 

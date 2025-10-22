@@ -2,7 +2,7 @@
 name: escalation-manager
 description: Use AFTER k8s-analyzer completes. Determines incident severity and notification necessity based on service criticality.
 tools: Read
-model: $ESCALATION_MANAGER_MODEL
+model: haiku
 ---
 
 # Incident Escalation Manager

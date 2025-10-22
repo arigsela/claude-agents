@@ -4,44 +4,81 @@ import json
 import re
 from typing import Any
 
+from src.models import Finding
 
-def parse_k8s_analyzer_output(response: str) -> list[dict[str, Any]]:
+
+def parse_k8s_analyzer_output(response: str) -> list[Finding]:
     """Parse k8s-analyzer subagent output (markdown format).
 
     The k8s-analyzer returns structured markdown with sections:
-    - Critical Issues (P0)
-    - High Priority Issues (P1)
+    - Critical Issues (P0) / 🔴 Critical Issue
+    - High Priority Issues (P1) / ⚠️ Other Issues
     - Warnings (P2/P3)
     - All Clear (if healthy)
+    - Key Findings (generic findings section)
 
     Args:
         response: Raw markdown response from k8s-analyzer
 
     Returns:
-        List of parsed findings with severity and details
+        List of Finding objects parsed from markdown
     """
-    findings = []
+    findings_dicts = []
 
-    # Parse Critical Issues (P0)
-    critical_section = _extract_section(response, "Critical Issues|P0")
+    # Parse Critical Issues (P0) - try multiple patterns
+    critical_section = _extract_section(response, "Critical Issues|P0|🔴 Critical")
     if critical_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(critical_section, severity="critical", priority="P0")
         )
 
-    # Parse High Priority Issues (P1)
-    high_section = _extract_section(response, "High Priority|P1")
+    # Parse High Priority Issues (P1) - try multiple patterns
+    high_section = _extract_section(response, "High Priority|P1|⚠️.*?Issue")
     if high_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(high_section, severity="high", priority="P1")
         )
 
     # Parse Warnings (P2/P3) - handle multiple naming conventions
     warning_section = _extract_section(response, "Warnings|P2|P3|Minor Issues|Issues Found")
     if warning_section:
-        findings.extend(
+        findings_dicts.extend(
             _parse_issue_section(warning_section, severity="warning", priority="P2/P3")
         )
+
+    # Parse generic Key Findings section if no structured sections found
+    # This handles analyzer responses that don't use strict P0/P1/P2 format
+    if not findings_dicts:
+        key_findings_section = _extract_section(response, "Key Findings")
+        if key_findings_section:
+            # Look for **bold service names** with issues (pattern: **service-name** followed by description)
+            findings_dicts.extend(_parse_key_findings_section(key_findings_section))
+
+    # Parse ## FINDINGS section (2 hashes) - Claude may output this format
+    # This is a direct response to our explicit instructions in the query
+    if not findings_dicts:
+        findings_section = _extract_findings_section(response)
+        if findings_section:
+            findings_dicts.extend(_parse_key_findings_section(findings_section))
+
+    # Fallback: If still no findings but response indicates issues, parse entire response
+    # This handles responses that mention "Cluster Status: DEGRADED" with numbered lists
+    if not findings_dicts:
+        if 'DEGRADED' in response or 'Critical Issues' in response or '🔴' in response or 'P0' in response or 'Severity:' in response:
+            # Try to parse the entire response for issues
+            findings_dicts.extend(_parse_key_findings_section(response))
+
+    # Convert dicts to Finding objects
+    findings = []
+    for finding_dict in findings_dicts:
+        try:
+            finding = Finding(**finding_dict)
+            findings.append(finding)
+        except Exception as e:
+            # Log conversion errors but continue processing other findings
+            import sys
+            print(f"Warning: Failed to convert finding dict to Finding object: {e}", file=sys.stderr)
+            print(f"  Dict: {finding_dict}", file=sys.stderr)
 
     return findings
 
@@ -66,6 +103,142 @@ def _extract_section(content: str, section_pattern: str) -> str:
     if match:
         return match.group(0)
     return ""
+
+
+def _extract_findings_section(content: str) -> str:
+    """Extract ## FINDINGS section from markdown response.
+
+    This handles the direct output from Claude when responding to our
+    explicit instructions for ## FINDINGS format.
+
+    Args:
+        content: Full markdown content
+
+    Returns:
+        Content of the ## FINDINGS section, or empty string if not found
+    """
+    # Match ## FINDINGS (2 hashes) and capture until next ## heading or end
+    pattern = r"^##\s+FINDINGS\s*$.*?(?=^##\s+|\Z)"
+    match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+    if match:
+        return match.group(0)
+    return ""
+
+
+def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
+    """Parse findings from generic Key Findings section.
+
+    Looks for patterns like:
+    **🔴 Critical Issue:**
+    - **service-name** description
+    - More details
+
+    Also handles numbered lists like:
+    1. **MySQL** - Issue description
+       - Namespace: mysql
+       - Details: ...
+       - Severity: P0
+
+    Args:
+        section: Key Findings section content
+
+    Returns:
+        List of issue dictionaries with inferred severity
+    """
+    findings = []
+
+    # Strategy 1: Look for numbered items like "1. **MySQL** - Issue" with optional indented metadata
+    # This pattern captures:
+    # 1. **MySQL** - Database Connection Failure
+    #    - Namespace: mysql
+    #    - Severity: P0
+    numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
+    matches = list(re.finditer(numbered_pattern, section, re.MULTILINE | re.DOTALL))
+
+    if matches:
+        for match in matches:
+            service_name = match.group(1).strip()
+            description_block = match.group(2).strip()
+
+            # Extract severity from metadata lines within this block
+            severity = "warning"
+            priority = "P2"
+
+            # Look for explicit severity/priority indicators in the block
+            severity_match = re.search(r'Severity:\s*(P0|P1|P2|P3|critical|high|warning)', description_block, re.IGNORECASE)
+            if severity_match:
+                sev_value = severity_match.group(1).upper()
+                if sev_value.startswith('P0') or sev_value == 'CRITICAL':
+                    severity = "critical"
+                    priority = "P0"
+                elif sev_value.startswith('P1') or sev_value == 'HIGH':
+                    severity = "high"
+                    priority = "P1"
+
+            # Also check if this block appears under a critical marker in preceding text
+            if not severity_match:
+                match_start = match.start()
+                preceding_text = section[:match_start]
+
+                last_critical = preceding_text.rfind('🔴')
+                last_warning = preceding_text.rfind('⚠️')
+                last_degraded = preceding_text.rfind('DEGRADED')
+
+                # If we see DEGRADED or 🔴, mark as critical
+                if last_degraded > last_critical and last_degraded > last_warning:
+                    severity = "critical"
+                    priority = "P0"
+                elif last_critical > last_warning:
+                    severity = "critical"
+                    priority = "P0"
+
+            # Extract just the first line (the main description)
+            first_line = description_block.split('\n')[0].strip()
+            if first_line and len(first_line) > 5:
+                findings.append({
+                    "severity": severity,
+                    "priority": priority,
+                    "description": f"{service_name} - {first_line}",
+                })
+
+        if findings:
+            return findings
+
+    # Strategy 2: Look for all bulleted items with **service-name** pattern
+    # Pattern: "- **service-name** description"
+    bullet_pattern = r'^[\s]*[-*]\s+\*\*([^*]+)\*\*\s*(.+?)(?=\n|$)'
+    matches = re.finditer(bullet_pattern, section, re.MULTILINE)
+
+    for match in matches:
+        service_name = match.group(1).strip()
+        description = match.group(2).strip()
+
+        # Skip metadata lines like "Service:", "Namespace:", etc.
+        if description and not description.startswith(('Service', 'Namespace', 'Issue', 'Impact')) and len(description) > 5:
+            # Infer severity from context - check if we're in a critical section
+            # Look back in the section to see if we're under 🔴 or ⚠️
+            match_start = match.start()
+            preceding_text = section[:match_start]
+
+            # Find the last severity marker before this match
+            last_critical = preceding_text.rfind('🔴')
+            last_warning = preceding_text.rfind('⚠️')
+
+            if last_critical > last_warning:
+                severity = "critical"
+                priority = "P0"
+            else:
+                severity = "warning"
+                priority = "P2"  # Use P2 instead of P2/P3 combination
+
+            findings.append({
+                "severity": severity,
+                "priority": priority,
+                "description": f"{service_name} - {description}",
+            })
+
+    return findings
 
 
 def _parse_issue_section(

@@ -84,7 +84,7 @@ async def main() -> None:
     monitor = Monitor(settings)
 
     # Set up scheduler
-    scheduler = Scheduler(interval_hours=settings.monitoring_interval_hours)
+    scheduler = Scheduler(interval_minutes=settings.monitoring_interval_minutes)
     scheduler.schedule_job(
         lambda: run_monitoring_cycle(monitor), job_name="k8s_monitoring"
     )

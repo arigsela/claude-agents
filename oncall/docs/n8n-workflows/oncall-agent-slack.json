@@ -8,10 +8,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        448,
-        352
+        240,
+        0
       ],
-      "id": "baf76c9d-4ef5-4565-9329-6da1c6ae930d",
+      "id": "085d7951-1a4b-4560-b8b4-5847a0c03a21",
       "name": "extract_slack_data"
     },
     {
@@ -26,10 +26,10 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 2.1,
       "position": [
-        720,
-        352
+        512,
+        0
       ],
-      "id": "a87abec3-e728-4cd0-aa1b-b863b34a504e",
+      "id": "e05db575-914c-4eac-afed-364601bd4fce",
       "name": "AI Agent"
     },
     {
@@ -45,15 +45,15 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        592,
-        576
+        384,
+        224
       ],
-      "id": "8a28d33d-5b25-436d-9d9e-fecc60b1b8d7",
+      "id": "7869af57-9ed3-4649-8c62-8898ae9c1443",
       "name": "Anthropic Chat Model",
       "credentials": {
         "anthropicApi": {
-          "id": "KTMGjkzLrUXJrFRF",
-          "name": "Anthropic account"
+          "id": "iK9o3iYn8syeNA0A",
+          "name": "oncall-api-key"
         }
       }
     },
@@ -87,10 +87,10 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.2,
       "position": [
-        848,
-        576
+        640,
+        224
       ],
-      "id": "aff849e6-adfe-4a4d-bacc-32a944d5fac7",
+      "id": "a48adcbb-4184-4762-878f-29dc5a08e5ec",
       "name": "oncall_agent_query"
     },
     {
@@ -104,10 +104,10 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.2,
       "position": [
-        976,
-        576
+        768,
+        224
       ],
-      "id": "1f38fa30-a8ea-4e96-a1de-db7aa4429e17",
+      "id": "a981ef07-05af-475b-9787-176a8168044c",
       "name": "website_health_query"
     },
     {
@@ -119,15 +119,14 @@
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
       "position": [
-        720,
-        576
+        512,
+        224
       ],
-      "id": "a0f52abd-3fca-48f1-9bb9-8a42dc7a6690",
+      "id": "76f11061-076b-43d0-a41d-539673df7cc2",
       "name": "conversation_memory"
     },
     {
       "parameters": {
-        "authentication": "oAuth2",
         "select": "channel",
         "channelId": {
           "__rl": true,
@@ -147,40 +146,16 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [
-        1184,
-        352
+        976,
+        0
       ],
-      "id": "b31b84ad-27cc-4fe0-a554-b68b35b3e258",
+      "id": "4410286e-9328-4e9c-818d-ee7de7af78ac",
       "name": "send_slack_response",
       "webhookId": "195e76f8-e86a-4a10-8843-eaaa9baf8515",
       "credentials": {
-        "slackOAuth2Api": {
-          "id": "vGA5WuA39OUcqOGd",
-          "name": "slack-oauth"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "trigger": [
-          "app_mention"
-        ],
-        "watchWorkspace": true,
-        "options": {}
-      },
-      "type": "n8n-nodes-base.slackTrigger",
-      "typeVersion": 1,
-      "position": [
-        208,
-        352
-      ],
-      "id": "131cbbcd-331e-40b7-8c21-135c1f0261ab",
-      "name": "Slack Trigger",
-      "webhookId": "ebcaad5a-6b1c-40c1-aaca-f537794d1ce2",
-      "credentials": {
         "slackApi": {
-          "id": "zdDewloX2qOtH2To",
-          "name": "chores-arigsela-com-slack"
+          "id": "QG9MHFxziEQJLXpi",
+          "name": "oncall-channel"
         }
       }
     }
@@ -252,41 +227,30 @@
           }
         ]
       ]
-    },
-    "Slack Trigger": {
-      "main": [
-        [
-          {
-            "node": "extract_slack_data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "0e027a4b-899c-4d50-86e6-1005233e7497",
+  "versionId": "8c1859bf-5a9d-47bb-b675-5c759589d617",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "260fb3ae0081ce3b9ce29644be117d777383438b7271b6493786a73693ada027"
   },
-  "id": "59GzUnDWajA8l08t",
+  "id": "j38emZQIFfEhRPA5",
   "tags": [
     {
-      "createdAt": "2025-10-18T17:55:23.592Z",
-      "updatedAt": "2025-10-18T17:55:23.592Z",
-      "id": "WL6kPTdlSvkfL3cR",
-      "name": "devops"
+      "createdAt": "2025-10-22T00:33:56.419Z",
+      "updatedAt": "2025-10-22T00:33:56.419Z",
+      "id": "diXUfRHeQbgLIWVV",
+      "name": "slack"
     },
     {
-      "createdAt": "2025-10-18T23:51:24.412Z",
-      "updatedAt": "2025-10-18T23:51:24.412Z",
-      "id": "uBtPJjOmUZ4nLNFK",
-      "name": "slack"
+      "createdAt": "2025-10-22T00:33:56.548Z",
+      "updatedAt": "2025-10-22T00:33:56.548Z",
+      "id": "WKxDhZtHsE5VBuXs",
+      "name": "devops"
     }
   ]
 }

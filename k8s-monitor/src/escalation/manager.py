@@ -141,7 +141,7 @@ class EscalationManager:
             Slack channel name or ID
         """
         channel_map = {
-            IncidentSeverity.SEV_1: "#critical-alerts",
+            IncidentSeverity.SEV_1: "#oncall-agent",
             IncidentSeverity.SEV_2: "#infrastructure-alerts",
             IncidentSeverity.SEV_3: "#infrastructure-alerts",
             IncidentSeverity.SEV_4: None,
@@ -168,6 +168,11 @@ class EscalationManager:
         # Extract affected services
         affected_services = self._extract_affected_services(response)
 
+        # If no services found via pattern matching, try extracting from immediate actions
+        if not affected_services:
+            immediate_actions_preview = self._extract_actions(response)
+            affected_services = self._extract_services_from_actions(immediate_actions_preview)
+
         # Extract JSON payload if present
         enriched_payload = self._extract_json_payload(response)
 
@@ -177,8 +182,16 @@ class EscalationManager:
         # Extract root cause
         root_cause = self._extract_section(response, "Root Cause Analysis")
 
+        # Generate fallback root cause if not provided (regardless of affected_services)
+        if not root_cause:
+            root_cause = self._generate_fallback_root_cause(affected_services, severity)
+
         # Extract business impact
         business_impact = self._extract_section(response, "Business Impact Statement")
+
+        # Generate fallback business impact if not provided
+        if not business_impact and severity in [IncidentSeverity.SEV_1, IncidentSeverity.SEV_2]:
+            business_impact = self._generate_fallback_business_impact(affected_services, severity)
 
         # Determine confidence
         confidence = self._extract_confidence(response)
@@ -266,6 +279,33 @@ class EscalationManager:
 
         return services
 
+    def _extract_services_from_actions(self, actions: List[str]) -> List[str]:
+        """Extract service names from immediate action descriptions.
+
+        Args:
+            actions: List of immediate action descriptions
+
+        Returns:
+            List of unique service names found in actions
+        """
+        services = set()
+
+        # Known service keywords to look for
+        known_services = [
+            "mysql", "postgresql", "chores-tracker-backend", "chores-tracker-frontend",
+            "n8n", "nginx-ingress", "vault", "external-secrets", "cert-manager",
+            "ecr-credentials", "crossplane", "route53-updater", "oncall-agent"
+        ]
+
+        for action in actions:
+            action_lower = action.lower()
+            for service in known_services:
+                if service in action_lower:
+                    # Normalize service name (remove hyphens for matching)
+                    services.add(service)
+
+        return list(services)
+
     def _extract_confidence(self, response: str) -> int:
         """Extract confidence percentage."""
         # Look for patterns like "**Confidence**: HIGH (95%)" or "Confidence: 95%"
@@ -333,3 +373,72 @@ class EscalationManager:
                 return None
 
         return None
+
+    def _generate_fallback_root_cause(self, affected_services: List[str], severity: IncidentSeverity) -> str:
+        """Generate a fallback root cause summary when escalation-manager doesn't provide one.
+
+        Args:
+            affected_services: List of affected service names
+            severity: Incident severity level
+
+        Returns:
+            Generated root cause summary
+        """
+        # If affected_services is empty, return a generic message
+        if not affected_services:
+            return "Cluster infrastructure issues detected across multiple components requiring immediate attention"
+
+        # Identify service types
+        p0_services = [s for s in affected_services if self._is_p0_service(s)]
+        p1_services = [s for s in affected_services if self._is_p1_service(s)]
+
+        if len(p0_services) > 1:
+            return f"Multiple critical services affected: {', '.join(p0_services)}. Cluster experiencing widespread issues impacting customer-facing applications."
+        elif p0_services:
+            service_name = p0_services[0]
+            return f"{service_name} service is experiencing critical issues. This is a business-critical (P0) service with 0 minutes maximum downtime tolerance."
+        elif p1_services:
+            return f"Infrastructure dependencies affected: {', '.join(p1_services)}. May impact P0 services if prolonged."
+        else:
+            return f"Issues detected in: {', '.join(affected_services[:3])}{'...' if len(affected_services) > 3 else ''}"
+
+    def _generate_fallback_business_impact(self, affected_services: List[str], severity: IncidentSeverity) -> str:
+        """Generate a fallback business impact statement when escalation-manager doesn't provide one.
+
+        Args:
+            affected_services: List of affected service names
+            severity: Incident severity level
+
+        Returns:
+            Generated business impact statement
+        """
+        # Handle empty affected_services list for SEV-1/SEV-2
+        if not affected_services:
+            if severity == IncidentSeverity.SEV_1:
+                return "CRITICAL: Infrastructure issues affecting cluster stability. Immediate investigation required to prevent customer impact."
+            elif severity == IncidentSeverity.SEV_2:
+                return "HIGH: Infrastructure issues detected that may impact service availability and deployments."
+            else:
+                return "Infrastructure issues detected requiring attention"
+
+        # Identify P0 services
+        p0_services = [s for s in affected_services if self._is_p0_service(s)]
+
+        if severity == IncidentSeverity.SEV_1:
+            if "mysql" in p0_services or "postgresql" in p0_services:
+                return "CRITICAL: Data layer unavailable. All services dependent on database cannot function. Customer-facing applications affected."
+            elif "nginx-ingress" in p0_services:
+                return "CRITICAL: Ingress controller down. All external access to cluster services lost. Complete service outage."
+            elif p0_services:
+                service_list = ', '.join(p0_services)
+                return f"CRITICAL: Business-critical services unavailable: {service_list}. Direct customer impact. Services exceeded maximum downtime tolerance (0 minutes)."
+            else:
+                return "CRITICAL: Infrastructure issues affecting multiple services. Immediate investigation required."
+
+        elif severity == IncidentSeverity.SEV_2:
+            if p0_services:
+                return f"HIGH: Critical services degraded or at risk: {', '.join(p0_services)}. Partial service availability, customer impact possible."
+            else:
+                return "HIGH: Infrastructure dependencies affected. May impact service deployments and pod restarts."
+
+        return "Service issues detected requiring attention"

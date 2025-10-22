@@ -3,11 +3,12 @@
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from claude_agent_sdk import ClaudeSDKClient
 
 from src.models import EscalationDecision, IncidentSeverity
+from src.config.settings import settings
 
 
 class SlackNotifier:
@@ -42,7 +43,7 @@ class SlackNotifier:
     async def send_notification(
         self, client: ClaudeSDKClient, decision: EscalationDecision
     ) -> Dict[str, Any]:
-        """Send Slack notification using slack-notifier subagent.
+        """Send Slack notification using Slack API or fallback to Bash.
 
         Args:
             client: ClaudeSDKClient instance
@@ -68,18 +69,17 @@ class SlackNotifier:
             # Prepare payload for slack-notifier
             payload = self._prepare_notification_payload(decision, incident_id)
 
-            # Query slack-notifier subagent
-            query = self._build_slack_query(payload, decision)
+            # Build Slack message
+            slack_message = self._format_slack_message(decision, payload)
+            channel = payload.get("channel", self.slack_channel or "#infrastructure-alerts")
 
-            await client.query(query)
+            self.logger.info(f"📤 Sending Slack message to channel: {channel}")
+            self.logger.debug(f"Message preview: {slack_message[:200]}...")
 
-            # Receive response from slack-notifier
-            response = await client.receive_response()
-
-            self.logger.debug(f"Slack notifier response: {response[:300]}...")
-
-            # Parse response
-            result = self._parse_slack_response(response, incident_id)
+            # Skip MCP tool - it's not available in Claude Agent SDK
+            # Go directly to Slack API via curl
+            self.logger.info("Using direct Slack API call (MCP tool not available in this environment)")
+            result = await self._send_via_bash(slack_message, channel, incident_id)
 
             return result
 
@@ -89,6 +89,159 @@ class SlackNotifier:
                 "success": False,
                 "error": str(e),
                 "severity": decision.severity,
+            }
+
+    async def _send_via_mcp(
+        self, client: ClaudeSDKClient, message: str, channel: str, incident_id: str
+    ) -> Dict[str, Any]:
+        """Try to send via Slack MCP tool.
+
+        Args:
+            client: ClaudeSDKClient instance
+            message: Slack message text
+            channel: Target channel
+            incident_id: Incident ID for tracking
+
+        Returns:
+            Result dictionary
+        """
+        try:
+            query = f"""Use the mcp__slack__post_message tool to send this message to {channel}:
+
+{message}
+
+CRITICAL: After sending, you MUST report back the exact message timestamp (ts) value from the Slack API response.
+The response format should include: "Message sent successfully. Message ID: <timestamp>"
+Example: "Message sent successfully. Message ID: 1234567890.123456"
+
+If the tool returns a JSON response, extract the "ts" field and report it explicitly."""
+
+            await client.query(query)
+
+            response_text = ""
+            async for message_obj in client.receive_response():
+                if hasattr(message_obj, 'content'):
+                    content_list = message_obj.content
+                    if isinstance(content_list, list):
+                        for block in content_list:
+                            if hasattr(block, 'text'):
+                                response_text += block.text
+                    elif hasattr(content_list, 'text'):
+                        response_text += content_list.text
+                elif hasattr(message_obj, 'text'):
+                    response_text += message_obj.text
+
+            self.logger.info(f"Slack MCP response: {response_text[:500]}...")
+            return self._parse_slack_response(response_text, incident_id)
+
+        except Exception as e:
+            self.logger.warning(f"MCP Slack send failed: {e}")
+            return {"success": False, "error": str(e), "incident_id": incident_id}
+
+    async def _send_via_bash(
+        self, message: str, channel: str, incident_id: str
+    ) -> Dict[str, Any]:
+        """Send via direct Slack API using curl in Bash.
+
+        Args:
+            message: Slack message text
+            channel: Target channel (e.g., '#oncall-agent')
+            incident_id: Incident ID for tracking
+
+        Returns:
+            Result dictionary
+        """
+        import subprocess
+        import json
+
+        try:
+            slack_token = settings.slack_bot_token
+            if not slack_token:
+                self.logger.error("SLACK_BOT_TOKEN not configured in settings")
+                return {
+                    "success": False,
+                    "error": "SLACK_BOT_TOKEN not configured",
+                    "incident_id": incident_id,
+                }
+
+            self.logger.info(f"Sending message to {channel} via Slack API (curl)")
+            self.logger.info(f"Message length: {len(message)} chars")
+
+            # Create JSON payload separately to avoid shell escaping issues
+            payload = json.dumps({
+                "channel": channel,
+                "text": message
+            })
+
+            self.logger.info(f"Payload length: {len(payload)} chars")
+            self.logger.info(f"Payload preview: {payload[:200]}...")
+            self.logger.info(f"Using token: {slack_token[:15]}...")  # Log truncated for security
+
+            # Use Slack Web API to post message
+            cmd = [
+                "curl",
+                "-X", "POST",
+                "-H", "Content-type: application/json",
+                "-H", f"Authorization: Bearer {slack_token}",
+                "--data", payload,
+                "https://slack.com/api/chat.postMessage"
+            ]
+
+            self.logger.info(f"Executing curl command to Slack API")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            self.logger.info(f"Curl return code: {result.returncode}")
+            self.logger.info(f"Curl stdout: {result.stdout[:500]}")
+            if result.stderr:
+                self.logger.info(f"Curl stderr: {result.stderr[:500]}")
+
+            if result.returncode == 0 and result.stdout:
+                try:
+                    response_json = json.loads(result.stdout)
+                    if response_json.get("ok"):
+                        self.logger.info(f"✅ Slack message sent successfully to {channel}")
+                        self.logger.info(f"   Message TS: {response_json.get('ts')}")
+                        return {
+                            "success": True,
+                            "incident_id": incident_id,
+                            "message_id": response_json.get("ts"),
+                            "channel": channel,
+                            "timestamp": str(datetime.now().isoformat()),
+                        }
+                    else:
+                        error_msg = response_json.get("error", "Unknown error")
+                        self.logger.error(f"❌ Slack API error: {error_msg}")
+                        self.logger.debug(f"   Full response: {response_json}")
+                        return {
+                            "success": False,
+                            "error": error_msg,
+                            "incident_id": incident_id,
+                        }
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Invalid JSON response from Slack: {result.stdout}")
+                    self.logger.error(f"JSON decode error: {e}")
+                    return {
+                        "success": False,
+                        "error": "Invalid response from Slack API",
+                        "incident_id": incident_id,
+                    }
+            else:
+                self.logger.error(f"❌ Curl command failed")
+                self.logger.error(f"   Return code: {result.returncode}")
+                self.logger.error(f"   Stdout: {result.stdout}")
+                self.logger.error(f"   Stderr: {result.stderr}")
+                return {
+                    "success": False,
+                    "error": f"Curl failed: {result.stderr or result.stdout}",
+                    "incident_id": incident_id,
+                }
+
+        except Exception as e:
+            self.logger.error(f"Error sending via Bash/curl: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "incident_id": incident_id,
             }
 
     def format_message_preview(self, decision: EscalationDecision) -> str:
@@ -148,61 +301,177 @@ class SlackNotifier:
 
         return payload
 
-    def _build_slack_query(self, payload: Dict[str, Any], decision: EscalationDecision) -> str:
-        """Build query for slack-notifier subagent.
+    def _format_slack_message(self, decision: EscalationDecision, payload: Dict[str, Any]) -> str:
+        """Format Slack message according to severity.
 
         Args:
-            payload: Notification payload
             decision: Escalation decision
+            payload: Notification payload
 
         Returns:
-            Query string for subagent
+            Formatted Slack message
         """
-        channel = payload.get("channel", "#infrastructure-alerts")
+        incident_id = payload["incident_id"]
         severity = decision.severity
-        services = ", ".join(payload["affected_services"])
+        emoji = self.severity_emoji.get(decision.severity, "")
+        services = payload["affected_services"]
+        root_cause = payload.get("root_cause", "Unknown")
+        business_impact = payload.get("business_impact", "N/A")
+        confidence = payload.get("confidence", 0)
+        actions = payload.get("immediate_actions", [])
 
-        query = f"""Use the slack-notifier subagent to send a {severity} alert to {channel}:
+        # SEV-1 format
+        if severity == IncidentSeverity.SEV_1:
+            message = f"""{emoji} *CRITICAL INCIDENT* {emoji}
+*Severity*: {severity} | *Status*: ACTIVE | *Confidence*: {confidence}%
 
-Incident ID: {payload['incident_id']}
-Severity: {severity}
-Confidence: {payload['confidence']}%
-Affected Services: {services}
-Root Cause: {payload.get('root_cause', 'Unknown')}
-Business Impact: {payload.get('business_impact', 'N/A')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Immediate Actions:
-{chr(10).join(f'• {action}' for action in payload['immediate_actions'])}
+*Incident Summary*
+{root_cause}
 
-Format the message appropriately for {severity} level with clear formatting, emojis, and actionable steps."""
+*Affected Services*
+"""
+            # Extract service issues from actions for context
+            service_issues = self._extract_service_issues_from_actions(actions, services)
 
-        return query
+            for service in services:
+                issue = service_issues.get(service, "Service unavailable or degraded")
+                message += f"🔴 *{service}*: {issue}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Business Impact*
+{business_impact}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Immediate Actions Required*
+"""
+            for i, action in enumerate(actions, 1):
+                message += f"{i}️⃣ {action}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Incident ID*: {incident_id}
+"""
+
+        # SEV-2 format
+        elif severity == IncidentSeverity.SEV_2:
+            message = f"""{emoji} *HIGH PRIORITY ALERT* {emoji}
+*Severity*: {severity} | *Status*: ACTIVE | *Confidence*: {confidence}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Alert Summary*
+{root_cause}
+
+*Affected Services*
+"""
+            # Extract service issues from actions for context
+            service_issues = self._extract_service_issues_from_actions(actions, services)
+
+            for service in services:
+                issue = service_issues.get(service, "Service degraded or at risk")
+                message += f"🟡 *{service}*: {issue}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Business Impact*
+{business_impact}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Recommended Actions*
+"""
+            for i, action in enumerate(actions, 1):
+                message += f"{i}️⃣ {action}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Incident ID*: {incident_id}
+"""
+
+        # SEV-3 format (shouldn't happen per escalation policy, but for completeness)
+        else:
+            message = f"""{emoji} *Infrastructure Notice*
+*Severity*: {severity} | *Status*: MONITORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Notice*
+{root_cause}
+
+*Details*
+"""
+            for service in services:
+                message += f"🟢 *{service}*\n"
+
+            message += f"""
+*Action Required*
+Monitor over next 24 hours
+
+*Incident ID*: {incident_id}
+"""
+
+        return message
 
     def _parse_slack_response(self, response: str, incident_id: str) -> Dict[str, Any]:
         """Parse slack-notifier response.
 
+        Handles both:
+        - Text responses from MCP Slack tool
+        - JSON responses from direct Slack API calls
+
         Args:
-            response: Raw response from slack-notifier
+            response: Raw response from slack-notifier or Slack API
             incident_id: Generated incident ID
 
         Returns:
             Parsed result dictionary
         """
+        import json
+
         success = False
         message_id = None
+        channel = None
 
-        # Check for success indicators
-        if re.search(r"successfully|delivered|sent|✅|message\s+(?:posted|sent)", response, re.IGNORECASE):
-            success = True
+        # Try to parse as JSON first (from direct Slack API calls)
+        try:
+            response_json = json.loads(response)
+            if response_json.get("ok"):
+                success = True
+                message_id = response_json.get("ts")
+                channel = response_json.get("channel")
+            else:
+                # Slack API returned error
+                self.logger.debug(f"Slack API error: {response_json.get('error')}")
+                success = False
+        except (json.JSONDecodeError, ValueError):
+            # Not JSON, try text parsing (from MCP tool)
+            # Check for success indicators
+            if re.search(r"successfully|delivered|sent|✅|message\s+(?:posted|sent)", response, re.IGNORECASE):
+                success = True
 
-        # Try to extract message ID
-        message_match = re.search(r"message\s+(?:id|ts)[:\s]+([^\s]+)", response, re.IGNORECASE)
-        if message_match:
-            message_id = message_match.group(1)
+            # Try to extract message ID from text response
+            # Pattern 1: "Message ID: 1234567890.123456"
+            message_match = re.search(r"message\s+(?:id|ts)[:\s]+(\d+\.\d+)", response, re.IGNORECASE)
+            if message_match:
+                message_id = message_match.group(1)
+            else:
+                # Pattern 2: "ts: 1234567890.123456" or generic "1234567890.123456"
+                ts_match = re.search(r"(?:ts|timestamp)[:\s]+(\d+\.\d+)", response, re.IGNORECASE)
+                if ts_match:
+                    message_id = ts_match.group(1)
 
-        # Extract channel if mentioned
-        channel_match = re.search(r"(?:in|to)\s+[#@]?([^\s]+)", response, re.IGNORECASE)
-        channel = channel_match.group(1) if channel_match else None
+            # Extract channel - only match channel-like patterns (#channel or @user)
+            # Avoid capturing random words like "the"
+            channel_match = re.search(r"(?:in|to|channel)\s+([#@]\S+)", response, re.IGNORECASE)
+            channel = channel_match.group(1) if channel_match else None
 
         result = {
             "success": success,
@@ -218,3 +487,69 @@ Format the message appropriately for {severity} level with clear formatting, emo
 
         self.logger.info(f"Slack notification result: {result}")
         return result
+
+    def _extract_service_issues_from_actions(
+        self, actions: List[str], services: List[str]
+    ) -> Dict[str, str]:
+        """Extract service-specific issues from immediate action descriptions.
+
+        Args:
+            actions: List of immediate action descriptions
+            services: List of affected service names
+
+        Returns:
+            Dictionary mapping service names to their specific issues
+        """
+        service_issues = {}
+
+        for action in actions:
+            action_lower = action.lower()
+
+            # Look for each service in the action text
+            for service in services:
+                service_lower = service.lower()
+
+                if service_lower in action_lower:
+                    # Try to extract the issue description
+                    # Patterns like "MySQL ... - CrashLoopBackOff" or "mysql: pod not ready"
+
+                    # Pattern 1: "**Service** - Issue description"
+                    match = re.search(
+                        rf"\*\*{re.escape(service)}\*\*[^-]*-\s*(.+?)(?:\n|$|,)",
+                        action,
+                        re.IGNORECASE
+                    )
+                    if match:
+                        issue = match.group(1).strip()
+                        # Clean up the issue (remove extra details after commas)
+                        issue = issue.split(',')[0].strip()
+                        service_issues[service] = issue
+                        continue
+
+                    # Pattern 2: "service (namespace) - Issue"
+                    match = re.search(
+                        rf"{re.escape(service)}\s*\([^)]+\)\s*-\s*(.+?)(?:\n|$|,)",
+                        action,
+                        re.IGNORECASE
+                    )
+                    if match:
+                        issue = match.group(1).strip()
+                        service_issues[service] = issue
+                        continue
+
+                    # Pattern 3: Look for common issue keywords after service name
+                    keywords = [
+                        "CrashLoopBackOff", "ImagePullBackOff", "OOMKilled",
+                        "pending", "not ready", "unavailable", "degraded",
+                        "restarts", "down", "offline", "failing"
+                    ]
+
+                    for keyword in keywords:
+                        if keyword.lower() in action_lower:
+                            # Extract a snippet around the keyword
+                            start_idx = action_lower.find(keyword.lower())
+                            snippet = action[max(0, start_idx-20):start_idx+len(keyword)+30]
+                            service_issues[service] = keyword
+                            break
+
+        return service_issues

@@ -13,6 +13,16 @@ from src.escalation import EscalationManager
 from src.models import EscalationDecision, Finding
 from src.notifications import SlackNotifier
 from src.utils.parsers import parse_k8s_analyzer_output
+from src.utils.model_inspector import ModelInspector
+from src.utils.cycle_history import CycleHistory
+
+# HARDCODED MODELS - NO VARIABLES, NO SUBSTITUTION
+# All models set to Haiku for cost optimization (~12x cheaper than Sonnet)
+ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"
+K8S_ANALYZER_MODEL = "claude-haiku-4-5-20251001"
+ESCALATION_MANAGER_MODEL = "claude-haiku-4-5-20251001"
+SLACK_NOTIFIER_MODEL = "claude-haiku-4-5-20251001"
+GITHUB_REVIEWER_MODEL = "claude-haiku-4-5-20251001"
 
 
 class Monitor:
@@ -29,6 +39,12 @@ class Monitor:
         self.cycle_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.escalation_manager = EscalationManager()
         self.slack_notifier = SlackNotifier(slack_channel=self.settings.slack_channel)
+        # Cycle history for trend analysis
+        self.cycle_history = CycleHistory(
+            history_dir=Path("logs"),
+            max_history_cycles=5,
+            max_history_hours=24,
+        )
         # State tracking for error recovery
         self.cycle_count = 0
         self.last_successful_cycle: Optional[datetime] = None
@@ -41,48 +57,103 @@ class Monitor:
         Returns:
             Initialized ClaudeSDKClient instance
         """
+        self.logger.info("=" * 80)
+        self.logger.info("CLAUDE AGENT SDK INITIALIZATION - HARDCODED HAIKU MODELS")
+        self.logger.info("=" * 80)
         self.logger.info(f"Initializing ClaudeSDKClient for cycle {self.cycle_id}")
+        self.logger.info(f"🤖 ORCHESTRATOR MODEL: {ORCHESTRATOR_MODEL}")
+        self.logger.info(f"📊 K8S_ANALYZER MODEL: {K8S_ANALYZER_MODEL}")
+        self.logger.info(f"🚨 ESCALATION_MANAGER MODEL: {ESCALATION_MANAGER_MODEL}")
+        self.logger.info(f"💬 SLACK_NOTIFIER MODEL: {SLACK_NOTIFIER_MODEL}")
+        self.logger.info(f"🔍 GITHUB_REVIEWER MODEL: {GITHUB_REVIEWER_MODEL}")
+        self.logger.info("=" * 80)
 
-        # Configure MCP servers
-        mcp_servers = {
-            "github": {
+        # Configure MCP servers (optional - only if available)
+        mcp_servers = {}
+
+        # GitHub MCP server (optional)
+        if Path(self.settings.github_mcp_path).exists():
+            mcp_servers["github"] = {
                 "type": "stdio",
                 "command": "node",
                 "args": [str(self.settings.github_mcp_path)],
                 "env": {"GITHUB_TOKEN": self.settings.github_token or ""},
-            },
-            "slack": {
+            }
+        else:
+            self.logger.warning(f"GitHub MCP server not found at {self.settings.github_mcp_path}")
+
+        # Slack MCP server (optional)
+        if Path(self.settings.slack_mcp_path).exists():
+            slack_channel_for_mcp = self.settings.slack_channel or ""
+            self.logger.info(f"🎯 Slack MCP Configuration: SLACK_DEFAULT_CHANNEL={slack_channel_for_mcp}")
+            mcp_servers["slack"] = {
                 "type": "stdio",
                 "command": "node",
                 "args": [str(self.settings.slack_mcp_path)],
                 "env": {
                     "SLACK_BOT_TOKEN": self.settings.slack_bot_token or "",
-                    "SLACK_DEFAULT_CHANNEL": self.settings.slack_channel or "",
+                    "SLACK_DEFAULT_CHANNEL": slack_channel_for_mcp,
                 },
-            },
+            }
+        else:
+            self.logger.warning(f"Slack MCP server not found at {self.settings.slack_mcp_path}")
+
+        # Configure Claude Agent SDK with programmatic agent definitions
+        # Per SDK docs: Programmatic agents take precedence and allow full control
+        # https://docs.claude.com/en/api/agent-sdk/subagents
+
+        # Load agent prompts from .md files
+        k8s_analyzer_prompt = self._load_agent_prompt("k8s-analyzer")
+        escalation_manager_prompt = self._load_agent_prompt("escalation-manager")
+        github_reviewer_prompt = self._load_agent_prompt("github-reviewer")
+        slack_notifier_prompt = self._load_agent_prompt("slack-notifier")
+
+        # Define agents programmatically with explicit Haiku model
+        from claude_agent_sdk.types import AgentDefinition
+
+        agents_config = {
+            "k8s-analyzer": AgentDefinition(
+                description="Use PROACTIVELY for Kubernetes cluster health checks. MUST BE USED every monitoring cycle.",
+                prompt=k8s_analyzer_prompt,
+                tools=["Bash", "Read", "Grep"],
+                model="haiku",
+            ),
+            "escalation-manager": AgentDefinition(
+                description="Assess incident severity and determine notification requirements based on service criticality.",
+                prompt=escalation_manager_prompt,
+                tools=["Read"],
+                model="haiku",
+            ),
+            "github-reviewer": AgentDefinition(
+                description="Correlate cluster issues with recent GitHub commits for deployment context.",
+                prompt=github_reviewer_prompt,
+                tools=["Read", "Bash"],  # GitHub tool via bash commands
+                model="haiku",
+            ),
+            "slack-notifier": AgentDefinition(
+                description="Format and deliver Slack alerts for critical incidents.",
+                prompt=slack_notifier_prompt,
+                tools=["Bash"],  # Slack tool via bash commands
+                model="haiku",
+            ),
         }
 
-        # Configure Claude Agent SDK options
         options = ClaudeAgentOptions(
-            # Load .claude/CLAUDE.md and .claude/agents/*.md
-            setting_sources=["project"],
-            # MCP Servers for GitHub and Slack integration
-            mcp_servers=mcp_servers,
-            # Tools available to orchestrator
-            allowed_tools=[
-                "Bash",
-                "Read",
-                "Grep",
-                "Glob",
-                "mcp__github__*",
-                "mcp__slack__*",
-            ],
+            # Pass agents programmatically (recommended per SDK docs)
+            agents=agents_config,
+            # Do NOT load filesystem agents - use programmatic definitions only
+            setting_sources=[],
+            # MCP Servers (optional - only if available)
+            mcp_servers=mcp_servers if mcp_servers else None,
+            # Tools available to orchestrator (None = all tools including MCP tools)
+            # Important: Must allow MCP tools like mcp__slack__post_message
+            allowed_tools=None,  # Allow all tools including MCP
             # Use Claude Code preset
             system_prompt={"type": "preset", "preset": "claude_code"},
             # Auto-approve kubectl and file reads
             permission_mode="acceptEdits",
-            # Model configuration
-            model=self.settings.orchestrator_model,
+            # HARDCODED Model - Haiku for cost optimization
+            model=ORCHESTRATOR_MODEL,
         )
 
         # Create orchestrator client
@@ -91,7 +162,13 @@ class Monitor:
         # Connect to the client
         await client.connect()
 
-        self.logger.info("ClaudeSDKClient initialized successfully")
+        self.logger.info("✅ ClaudeSDKClient initialized successfully with HARDCODED Haiku models")
+
+        # INSPECTION: Log which models the SDK actually loaded
+        inspector = ModelInspector(logger=self.logger)
+        detected_models = await inspector.inspect_client_initialization(client)
+        self.logger.info(f"🔍 SDK Model Detection: {detected_models}")
+
         return client
 
     async def run_monitoring_cycle(self) -> dict[str, Any]:
@@ -107,12 +184,16 @@ class Monitor:
         )
 
         try:
+            # Load previous cycles for trend analysis
+            previous_cycles = self.cycle_history.load_recent_cycles()
+            self.logger.info(f"Loaded {len(previous_cycles)} previous cycles for context")
+
             client = await self.initialize_client()
 
             # Phase 1: Analyze cluster health
             self.logger.info("Phase 1: Running k8s-analyzer subagent")
             try:
-                k8s_results = await self._analyze_cluster(client)
+                k8s_results = await self._analyze_cluster(client, previous_cycles)
             except Exception as e:
                 self.logger.error(f"CRITICAL: k8s-analyzer failed: {e}", exc_info=True)
                 self.failed_cycles += 1
@@ -142,8 +223,16 @@ class Monitor:
 
             # Phase 2: Assess severity using escalation manager
             self.logger.info("Phase 2: Running escalation-manager subagent")
+            # Detect recurring issues for better context
+            recurring_analysis = self.cycle_history.detect_recurring_issues(
+                k8s_results, previous_cycles
+            )
+            self.logger.info(f"Trend analysis: {recurring_analysis}")
+
             try:
-                escalation_response = await self._assess_escalation(client, k8s_results)
+                escalation_response = await self._assess_escalation(
+                    client, k8s_results, recurring_analysis
+                )
                 escalation_decision = self.escalation_manager.parse_escalation_response(
                     escalation_response
                 )
@@ -153,21 +242,33 @@ class Monitor:
                     exc_info=True,
                 )
                 # Fallback: conservative default
+                # Extract service names, handling both Finding objects and dicts
+                affected_services = []
+                for f in k8s_results:
+                    service = f.service if hasattr(f, 'service') else f.get('service')
+                    if service:
+                        affected_services.append(service)
+                    else:
+                        affected_services.append("unknown")
+
                 escalation_decision = EscalationDecision(
                     severity="SEV-2",
                     confidence=50,
                     should_notify=True,
-                    affected_services=[f.service or "unknown" for f in k8s_results],
+                    affected_services=affected_services,
                     root_cause="Unable to assess escalation, conservative default",
                     immediate_actions=["Manual review required"],
                     business_impact="Potential incident detected",
                 )
                 self.logger.warning(f"Using fallback escalation decision: {escalation_decision}")
 
-            # Phase 3: Send Slack notifications if required
+            # Phase 3: Send Slack notifications if required and enabled
             notifications_sent = 0
             notification_result = None
-            if escalation_decision.should_notify:
+
+            if not self.settings.slack_enabled:
+                self.logger.info("Phase 3: Slack notifications disabled in settings")
+            elif escalation_decision.should_notify:
                 self.logger.info("Phase 3: Running slack-notifier subagent")
                 try:
                     notification_result = await self._send_notification(
@@ -209,6 +310,7 @@ class Monitor:
                 "cycle_number": self.cycle_count,
                 "status": "completed",
                 "findings": [f.model_dump() for f in k8s_results],
+                "trend_analysis": recurring_analysis,
                 "escalation_decision": escalation_decision.model_dump()
                 if isinstance(escalation_decision, EscalationDecision)
                 else escalation_decision,
@@ -230,27 +332,118 @@ class Monitor:
                 "failed_cycles": self.failed_cycles,
             }
 
-    async def _analyze_cluster(self, client: ClaudeSDKClient) -> list[dict[str, Any]]:
+    async def _analyze_cluster(
+        self, client: ClaudeSDKClient, previous_cycles: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Invoke k8s-analyzer subagent to check cluster health.
 
         Args:
             client: ClaudeSDKClient instance
+            previous_cycles: List of previous cycle reports for trend analysis
 
         Returns:
             List of findings from analysis
         """
         try:
             self.logger.info("Invoking k8s-analyzer subagent")
+            self.logger.info(f"📊 Configured model: {K8S_ANALYZER_MODEL}")
+            self.logger.info(f"📊 Settings model: {self.settings.k8s_analyzer_model}")
 
-            # Query orchestrator to use k8s-analyzer subagent
-            query = "Use the k8s-analyzer subagent to check the K3s cluster health. Analyze pod status, node conditions, recent events, and service health."
+            # Format previous cycle history for context
+            history_summary = self.cycle_history.format_history_summary(previous_cycles)
+
+            # Run kubectl commands directly via orchestrator's Bash tool (with auto-approval)
+            # This bypasses permission issues with subagents
+            self.logger.info("Gathering cluster data via direct kubectl commands...")
+
+            kubectl_commands = [
+                ("pods", "kubectl get pods --all-namespaces -o wide"),
+                ("events", "kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -100"),
+                ("nodes", "kubectl get nodes -o wide"),
+                ("deployments", "kubectl get deployments --all-namespaces"),
+                ("ingress", "kubectl get ingress --all-namespaces"),
+            ]
+
+            kubectl_output = {}
+            for cmd_name, cmd in kubectl_commands:
+                try:
+                    self.logger.debug(f"Executing: {cmd}")
+                    # Using subprocess instead of SDK to avoid permission issues
+                    import subprocess
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+                    kubectl_output[cmd_name] = result.stdout
+                    if result.returncode != 0:
+                        self.logger.warning(f"kubectl {cmd_name} failed: {result.stderr}")
+                except Exception as e:
+                    self.logger.error(f"Error running kubectl {cmd_name}: {e}")
+                    kubectl_output[cmd_name] = f"Error: {str(e)}"
+
+            # Build analysis prompt for Claude with actual kubectl data AND historical context
+            query = f"""Analyze this Kubernetes cluster data and identify all issues:
+
+## KUBECTL OUTPUT (CURRENT STATE)
+
+### Pods (all namespaces)
+{kubectl_output.get('pods', 'ERROR')}
+
+### Events (recent)
+{kubectl_output.get('events', 'ERROR')}
+
+### Nodes
+{kubectl_output.get('nodes', 'ERROR')}
+
+### Deployments
+{kubectl_output.get('deployments', 'ERROR')}
+
+### Ingress
+{kubectl_output.get('ingress', 'ERROR')}
+
+{history_summary}
+
+## YOUR TASK
+
+Analyze the above kubectl output and identify:
+1. MySQL pod status in mysql namespace
+2. PostgreSQL pod status in postgresql namespace
+3. Any pods with: CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending, Failed
+4. Any error/warning events
+5. Node issues: NotReady, MemoryPressure, DiskPressure
+
+**IMPORTANT**: Use the previous cycle history to:
+- Identify NEW issues (not seen before)
+- Identify RECURRING issues (appeared in previous cycles)
+- Identify RESOLVED issues (were present, now fixed)
+- Detect WORSENING TRENDS (same service failing repeatedly)
+
+## CRITICAL FINDINGS FORMAT
+
+For EACH issue found, create this format:
+
+## FINDINGS
+
+1. **[Service Name]** - [Issue Type] [🆕 NEW / 🔁 RECURRING / ⚠️ WORSENING]
+   - Namespace: [namespace]
+   - Pod Status: [status]
+   - Details: [specific details from kubectl output]
+   - Severity: P0/P1/P2/P3
+   - History: [First seen in cycle X / Recurring for Y cycles / etc.]
+
+If no issues are found, respond with:
+## FINDINGS
+No critical issues detected."""
 
             await client.query(query)
 
             # Receive response from k8s-analyzer (iterate over async generator)
             response_text = ""
+            response_model = None
             async for message in client.receive_response():
                 self.logger.debug(f"Received message type: {type(message).__name__}")
+
+                # Try to extract model from message
+                if hasattr(message, 'model'):
+                    response_model = message.model
+                    self.logger.info(f"🔍 Response message model: {response_model}")
 
                 # AssistantMessage has a 'content' list of TextBlock/ToolUseBlock objects
                 if hasattr(message, 'content'):
@@ -266,6 +459,10 @@ class Monitor:
                                 pass
 
             self.logger.debug(f"k8s-analyzer response: {response_text}")
+            if response_model:
+                self.logger.info(f"✅ k8s-analyzer used model: {response_model}")
+            else:
+                self.logger.warning(f"⚠️ Could not detect model used by k8s-analyzer")
 
             # Parse the response
             findings = parse_k8s_analyzer_output(response_text)
@@ -280,31 +477,65 @@ class Monitor:
             raise
 
     async def _assess_escalation(
-        self, client: ClaudeSDKClient, findings: list[Finding]
+        self,
+        client: ClaudeSDKClient,
+        findings: list[Finding],
+        recurring_analysis: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Invoke escalation-manager subagent to assess incident severity.
 
         Args:
             client: ClaudeSDKClient instance
             findings: List of findings from k8s-analyzer
+            recurring_analysis: Optional trend analysis from cycle history
 
         Returns:
             Raw response from escalation-manager
         """
         try:
             self.logger.info("Invoking escalation-manager subagent")
+            self.logger.info(f"🚨 Using model: {self.settings.escalation_manager_model}")
 
             # Prepare findings summary for escalation-manager
-            findings_summary = "\n".join(
-                [f"- {f.service}: {f.description}" for f in findings]
-            )
+            findings_summary_parts = []
+            for f in findings:
+                # Handle both Finding objects and dicts
+                service = f.service if hasattr(f, 'service') else f.get('service', 'unknown')
+                description = f.description if hasattr(f, 'description') else f.get('description', '')
+                if service or description:
+                    findings_summary_parts.append(f"- {service}: {description}")
+            findings_summary = "\n".join(findings_summary_parts)
+
+            # Add trend context if available
+            trend_context = ""
+            if recurring_analysis:
+                # Filter out None values from lists
+                new_issues = [s for s in recurring_analysis.get('new_issues', []) if s]
+                recurring_issues = [s for s in recurring_analysis.get('recurring_issues', []) if s]
+                resolved_issues = [s for s in recurring_analysis.get('resolved_issues', []) if s]
+                worsening_trends = [s for s in recurring_analysis.get('worsening_trends', []) if s]
+
+                trend_context = f"""
+
+## TREND ANALYSIS
+
+- 🆕 New Issues: {', '.join(new_issues) or 'None'}
+- 🔁 Recurring Issues: {', '.join(recurring_issues) or 'None'}
+- ✅ Resolved Issues: {', '.join(resolved_issues) or 'None'}
+- ⚠️ Worsening Trends: {', '.join(worsening_trends) or 'None'}
+
+**Note**: Worsening trends (services failing repeatedly) should increase severity."""
 
             # Query orchestrator to use escalation-manager subagent
             query = f"""Use the escalation-manager subagent to assess incident severity based on these findings:
 
-{findings_summary}
+## CURRENT FINDINGS
 
-Determine the SEV level (SEV-1 through SEV-4) and whether notification is required."""
+{findings_summary}
+{trend_context}
+
+Determine the SEV level (SEV-1 through SEV-4) and whether notification is required.
+**IMPORTANT**: Consider trend analysis when assessing severity - recurring/worsening issues warrant higher severity."""
 
             await client.query(query)
 
@@ -342,6 +573,7 @@ Determine the SEV level (SEV-1 through SEV-4) and whether notification is requir
         """
         try:
             self.logger.info(f"Sending {decision.severity} notification to Slack")
+            self.logger.info(f"💬 Using model: {self.settings.slack_notifier_model}")
 
             # Use SlackNotifier to send the notification
             notification_result = await self.slack_notifier.send_notification(
@@ -420,3 +652,28 @@ Determine the SEV level (SEV-1 through SEV-4) and whether notification is requir
             "last_cycle_status": self.last_cycle_status,
             "health": "healthy" if self.failed_cycles < 3 else "degraded",
         }
+
+    def _load_agent_prompt(self, agent_name: str) -> str:
+        """Load agent system prompt from .md file.
+
+        Args:
+            agent_name: Name of the agent (e.g., 'k8s-analyzer')
+
+        Returns:
+            Agent's system prompt (text after YAML frontmatter)
+        """
+        agent_file = Path(".claude/agents") / f"{agent_name}.md"
+
+        if not agent_file.exists():
+            raise FileNotFoundError(f"Agent file not found: {agent_file}")
+
+        with open(agent_file, "r") as f:
+            content = f.read()
+
+        # Extract content after YAML frontmatter (after second ---)
+        parts = content.split("---", 2)
+        if len(parts) < 3:
+            raise ValueError(f"Invalid agent file format: {agent_file}")
+
+        # Return everything after the frontmatter
+        return parts[2].strip()

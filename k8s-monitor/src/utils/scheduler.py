@@ -11,34 +11,41 @@ import schedule
 class Scheduler:
     """Manages scheduled execution of monitoring cycles."""
 
-    def __init__(self, interval_hours: int = 1):
+    def __init__(self, interval_minutes: int = 60):
         """Initialize scheduler.
 
         Args:
-            interval_hours: Hours between monitoring cycles (default: 1)
+            interval_minutes: Minutes between monitoring cycles (default: 60)
         """
-        self.interval_hours = interval_hours
+        self.interval_minutes = interval_minutes
         self.logger = logging.getLogger(__name__)
         self.is_running = False
         self._job = None
 
     def schedule_job(
-        self, func: Callable[[], Awaitable[None]], job_name: str = "monitoring"
+        self, func: Callable[[], Awaitable[None]], job_name: str = "monitoring", run_immediately: bool = True
     ) -> None:
         """Schedule a job to run on interval.
 
         Args:
             func: Async function to execute on schedule
             job_name: Human-readable name for the job
+            run_immediately: If True, run the job immediately on startup before waiting for interval
         """
         self.logger.info(
-            f"Scheduling {job_name} to run every {self.interval_hours} hour(s)"
+            f"Scheduling {job_name} to run every {self.interval_minutes} minute(s)"
         )
 
         # Schedule the job
-        self._job = schedule.every(self.interval_hours).hours.do(
+        self._job = schedule.every(self.interval_minutes).minutes.do(
             self._run_async, func=func, job_name=job_name
         )
+
+        # Store the function for immediate execution if requested
+        if run_immediately:
+            self._immediate_func = (func, job_name)
+        else:
+            self._immediate_func = None
 
     def _run_async(
         self, func: Callable[[], Awaitable[None]], job_name: str
@@ -51,7 +58,15 @@ class Scheduler:
         """
         self.logger.info(f"Running scheduled job: {job_name}")
         try:
-            asyncio.run(func())
+            # Create a task for the coroutine in the current event loop
+            # This is called from the scheduler loop which is already async
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Already in an async context, create a task
+                asyncio.create_task(func())
+            else:
+                # Not in an async context, run directly
+                asyncio.run(func())
         except Exception as e:
             self.logger.error(f"Error in scheduled job {job_name}: {e}", exc_info=True)
 
@@ -59,9 +74,16 @@ class Scheduler:
         """Run the scheduler in an async loop.
 
         This blocks until interrupted (Ctrl+C) or stop() is called.
+        Runs the immediate job first if configured, then continues with scheduled jobs.
         """
         self.is_running = True
         self.logger.info("Scheduler starting")
+
+        # Run immediate job if configured
+        if hasattr(self, '_immediate_func') and self._immediate_func:
+            func, job_name = self._immediate_func
+            self.logger.info(f"Running immediate startup job: {job_name}")
+            await func()
 
         # Set up signal handlers for graceful shutdown
         loop = asyncio.get_event_loop()

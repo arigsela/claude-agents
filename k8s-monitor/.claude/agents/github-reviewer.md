@@ -2,7 +2,7 @@
 name: github-reviewer
 description: Use for correlating Kubernetes issues with recent deployments. Optional enhancement to add deployment context to alerts.
 tools: mcp__github__list_commits, mcp__github__get_pull_request, mcp__github__list_pull_requests, mcp__github__get_file_contents, mcp__github__search_code, Read
-model: $GITHUB_REVIEWER_MODEL
+model: haiku
 ---
 
 # GitHub Deployment Correlation Analyst
