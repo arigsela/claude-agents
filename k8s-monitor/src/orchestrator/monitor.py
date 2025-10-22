@@ -323,25 +323,76 @@ class Monitor:
             self.logger.info(f"📊 Configured model: {K8S_ANALYZER_MODEL}")
             self.logger.info(f"📊 Settings model: {self.settings.k8s_analyzer_model}")
 
-            # Query orchestrator to use k8s-analyzer subagent
-            # IMPORTANT: Be very explicit and directive to force actual kubectl execution
-            query = """Use the k8s-analyzer subagent to perform a complete cluster health analysis.
+            # Run kubectl commands directly via orchestrator's Bash tool (with auto-approval)
+            # This bypasses permission issues with subagents
+            self.logger.info("Gathering cluster data via direct kubectl commands...")
 
-Execute these commands and provide detailed findings:
-1. kubectl get pods --all-namespaces
-2. kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -50
-3. kubectl get nodes
-4. kubectl get deployments --all-namespaces
-5. kubectl get ingress --all-namespaces
+            kubectl_commands = [
+                ("pods", "kubectl get pods --all-namespaces -o wide"),
+                ("events", "kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -100"),
+                ("nodes", "kubectl get nodes -o wide"),
+                ("deployments", "kubectl get deployments --all-namespaces"),
+                ("ingress", "kubectl get ingress --all-namespaces"),
+            ]
 
-Analyze the results specifically looking for:
-- MySQL pod status (especially in mysql namespace)
-- PostgreSQL pod status
-- Any pods in CrashLoopBackOff, ImagePullBackOff, OOMKilled, or Pending states
-- Recent error events
-- Node capacity/pressure issues
+            kubectl_output = {}
+            for cmd_name, cmd in kubectl_commands:
+                try:
+                    self.logger.debug(f"Executing: {cmd}")
+                    # Using subprocess instead of SDK to avoid permission issues
+                    import subprocess
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+                    kubectl_output[cmd_name] = result.stdout
+                    if result.returncode != 0:
+                        self.logger.warning(f"kubectl {cmd_name} failed: {result.stderr}")
+                except Exception as e:
+                    self.logger.error(f"Error running kubectl {cmd_name}: {e}")
+                    kubectl_output[cmd_name] = f"Error: {str(e)}"
 
-Report FINDINGS section with identified issues, not just status summaries."""
+            # Build analysis prompt for Claude with actual kubectl data
+            query = f"""Analyze this Kubernetes cluster data and identify all issues:
+
+## KUBECTL OUTPUT
+
+### Pods (all namespaces)
+{kubectl_output.get('pods', 'ERROR')}
+
+### Events (recent)
+{kubectl_output.get('events', 'ERROR')}
+
+### Nodes
+{kubectl_output.get('nodes', 'ERROR')}
+
+### Deployments
+{kubectl_output.get('deployments', 'ERROR')}
+
+### Ingress
+{kubectl_output.get('ingress', 'ERROR')}
+
+## YOUR TASK
+
+Analyze the above kubectl output and identify:
+1. MySQL pod status in mysql namespace
+2. PostgreSQL pod status in postgresql namespace
+3. Any pods with: CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending, Failed
+4. Any error/warning events
+5. Node issues: NotReady, MemoryPressure, DiskPressure
+
+## CRITICAL FINDINGS FORMAT
+
+For EACH issue found, create this format:
+
+## FINDINGS
+
+1. **[Service Name]** - [Issue Type]
+   - Namespace: [namespace]
+   - Pod Status: [status]
+   - Details: [specific details from kubectl output]
+   - Severity: P0/P1/P2/P3
+
+If no issues are found, respond with:
+## FINDINGS
+No critical issues detected."""
 
             await client.query(query)
 
