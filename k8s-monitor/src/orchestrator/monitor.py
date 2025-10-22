@@ -138,13 +138,9 @@ class Monitor:
             setting_sources=[],
             # MCP Servers (optional - only if available)
             mcp_servers=mcp_servers if mcp_servers else None,
-            # Tools available to orchestrator
-            allowed_tools=[
-                "Bash",
-                "Read",
-                "Grep",
-                "Glob",
-            ],
+            # Tools available to orchestrator (None = all tools including MCP tools)
+            # Important: Must allow MCP tools like mcp__slack__post_message
+            allowed_tools=None,  # Allow all tools including MCP
             # Use Claude Code preset
             system_prompt={"type": "preset", "preset": "claude_code"},
             # Auto-approve kubectl and file reads
