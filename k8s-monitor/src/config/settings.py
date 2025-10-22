@@ -68,6 +68,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable long-context persistent agent mode (keep client alive across cycles)"
     )
+    anthropic_model: str = Field(
+        default="claude-3-5-sonnet-20241022",
+        description="Model to use for persistent long-context mode"
+    )
     session_id: str = Field(
         default="k8s-monitor-default",
         description="Session identifier for persistent conversation"
