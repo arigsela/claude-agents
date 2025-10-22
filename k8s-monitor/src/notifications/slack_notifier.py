@@ -68,12 +68,23 @@ class SlackNotifier:
             # Prepare payload for slack-notifier
             payload = self._prepare_notification_payload(decision, incident_id)
 
-            # Query slack-notifier subagent
-            query = self._build_slack_query(payload, decision)
+            # Build Slack message
+            slack_message = self._format_slack_message(decision, payload)
+            channel = payload.get("channel", self.slack_channel or "#infrastructure-alerts")
+
+            self.logger.info(f"📤 Sending Slack message to channel: {channel}")
+            self.logger.debug(f"Message preview: {slack_message[:200]}...")
+
+            # Use Slack MCP tool directly
+            query = f"""Use the mcp__slack__post_message tool to send this message to {channel}:
+
+{slack_message}
+
+Return the message ID and confirmation."""
 
             await client.query(query)
 
-            # Receive response from slack-notifier (async generator)
+            # Receive response from Claude (async generator)
             # Messages are AssistantMessage/SystemMessage objects with content blocks
             response_text = ""
             async for message in client.receive_response():
@@ -165,6 +176,117 @@ class SlackNotifier:
             payload["enriched_data"] = decision.enriched_payload
 
         return payload
+
+    def _format_slack_message(self, decision: EscalationDecision, payload: Dict[str, Any]) -> str:
+        """Format Slack message according to severity.
+
+        Args:
+            decision: Escalation decision
+            payload: Notification payload
+
+        Returns:
+            Formatted Slack message
+        """
+        incident_id = payload["incident_id"]
+        severity = decision.severity
+        emoji = self.severity_emoji.get(decision.severity, "")
+        services = payload["affected_services"]
+        root_cause = payload.get("root_cause", "Unknown")
+        business_impact = payload.get("business_impact", "N/A")
+        confidence = payload.get("confidence", 0)
+        actions = payload.get("immediate_actions", [])
+
+        # SEV-1 format
+        if severity == IncidentSeverity.SEV_1:
+            message = f"""{emoji} *CRITICAL INCIDENT* {emoji}
+*Severity*: {severity} | *Status*: ACTIVE | *Confidence*: {confidence}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Incident Summary*
+{root_cause}
+
+*Affected Services*
+"""
+            for service in services:
+                message += f"🔴 *{service}*\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Business Impact*
+{business_impact}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Immediate Actions Required*
+"""
+            for i, action in enumerate(actions, 1):
+                message += f"{i}️⃣ {action}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Incident ID*: {incident_id}
+"""
+
+        # SEV-2 format
+        elif severity == IncidentSeverity.SEV_2:
+            message = f"""{emoji} *HIGH PRIORITY ALERT* {emoji}
+*Severity*: {severity} | *Status*: ACTIVE | *Confidence*: {confidence}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Alert Summary*
+{root_cause}
+
+*Affected Services*
+"""
+            for service in services:
+                message += f"🟡 *{service}*\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Business Impact*
+{business_impact}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Recommended Actions*
+"""
+            for i, action in enumerate(actions, 1):
+                message += f"{i}️⃣ {action}\n"
+
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Incident ID*: {incident_id}
+"""
+
+        # SEV-3 format (shouldn't happen per escalation policy, but for completeness)
+        else:
+            message = f"""{emoji} *Infrastructure Notice*
+*Severity*: {severity} | *Status*: MONITORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Notice*
+{root_cause}
+
+*Details*
+"""
+            for service in services:
+                message += f"🟢 *{service}*\n"
+
+            message += f"""
+*Action Required*
+Monitor over next 24 hours
+
+*Incident ID*: {incident_id}
+"""
+
+        return message
 
     def _build_slack_query(self, payload: Dict[str, Any], decision: EscalationDecision) -> str:
         """Build query for slack-notifier subagent.

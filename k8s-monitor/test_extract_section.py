@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
-"""Debug the parser to understand why it's not finding findings."""
+"""Test the _extract_section function."""
 
 import re
+
+def _extract_section(content: str, section_pattern: str) -> str:
+    """Extract a section from markdown by pattern."""
+    # Match section heading (###) and capture until next heading at same or higher level
+    pattern = (
+        f"^###\\s+(?:{section_pattern}).*?(?=^###\\s+|\\Z)"
+    )
+    match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+    if match:
+        return match.group(0)
+    return ""
 
 test_response = """I'll use the k8s-analyzer agent to check the K3s cluster health comprehensively.
 
@@ -41,32 +53,8 @@ The k8s-analyzer agent has completed a comprehensive health check of your K3s cl
 - **Expected Resolution Time**: Investigate MySQL immediately
 """
 
-print("=" * 80)
-print("PARSER DEBUG")
-print("=" * 80)
-
-print("\n1. Checking for structured sections:")
-print(f"   - Has '###' headers: {bool(re.search(r'^###', test_response, re.MULTILINE))}")
-print(f"   - Has 'Critical Issues' section: {bool(re.search(r'^###.*Critical Issues', test_response, re.MULTILINE | re.IGNORECASE))}")
-print(f"   - Has 'Key Findings' section: {bool(re.search(r'^###.*Key Findings', test_response, re.MULTILINE | re.IGNORECASE))}")
-
-print("\n2. Checking for status indicators:")
-print(f"   - Has 'DEGRADED': {'DEGRADED' in test_response}")
-print(f"   - Has 'Critical Issues': {'Critical Issues' in test_response}")
-print(f"   - Has '🔴': {'🔴' in test_response}")
-
-print("\n3. Looking for numbered items pattern:")
-numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n\n|$)'
-matches = list(re.finditer(numbered_pattern, test_response, re.MULTILINE | re.DOTALL))
-print(f"   - Found {len(matches)} numbered items")
-
-for i, match in enumerate(matches, 1):
-    service = match.group(1).strip()
-    desc = match.group(2).strip()[:50]
-    print(f"     {i}. Service: {service}, Desc: {desc}...")
-
-print("\n4. Analyzing the structure:")
-lines = test_response.split('\n')
-for i, line in enumerate(lines):
-    if re.match(r'^\s*\d+\.\s+\*\*', line):
-        print(f"   Line {i}: {line[:80]}")
+print("Extracting 'Key Findings' section...")
+section = _extract_section(test_response, "Key Findings")
+print(f"Section length: {len(section)} chars")
+print(f"Contains numbered items: {'1. **MySQL**' in section}")
+print(f"Content preview:\n{section[:500]}\n...")
