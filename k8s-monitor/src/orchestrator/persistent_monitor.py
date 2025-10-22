@@ -97,11 +97,11 @@ class PersistentMonitor:
         self.logger.info(f"🔄 Starting persistent cycle #{self.cycle_count + 1}")
 
         try:
-            # Gather K8s cluster state
-            k8s_state = await self.monitor._gather_cluster_state()
+            # Run full monitoring cycle using the Monitor's subagent orchestration
+            cycle_results = await self.monitor.run_monitoring_cycle()
 
-            # Format cycle message
-            cycle_message = self._format_cycle_message(self.cycle_count + 1, k8s_state)
+            # Format cycle message from results
+            cycle_message = self._format_cycle_message(self.cycle_count + 1, cycle_results)
 
             # Add to message history
             self.messages.append({
@@ -168,12 +168,12 @@ class PersistentMonitor:
         self.logger.info(f"💾 Session saved. Cycles completed: {self.cycle_count}")
         self.logger.info(f"📊 Total tokens used: {self.stats['total_tokens_used']}")
 
-    def _format_cycle_message(self, cycle_num: int, k8s_state: dict[str, Any]) -> str:
-        """Format K8s state into clean user message.
+    def _format_cycle_message(self, cycle_num: int, cycle_results: dict[str, Any]) -> str:
+        """Format cycle results into clean user message.
 
         Args:
             cycle_num: Cycle number for context
-            k8s_state: K8s cluster state dictionary
+            cycle_results: Monitoring cycle results from Monitor.run_monitoring_cycle()
 
         Returns:
             Formatted message for Claude
@@ -183,9 +183,9 @@ class PersistentMonitor:
         message = f"""## Monitoring Cycle #{cycle_num}
 **Timestamp:** {timestamp}
 
-### Cluster State
+### Cycle Results
 ```json
-{json.dumps(k8s_state, indent=2)}
+{json.dumps(cycle_results, indent=2)}
 ```
 
 Please analyze this cluster state and provide:
