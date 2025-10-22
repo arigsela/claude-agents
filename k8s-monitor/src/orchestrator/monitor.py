@@ -14,6 +14,7 @@ from src.models import EscalationDecision, Finding
 from src.notifications import SlackNotifier
 from src.utils.parsers import parse_k8s_analyzer_output
 from src.utils.model_inspector import ModelInspector
+from src.utils.cycle_history import CycleHistory
 
 # HARDCODED MODELS - NO VARIABLES, NO SUBSTITUTION
 # All models set to Haiku for cost optimization (~12x cheaper than Sonnet)
@@ -38,6 +39,12 @@ class Monitor:
         self.cycle_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.escalation_manager = EscalationManager()
         self.slack_notifier = SlackNotifier(slack_channel=self.settings.slack_channel)
+        # Cycle history for trend analysis
+        self.cycle_history = CycleHistory(
+            history_dir=Path("logs"),
+            max_history_cycles=5,
+            max_history_hours=24,
+        )
         # State tracking for error recovery
         self.cycle_count = 0
         self.last_successful_cycle: Optional[datetime] = None
@@ -177,12 +184,16 @@ class Monitor:
         )
 
         try:
+            # Load previous cycles for trend analysis
+            previous_cycles = self.cycle_history.load_recent_cycles()
+            self.logger.info(f"Loaded {len(previous_cycles)} previous cycles for context")
+
             client = await self.initialize_client()
 
             # Phase 1: Analyze cluster health
             self.logger.info("Phase 1: Running k8s-analyzer subagent")
             try:
-                k8s_results = await self._analyze_cluster(client)
+                k8s_results = await self._analyze_cluster(client, previous_cycles)
             except Exception as e:
                 self.logger.error(f"CRITICAL: k8s-analyzer failed: {e}", exc_info=True)
                 self.failed_cycles += 1
@@ -212,8 +223,16 @@ class Monitor:
 
             # Phase 2: Assess severity using escalation manager
             self.logger.info("Phase 2: Running escalation-manager subagent")
+            # Detect recurring issues for better context
+            recurring_analysis = self.cycle_history.detect_recurring_issues(
+                k8s_results, previous_cycles
+            )
+            self.logger.info(f"Trend analysis: {recurring_analysis}")
+
             try:
-                escalation_response = await self._assess_escalation(client, k8s_results)
+                escalation_response = await self._assess_escalation(
+                    client, k8s_results, recurring_analysis
+                )
                 escalation_decision = self.escalation_manager.parse_escalation_response(
                     escalation_response
                 )
@@ -243,10 +262,13 @@ class Monitor:
                 )
                 self.logger.warning(f"Using fallback escalation decision: {escalation_decision}")
 
-            # Phase 3: Send Slack notifications if required
+            # Phase 3: Send Slack notifications if required and enabled
             notifications_sent = 0
             notification_result = None
-            if escalation_decision.should_notify:
+
+            if not self.settings.slack_enabled:
+                self.logger.info("Phase 3: Slack notifications disabled in settings")
+            elif escalation_decision.should_notify:
                 self.logger.info("Phase 3: Running slack-notifier subagent")
                 try:
                     notification_result = await self._send_notification(
@@ -288,6 +310,7 @@ class Monitor:
                 "cycle_number": self.cycle_count,
                 "status": "completed",
                 "findings": [f.model_dump() for f in k8s_results],
+                "trend_analysis": recurring_analysis,
                 "escalation_decision": escalation_decision.model_dump()
                 if isinstance(escalation_decision, EscalationDecision)
                 else escalation_decision,
@@ -309,11 +332,14 @@ class Monitor:
                 "failed_cycles": self.failed_cycles,
             }
 
-    async def _analyze_cluster(self, client: ClaudeSDKClient) -> list[dict[str, Any]]:
+    async def _analyze_cluster(
+        self, client: ClaudeSDKClient, previous_cycles: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Invoke k8s-analyzer subagent to check cluster health.
 
         Args:
             client: ClaudeSDKClient instance
+            previous_cycles: List of previous cycle reports for trend analysis
 
         Returns:
             List of findings from analysis
@@ -322,6 +348,9 @@ class Monitor:
             self.logger.info("Invoking k8s-analyzer subagent")
             self.logger.info(f"📊 Configured model: {K8S_ANALYZER_MODEL}")
             self.logger.info(f"📊 Settings model: {self.settings.k8s_analyzer_model}")
+
+            # Format previous cycle history for context
+            history_summary = self.cycle_history.format_history_summary(previous_cycles)
 
             # Run kubectl commands directly via orchestrator's Bash tool (with auto-approval)
             # This bypasses permission issues with subagents
@@ -349,10 +378,10 @@ class Monitor:
                     self.logger.error(f"Error running kubectl {cmd_name}: {e}")
                     kubectl_output[cmd_name] = f"Error: {str(e)}"
 
-            # Build analysis prompt for Claude with actual kubectl data
+            # Build analysis prompt for Claude with actual kubectl data AND historical context
             query = f"""Analyze this Kubernetes cluster data and identify all issues:
 
-## KUBECTL OUTPUT
+## KUBECTL OUTPUT (CURRENT STATE)
 
 ### Pods (all namespaces)
 {kubectl_output.get('pods', 'ERROR')}
@@ -369,6 +398,8 @@ class Monitor:
 ### Ingress
 {kubectl_output.get('ingress', 'ERROR')}
 
+{history_summary}
+
 ## YOUR TASK
 
 Analyze the above kubectl output and identify:
@@ -378,17 +409,24 @@ Analyze the above kubectl output and identify:
 4. Any error/warning events
 5. Node issues: NotReady, MemoryPressure, DiskPressure
 
+**IMPORTANT**: Use the previous cycle history to:
+- Identify NEW issues (not seen before)
+- Identify RECURRING issues (appeared in previous cycles)
+- Identify RESOLVED issues (were present, now fixed)
+- Detect WORSENING TRENDS (same service failing repeatedly)
+
 ## CRITICAL FINDINGS FORMAT
 
 For EACH issue found, create this format:
 
 ## FINDINGS
 
-1. **[Service Name]** - [Issue Type]
+1. **[Service Name]** - [Issue Type] [🆕 NEW / 🔁 RECURRING / ⚠️ WORSENING]
    - Namespace: [namespace]
    - Pod Status: [status]
    - Details: [specific details from kubectl output]
    - Severity: P0/P1/P2/P3
+   - History: [First seen in cycle X / Recurring for Y cycles / etc.]
 
 If no issues are found, respond with:
 ## FINDINGS
@@ -439,13 +477,17 @@ No critical issues detected."""
             raise
 
     async def _assess_escalation(
-        self, client: ClaudeSDKClient, findings: list[Finding]
+        self,
+        client: ClaudeSDKClient,
+        findings: list[Finding],
+        recurring_analysis: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Invoke escalation-manager subagent to assess incident severity.
 
         Args:
             client: ClaudeSDKClient instance
             findings: List of findings from k8s-analyzer
+            recurring_analysis: Optional trend analysis from cycle history
 
         Returns:
             Raw response from escalation-manager
@@ -464,12 +506,36 @@ No critical issues detected."""
                     findings_summary_parts.append(f"- {service}: {description}")
             findings_summary = "\n".join(findings_summary_parts)
 
+            # Add trend context if available
+            trend_context = ""
+            if recurring_analysis:
+                # Filter out None values from lists
+                new_issues = [s for s in recurring_analysis.get('new_issues', []) if s]
+                recurring_issues = [s for s in recurring_analysis.get('recurring_issues', []) if s]
+                resolved_issues = [s for s in recurring_analysis.get('resolved_issues', []) if s]
+                worsening_trends = [s for s in recurring_analysis.get('worsening_trends', []) if s]
+
+                trend_context = f"""
+
+## TREND ANALYSIS
+
+- 🆕 New Issues: {', '.join(new_issues) or 'None'}
+- 🔁 Recurring Issues: {', '.join(recurring_issues) or 'None'}
+- ✅ Resolved Issues: {', '.join(resolved_issues) or 'None'}
+- ⚠️ Worsening Trends: {', '.join(worsening_trends) or 'None'}
+
+**Note**: Worsening trends (services failing repeatedly) should increase severity."""
+
             # Query orchestrator to use escalation-manager subagent
             query = f"""Use the escalation-manager subagent to assess incident severity based on these findings:
 
-{findings_summary}
+## CURRENT FINDINGS
 
-Determine the SEV level (SEV-1 through SEV-4) and whether notification is required."""
+{findings_summary}
+{trend_context}
+
+Determine the SEV level (SEV-1 through SEV-4) and whether notification is required.
+**IMPORTANT**: Consider trend analysis when assessing severity - recurring/worsening issues warrant higher severity."""
 
             await client.query(query)
 

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     )
 
     # Slack Configuration (Optional)
+    slack_enabled: bool = Field(
+        default=True, description="Enable Slack notifications (set to false to disable)"
+    )
     slack_channel: Optional[str] = Field(
         default=None, description="Slack channel ID for alerts (e.g., C01234567)"
     )
@@ -61,8 +64,8 @@ class Settings(BaseSettings):
     )
 
     # Monitoring Settings
-    monitoring_interval_hours: int = Field(
-        default=1, description="Hours between monitoring cycles"
+    monitoring_interval_minutes: int = Field(
+        default=60, description="Minutes between monitoring cycles"
     )
     log_level: str = Field(default="INFO", description="Logging level")
 
@@ -148,3 +151,7 @@ class Settings(BaseSettings):
         """Run all validations."""
         self.validate_api_keys()
         self.validate_paths()
+
+
+# Global settings instance - loaded from .env and environment variables
+settings = Settings()
