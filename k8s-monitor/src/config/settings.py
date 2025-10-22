@@ -63,6 +63,28 @@ class Settings(BaseSettings):
         description="[DEPRECATED] Model hardcoded in monitor.py - not used",
     )
 
+    # Long-Context Persistent Agent Mode (Optional)
+    enable_long_context: bool = Field(
+        default=False,
+        description="Enable long-context persistent agent mode (keep client alive across cycles)"
+    )
+    anthropic_model: str = Field(
+        default="claude-3-5-sonnet-20241022",
+        description="Model to use for persistent long-context mode"
+    )
+    session_id: str = Field(
+        default="k8s-monitor-default",
+        description="Session identifier for persistent conversation"
+    )
+    max_context_tokens: int = Field(
+        default=120000,
+        description="Maximum context window for session (tokens)"
+    )
+    context_prune_threshold: float = Field(
+        default=0.8,
+        description="Prune session history when reaching this % of max context"
+    )
+
     # Monitoring Settings
     monitoring_interval_minutes: int = Field(
         default=60, description="Minutes between monitoring cycles"
