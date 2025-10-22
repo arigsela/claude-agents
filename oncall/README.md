@@ -51,6 +51,231 @@ curl http://localhost:8000/health
 open http://localhost:8000/docs  # Swagger UI
 ```
 
+## 🔨 Helper Scripts
+
+The `oncall/` directory includes 10 bash scripts to simplify development, testing, and deployment. Here's when to use each:
+
+### Core Scripts
+
+#### `run_api_server.sh` ⭐ **Primary API Runner**
+**Purpose**: Production-ready API server with full validation and UX
+
+**Features**:
+- ✅ Validates required environment variables (ANTHROPIC_API_KEY, GITHUB_TOKEN)
+- ✅ Checks kubectl connectivity
+- ✅ Configurable port (defaults to 8000)
+- ✅ Proper module path with `--app-dir ./src`
+- ✅ Auto-reload for development
+
+**Use When**: Starting API server for development or testing
+
+**Example**:
+```bash
+./run_api_server.sh
+# Server starts on http://localhost:8000
+# Access docs at http://localhost:8000/docs
+```
+
+#### `start_api_local.sh` - **Alternative API Runner**
+**Purpose**: Simple API runner with explicit venv activation
+
+**Features**:
+- ✅ Activates virtual environment
+- ✅ Minimal configuration (assumes venv exists)
+- ✅ Fixed port 8000
+
+**Use When**: Quick local development with venv
+
+**Example**:
+```bash
+source venv/bin/activate  # Or let script do it
+./start_api_local.sh
+```
+
+#### `docker-entrypoint.sh` - **Container Entrypoint**
+**Purpose**: Docker container startup script (internal use)
+
+**Features**:
+- ✅ Configurable host/port via env vars
+- ✅ Proper exec for signal handling
+- ✅ Timeout keep-alive configuration
+
+**Use When**: Automatically called by Docker (not invoked manually)
+
+### Testing Scripts
+
+#### `test_query.sh` - **Quick API Test**
+**Purpose**: Fast health check for API server
+
+**Features**:
+- ✅ Tests `/query` endpoint with simple prompt
+- ✅ Uses jq for formatted output
+- ✅ Includes API key authentication
+
+**Use When**: Verifying API server is running
+
+**Example**:
+```bash
+./test_query.sh
+# Output: JSON response with service monitoring info
+```
+
+#### `test_query_interactive.sh` - **Interactive Testing**
+**Purpose**: Test API with custom queries via command-line argument
+
+**Features**:
+- ✅ Accepts query as argument: `./test_query_interactive.sh "your query"`
+- ✅ Extracts content field from response
+- ✅ API key from env or prompts user
+
+**Use When**: Testing specific queries without writing curl commands
+
+**Example**:
+```bash
+./test_query_interactive.sh "Check chores-tracker service health"
+# Returns: Claude's analysis text only
+```
+
+#### `test_service_catalog.sh` - **Comprehensive Test Suite**
+**Purpose**: Test all service catalog features and business logic (131 lines)
+
+**Tests 10 Scenarios**:
+1. ✅ Known issues (chores-tracker slow startup)
+2. ✅ Vault unsealing procedure
+3. ✅ Service dependency impact (mysql → chores-tracker)
+4. ✅ Priority classification (P0/P1/P2)
+5. ✅ GitOps correlation (ArgoCD + GitHub PRs)
+6. ✅ Single replica risks
+7. ✅ ECR authentication troubleshooting
+8. ✅ n8n service importance
+9. ✅ Namespace discovery
+10. ✅ Infrastructure priority
+
+**Use When**: Validating service catalog integration after changes
+
+**Example**:
+```bash
+./test_service_catalog.sh
+# Runs all 10 test scenarios with formatted output
+```
+
+#### `wait_and_test.sh` - **Rate Limit Helper**
+**Purpose**: Wait for rate limit cooldown then test API
+
+**Features**:
+- ✅ 5-second wait before testing
+- ✅ Uses test_query.sh internally
+
+**Use When**: Testing rate limiting behavior
+
+**Example**:
+```bash
+./wait_and_test.sh
+# Waits 5 seconds, then runs test_query.sh
+```
+
+### Setup & Deployment Scripts
+
+#### `setup_api.sh` - **First-Time Setup** ⚠️ Optional
+**Purpose**: Automated environment setup (110 lines)
+
+**Features**:
+- ✅ Creates virtual environment
+- ✅ Installs dependencies
+- ✅ Generates .env from .env.example
+- ⚠️ Calls validate_api.py (does not exist)
+
+**Use When**: Initial project setup (or skip and follow Quick Start)
+
+**Example**:
+```bash
+./setup_api.sh
+# Note: validate_api.py step will fail, but setup completes
+```
+
+#### `build.sh` - **Docker Build Helper**
+**Purpose**: Build Docker image with version tagging
+
+**Features**:
+- ✅ Builds `oncall-agent:latest` image
+- ✅ Shows build progress
+- ✅ Simple wrapper around `docker build`
+
+**Use When**: Building Docker image locally
+
+**Example**:
+```bash
+./build.sh
+# Builds: oncall-agent:latest
+```
+
+#### `deploy-to-ecr.sh` - **AWS ECR Deployment**
+**Purpose**: Build AMD64 image and push to AWS Elastic Container Registry
+
+**Features**:
+- ✅ Cross-platform build (M1 Mac → AMD64 Linux)
+- ✅ Accepts version argument: `./deploy-to-ecr.sh v1.0.0`
+- ✅ Tags both `latest` and version-specific
+- ✅ Pushes to ECR with proper authentication
+- ✅ 137 lines with full validation
+
+**Use When**: Deploying to AWS EKS/ECS
+
+**Example**:
+```bash
+# Set AWS credentials and region first
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=us-east-1
+
+./deploy-to-ecr.sh v1.2.3
+# Builds: 123456789.dkr.ecr.us-east-1.amazonaws.com/oncall-agent:v1.2.3
+# Builds: 123456789.dkr.ecr.us-east-1.amazonaws.com/oncall-agent:latest
+```
+
+### Quick Reference Table
+
+| Script | Category | Validation | Best For |
+|--------|----------|------------|----------|
+| `run_api_server.sh` ⭐ | Core | Full (env + kubectl) | **Primary development** |
+| `start_api_local.sh` | Core | None | Quick local testing |
+| `docker-entrypoint.sh` | Core | N/A | **Docker internal** (auto-called) |
+| `test_query.sh` | Testing | None | Health check |
+| `test_query_interactive.sh` | Testing | None | Custom queries |
+| `test_service_catalog.sh` | Testing | API running | Service catalog validation |
+| `wait_and_test.sh` | Testing | None | Rate limit testing |
+| `setup_api.sh` ⚠️ | Setup | Partial | First-time setup (optional) |
+| `build.sh` | Deployment | None | Local Docker build |
+| `deploy-to-ecr.sh` | Deployment | AWS creds | AWS ECR deployment |
+
+### Script Recommendations
+
+**For Daily Development**:
+```bash
+./run_api_server.sh              # Start API server
+./test_query.sh                  # Quick test
+open http://localhost:8000/docs  # Interactive docs
+```
+
+**For Service Catalog Testing**:
+```bash
+./test_service_catalog.sh        # Comprehensive tests
+```
+
+**For Production Deployment**:
+```bash
+./build.sh                       # Local build
+docker compose up -d             # Test locally
+./deploy-to-ecr.sh v1.0.0        # Push to AWS
+```
+
+**For Troubleshooting**:
+```bash
+./test_query_interactive.sh "Check pods in chores-tracker namespace"
+curl http://localhost:8000/health
+docker compose logs -f oncall-agent-api
+```
+
 ## 📋 Project Structure
 
 ```
