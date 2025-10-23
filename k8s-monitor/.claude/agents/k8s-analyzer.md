@@ -22,6 +22,11 @@ Analyze the K3s homelab cluster for issues affecting critical services defined i
 - Known issues and quirks for each service
 - Health check patterns
 
+**Claude will automatically reference the k8s-failure-patterns skill when analyzing pod issues.** This skill contains:
+- Common failure patterns (CrashLoopBackOff, OOMKilled, ImagePullBackOff, etc.)
+- Service-specific known issues (slow startups, single replicas, manual unsealing)
+- Investigation patterns and quick reference guides
+
 ## Analysis Checklist
 
 ### 1. Pod Health (Critical Services Priority)
@@ -43,19 +48,10 @@ kubectl get pods -n oncall-agent
 kubectl get pods -n ingress-nginx
 ```
 
-**Look for**:
-- CrashLoopBackOff
-- ImagePullBackOff
-- OOMKilled
-- Pending (scheduling issues)
-- Init:Error
-- Completed (should be Running)
-
-**Context from services.txt**:
-- `chores-tracker-backend`: Known VERY SLOW STARTUP (5-6 min) - don't flag as issue if recently started
-- `mysql`: Single replica (no HA) - check memory usage carefully
-- `postgresql`: Single replica (no HA) - monitor closely
-- `vault`: Requires manual unsealing after restart - expected behavior
+**The k8s-failure-patterns skill provides detailed guidance on:**
+- What each pod status means (CrashLoopBackOff, OOMKilled, ImagePullBackOff, etc.)
+- Service-specific known issues (slow startups, manual unsealing requirements)
+- Investigation steps for each failure type
 
 ### 2. Recent Events (Last 2 Hours)
 
@@ -67,13 +63,7 @@ kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -100
 kubectl get events --all-namespaces --field-selector type=Warning --sort-by='.lastTimestamp'
 ```
 
-**Focus on**:
-- OOMKilled events
-- FailedScheduling
-- BackOff errors
-- Liveness/Readiness probe failures
-- Volume mount issues
-- Image pull failures
+**The k8s-failure-patterns skill categorizes event types** (Critical, Important, Informational) to help prioritize.
 
 ### 3. Node Health
 
@@ -112,10 +102,7 @@ kubectl get deployments -n oncall-agent -o wide
 - No stuck rollouts
 - Image versions are consistent
 
-**Reference services.txt**:
-- `chores-tracker-backend`: Should have 2 replicas (HA enabled)
-- `oncall-agent`: Should have 2 replicas (HA enabled)
-- `mysql`, `postgresql`, `vault`, `n8n`: Single replica (expected, but note as risk)
+**The k8s-failure-patterns skill documents expected replica counts** and known architectural limitations (single replicas, HA configurations).
 
 ### 5. Ingress Health
 
@@ -226,19 +213,15 @@ Return findings in this **structured markdown format**:
 
 1. **Always read services.txt first** to understand service criticality and known issues
 2. **Prioritize by Max Downtime**: Focus on P0 (0 min) and P1 (5-15 min) services
-3. **Consider known issues**: Don't flag expected behaviors as problems
-   - vault unsealing requirement
-   - chores-tracker-backend slow startup (5-6 min)
-   - Single replica services (mysql, postgresql, vault, n8n)
-4. **Be concise but thorough**: Include relevant kubectl outputs but summarize findings
-5. **No issues is good**: If cluster is healthy, clearly state "No critical issues detected"
-6. **Correlate events with impacts**: Explain what each issue means for users/business
-7. **Reference services.txt context**: Note when issues align with or contradict known behavior
+3. **Use the k8s-failure-patterns skill**: It automatically provides failure pattern knowledge, known issues, and investigation guidance
+4. **Don't flag expected behaviors**: The skill documents known issues like vault unsealing, slow startups, and single replica architectures
+5. **Be concise but thorough**: Include relevant kubectl outputs but summarize findings
+6. **No issues is good**: If cluster is healthy, clearly state "No critical issues detected"
+7. **Correlate events with impacts**: Explain what each issue means for users/business
 
 ## Edge Cases
 
 - **Recently deployed pods**: Check pod age before flagging as unhealthy
-- **Known slow startups**: chores-tracker-backend takes 5-6 minutes (initialDelaySeconds: 300-360s)
+- **Known issues**: The k8s-failure-patterns skill documents service-specific quirks (slow startups, manual unsealing, etc.)
 - **Single replica services**: Note as architectural risk but not immediate issue unless actually failing
-- **Vault unsealing**: Expected manual intervention, not a bug
 - **Certificate renewal**: cert-manager auto-renews, only flag if cert actually invalid
