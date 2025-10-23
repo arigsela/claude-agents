@@ -453,7 +453,7 @@ async def search_recent_deployments(args: Dict[str, Any]) -> Dict[str, Any]:
                 "created_at": run.created_at.isoformat(),
                 "updated_at": run.updated_at.isoformat(),
                 "head_branch": run.head_branch,
-                "head_sha": run.head_sha[:8],
+                "head_sha": run.head_sha[:8] if run.head_sha else "unknown",
                 "url": run.html_url
             }
 

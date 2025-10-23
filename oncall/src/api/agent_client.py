@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from anthropic import Anthropic
 import json
+from pathlib import Path
 
 from api.custom_tools import (
     list_namespaces,
@@ -60,9 +61,45 @@ class OnCallAgentClient:
         logger.info(f"Model: {self.model}")
         logger.info(f"Tools available: {len(self.tools)}")
 
+    def _load_skill_content(self, skill_name: str) -> Optional[str]:
+        """
+        Load skill content from .claude/skills/ directory.
+
+        Args:
+            skill_name: Name of the skill (e.g., 'k8s-failure-patterns')
+
+        Returns:
+            Skill content (text after YAML frontmatter) or None if not found
+        """
+        # Look for skill in project root .claude/skills/
+        skill_file = Path(".claude/skills") / f"{skill_name}.md"
+
+        if not skill_file.exists():
+            logger.warning(f"Skill file not found: {skill_file}")
+            return None
+
+        try:
+            with open(skill_file, "r") as f:
+                content = f.read()
+
+            # Extract content after YAML frontmatter (after second ---)
+            parts = content.split("---", 2)
+            if len(parts) < 3:
+                logger.warning(f"Invalid skill file format: {skill_file}")
+                return None
+
+            skill_content = parts[2].strip()
+            logger.info(f"✅ Loaded skill: {skill_name} ({len(skill_content)} chars)")
+            return f"---\n\n# SKILL: {skill_name}\n\n{skill_content}"
+
+        except Exception as e:
+            logger.error(f"Failed to load skill {skill_name}: {e}")
+            return None
+
     def _get_system_prompt(self) -> str:
-        """Get system prompt for the agent."""
-        return """You are an on-call agent for Ari's K3s homelab (GitOps: github.com/arigsela/kubernetes, ArgoCD apps in base-apps/).
+        """Get system prompt for the agent with skills integration."""
+        # Base system prompt
+        base_prompt = """You are an on-call agent for Ari's K3s homelab (GitOps: github.com/arigsela/kubernetes, ArgoCD apps in base-apps/).
 
 **CRITICAL SERVICES (P0 - customer-facing)**:
 - chores-tracker-backend (ns: chores-tracker-backend): FastAPI, 2 replicas, **5-6min startup is NORMAL**, depends on mysql+vault+ecr-auth
@@ -111,6 +148,38 @@ Correlation: Pod restart loops (5+) → Check recent ArgoCD sync, GitHub PR, ECR
 
 **KEY**: Check known issues BEFORE alerting. Vault unsealing is frequent. chores-tracker slow startup is normal. Single replicas have risks. All escalations → Slack to Ari.
 """
+
+        # Load skills and append to prompt
+        skills_to_load = ["k8s-failure-patterns", "homelab-runbooks"]
+
+        for skill_name in skills_to_load:
+            skill_content = self._load_skill_content(skill_name)
+            if skill_content:
+                base_prompt += "\n\n" + skill_content
+
+        # Add explicit instructions for using skills
+        skills_instructions = """
+
+## IMPORTANT: Using Skills Knowledge
+
+When troubleshooting Kubernetes issues, YOU MUST:
+1. **Identify the failure type** from k8s-failure-patterns (CrashLoopBackOff, ImagePullBackOff, OOMKilled, etc.)
+2. **Reference "Common Causes"** from the skill knowledge for the specific failure type
+3. **Include "Investigation Steps"** with specific kubectl commands from the skills
+4. **Apply runbook procedures** from homelab-runbooks for known scenarios:
+   - Vault unsealing
+   - ECR authentication issues
+   - MySQL troubleshooting
+   - chores-tracker slow startup checks
+   - ArgoCD deployment correlation
+5. **Cite which skill you're using** in your response (e.g., "According to the homelab-runbooks...")
+
+The skills knowledge provided above contains detailed troubleshooting procedures. Use them!
+"""
+
+        base_prompt += skills_instructions
+
+        return base_prompt
 
     def _define_tools(self) -> List[Dict[str, Any]]:
         """Define tools in Anthropic API format."""

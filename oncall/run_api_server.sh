@@ -18,6 +18,23 @@ echo ""
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Activate virtual environment if it exists
+if [ -d "venv" ]; then
+    echo "Activating virtual environment..."
+    source venv/bin/activate
+    echo -e "${GREEN}✅ Virtual environment activated${NC}"
+    echo ""
+elif [ -d "../venv" ]; then
+    echo "Activating virtual environment from parent directory..."
+    source ../venv/bin/activate
+    echo -e "${GREEN}✅ Virtual environment activated${NC}"
+    echo ""
+else
+    echo -e "${YELLOW}⚠️  Warning: No virtual environment found${NC}"
+    echo "   Using system Python"
+    echo ""
+fi
+
 # Check if .env exists
 if [ ! -f .env ]; then
     echo -e "${YELLOW}⚠️  Warning: .env file not found${NC}"
@@ -34,7 +51,17 @@ fi
 
 # Load environment variables
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+    # Export only valid key=value pairs, removing inline comments
+    set -a
+    while IFS= read -r line; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        # Remove inline comments
+        line=$(echo "$line" | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+        # Export the variable
+        [[ -n "$line" ]] && eval "export $line"
+    done < .env
+    set +a
 fi
 
 # Set PYTHONPATH to include src directory
