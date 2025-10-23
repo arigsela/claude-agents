@@ -104,6 +104,27 @@ class Monitor:
 
         # Load agent prompts from .md files
         k8s_analyzer_prompt = self._load_agent_prompt("k8s-analyzer")
+
+        # SKILLS INTEGRATION: Manually append skill content to k8s-analyzer
+        # Since Claude Agent SDK doesn't auto-load skills, we include them in the prompt
+        skill_content = self._load_skill_content("k8s-failure-patterns")
+        if skill_content:
+            # Add explicit instructions to use the skill knowledge
+            skill_usage_instructions = """
+
+## IMPORTANT: Using the K8s Failure Patterns Knowledge
+
+When you encounter pod failures, YOU MUST:
+1. **Identify the failure type** (CrashLoopBackOff, ImagePullBackOff, OOMKilled, etc.)
+2. **Reference "Common Causes"** from the k8s-failure-patterns knowledge below
+3. **Include "Investigation Steps"** with specific kubectl commands from the skill
+4. **Apply service-specific known issues** if relevant (vault unsealing, slow startups, etc.)
+
+The skill knowledge is provided below for your reference.
+"""
+            k8s_analyzer_prompt += skill_usage_instructions + "\n\n" + skill_content
+            self.logger.info("✅ Loaded k8s-failure-patterns skill into k8s-analyzer prompt")
+
         escalation_manager_prompt = self._load_agent_prompt("escalation-manager")
         github_reviewer_prompt = self._load_agent_prompt("github-reviewer")
         slack_notifier_prompt = self._load_agent_prompt("slack-notifier")
@@ -141,8 +162,9 @@ class Monitor:
         options = ClaudeAgentOptions(
             # Pass agents programmatically (recommended per SDK docs)
             agents=agents_config,
-            # Do NOT load filesystem agents - use programmatic definitions only
-            setting_sources=[],
+            # Load filesystem settings for skills discovery
+            # This enables .claude/skills/*.md files to be auto-discovered
+            setting_sources=["project"],
             # MCP Servers (optional - only if available)
             mcp_servers=mcp_servers if mcp_servers else None,
             # Tools available to orchestrator (None = all tools including MCP tools)
@@ -459,6 +481,20 @@ No critical issues detected."""
                                 pass
 
             self.logger.debug(f"k8s-analyzer response: {response_text}")
+
+            # Save full response to file for skill verification
+            response_file = Path("logs") / f"k8s_analyzer_response_{self.cycle_id}.txt"
+            response_file.write_text(response_text)
+            self.logger.info(f"💾 Full k8s-analyzer response saved to: {response_file}")
+
+            # Check if skill was loaded by looking for skill references
+            skill_loaded = "k8s-failure-patterns" in response_text.lower() or \
+                          "skill" in response_text.lower() and "pattern" in response_text.lower()
+            if skill_loaded:
+                self.logger.info(f"🎯 SKILL DETECTED: k8s-failure-patterns skill was referenced in response")
+            else:
+                self.logger.info(f"📝 No explicit skill reference detected (skill may still have been loaded)")
+
             if response_model:
                 self.logger.info(f"✅ k8s-analyzer used model: {response_model}")
             else:
@@ -677,3 +713,36 @@ Determine the SEV level (SEV-1 through SEV-4) and whether notification is requir
 
         # Return everything after the frontmatter
         return parts[2].strip()
+
+    def _load_skill_content(self, skill_name: str) -> Optional[str]:
+        """Load skill content from .claude/skills/ directory.
+
+        Args:
+            skill_name: Name of the skill (e.g., 'k8s-failure-patterns')
+
+        Returns:
+            Skill content (text after YAML frontmatter) or None if not found
+        """
+        skill_file = Path(".claude/skills") / f"{skill_name}.md"
+
+        if not skill_file.exists():
+            self.logger.warning(f"Skill file not found: {skill_file}")
+            return None
+
+        try:
+            with open(skill_file, "r") as f:
+                content = f.read()
+
+            # Extract content after YAML frontmatter (after second ---)
+            parts = content.split("---", 2)
+            if len(parts) < 3:
+                self.logger.warning(f"Invalid skill file format: {skill_file}")
+                return None
+
+            # Return everything after the frontmatter, prefixed with a header
+            skill_content = parts[2].strip()
+            return f"---\n\n# SKILL: {skill_name}\n\n{skill_content}"
+
+        except Exception as e:
+            self.logger.error(f"Failed to load skill {skill_name}: {e}")
+            return None
