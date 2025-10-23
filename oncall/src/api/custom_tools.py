@@ -440,7 +440,12 @@ async def search_recent_deployments(args: Dict[str, Any]) -> Dict[str, Any]:
             "deployments": []
         }
 
-        for run in runs[:10]:  # Limit to 10 most recent
+        # Safely iterate over paginated list with limit
+        count = 0
+        for run in runs:
+            if count >= 10:  # Limit to 10 most recent
+                break
+
             # Filter by workflow name if specified
             if workflow_name and workflow_name.lower() not in run.name.lower():
                 continue
@@ -458,11 +463,13 @@ async def search_recent_deployments(args: Dict[str, Any]) -> Dict[str, Any]:
             }
 
             result["deployments"].append(run_info)
+            count += 1
 
         return result
 
     except Exception as e:
-        logger.error(f"Error searching deployments: {e}")
+        import traceback
+        logger.error(f"Error searching deployments: {e}\n{traceback.format_exc()}")
         return {
             "error": str(e),
             "repository": repo_name
