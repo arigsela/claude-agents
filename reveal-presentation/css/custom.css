@@ -1,0 +1,272 @@
+/* Custom Dark Theme for AI Triage Presentation */
+
+:root {
+  --bg-dark: #1a1a1a;
+  --bg-darker: #0d0d0d;
+  --bg-muted: #2d2d2d;
+  --text-primary: #ffffff;
+  --text-muted: #9198a1;
+  --accent-cyan: #00d4ff;
+  --accent-cyan-light: #4fd0ff;
+  --accent-green: #3fb950;
+}
+
+/* Main Reveal.js adjustments */
+.reveal {
+  background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-muted) 100%);
+  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+.reveal .slides {
+  text-align: left;
+}
+
+.reveal section {
+  padding: 40px 60px;
+  background: transparent;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Headings */
+.reveal h1 {
+  color: var(--accent-cyan);
+  font-size: 2.5em;
+  text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  margin-bottom: 0.5em;
+  font-weight: 700;
+}
+
+.reveal h2 {
+  color: var(--accent-cyan);
+  font-size: 1.8em;
+  border-bottom: 2px solid var(--accent-cyan);
+  padding-bottom: 0.3em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+.reveal h3 {
+  color: var(--accent-cyan-light);
+  font-size: 1.2em;
+  margin-bottom: 0.4em;
+  font-weight: 500;
+}
+
+/* Text and lists */
+.reveal p {
+  color: var(--text-primary);
+  font-size: 1em;
+  margin-bottom: 0.5em;
+  line-height: 1.6;
+}
+
+.reveal ul,
+.reveal ol {
+  margin: 0.5em 0 0.5em 0;
+  font-size: 0.95em;
+}
+
+.reveal li {
+  color: var(--text-primary);
+  margin-bottom: 0.4em;
+  line-height: 1.5;
+}
+
+.reveal strong {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.reveal em {
+  color: var(--accent-cyan-light);
+  font-style: italic;
+}
+
+/* Code blocks */
+.reveal code {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--accent-cyan);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.reveal pre {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 5px;
+  padding: 15px;
+  margin: 0.5em 0;
+  font-size: 0.75em;
+  line-height: 1.4;
+  color: var(--text-primary);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.reveal pre code {
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0;
+}
+
+/* Tables */
+.reveal table {
+  margin: 1em auto;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.reveal table th {
+  background: rgba(0, 212, 255, 0.2);
+  color: var(--accent-cyan);
+  border-bottom: 2px solid var(--accent-cyan);
+  padding: 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.reveal table td {
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+  padding: 8px 10px;
+}
+
+.reveal table tr:hover {
+  background: rgba(0, 212, 255, 0.05);
+}
+
+/* Highlights and special sections */
+.reveal .highlight {
+  background: rgba(0, 212, 255, 0.1);
+  border-left: 3px solid var(--accent-cyan);
+  padding: 12px 15px;
+  margin: 0.5em 0;
+  border-radius: 3px;
+  font-size: 0.95em;
+  color: var(--text-primary);
+}
+
+/* Links */
+.reveal a {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+  transition: color 0.3s ease;
+}
+
+.reveal a:hover {
+  color: var(--accent-cyan-light);
+}
+
+/* Navigation */
+.reveal .controls {
+  bottom: 20px;
+  right: 20px;
+}
+
+.reveal .controls button {
+  color: var(--accent-cyan);
+  border-radius: 3px;
+}
+
+.reveal .controls button:hover {
+  color: var(--accent-cyan-light);
+  background: rgba(0, 212, 255, 0.2);
+}
+
+/* Progress bar */
+.reveal .progress {
+  background: rgba(0, 212, 255, 0.3);
+}
+
+.reveal .progress span {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+}
+
+/* Slide number */
+.reveal .slide-number {
+  color: var(--accent-cyan);
+  font-size: 0.8em;
+}
+
+/* Overview mode */
+.reveal.overview {
+  background: var(--bg-darker);
+}
+
+.reveal.overview .slides {
+  perspective: 1200px;
+}
+
+/* Transition animations */
+.reveal .slides > section {
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.reveal .slides > section.present {
+  opacity: 1;
+}
+
+/* Speaker notes (if visible) */
+.speaker-notes {
+  background: var(--bg-darker);
+  color: var(--text-primary);
+  border-top: 2px solid var(--accent-cyan);
+  padding: 15px;
+  font-size: 0.8em;
+}
+
+/* Vertical separator styling */
+.reveal section section {
+  padding: 30px 40px;
+}
+
+/* Emoji and special characters */
+.reveal p:first-of-type {
+  margin-top: 0;
+}
+
+/* Ensure text is readable */
+@media (max-width: 960px) {
+  .reveal h1 {
+    font-size: 2em;
+  }
+
+  .reveal h2 {
+    font-size: 1.4em;
+  }
+
+  .reveal section {
+    padding: 30px 40px;
+  }
+}
+
+/* Print styles */
+@media print {
+  .reveal {
+    background: white;
+  }
+
+  .reveal section {
+    background: white;
+    color: black;
+    page-break-after: always;
+  }
+
+  .reveal h1,
+  .reveal h2,
+  .reveal h3 {
+    color: #0969da;
+  }
+
+  .reveal .controls,
+  .reveal .progress {
+    display: none;
+  }
+}
