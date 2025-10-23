@@ -12,9 +12,22 @@ import re
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from tools.datadog_integrator import DatadogIntegrator
+from api.skill_template_engine import SkillTemplateEngine
 
 logger = logging.getLogger(__name__)
+
+# Initialize skill template engine
+_template_engine = None
+
+def _get_template_engine() -> SkillTemplateEngine:
+    """Get or create template engine instance."""
+    global _template_engine
+    if _template_engine is None:
+        output_dir = os.getenv("SKILL_REPORTS_DIR", "/tmp/oncall-reports")
+        _template_engine = SkillTemplateEngine(output_dir=Path(output_dir))
+    return _template_engine
 
 
 # ============================================================
@@ -1362,4 +1375,153 @@ async def check_network_traffic(params: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "error": str(e),
             "namespace": params.get("namespace")
+        }
+
+
+# ============================================================
+# Skills: Document Generation
+# ============================================================
+
+async def generate_skill_document(args: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generate a document from a skill template.
+
+    This tool allows skills to create formatted reports, runbooks, and documentation
+    using Jinja2 templates defined in skill files.
+
+    Args:
+        skill_name (str): Name of the skill containing the template
+        template_name (str): Name of the template to use
+        data (dict): Dictionary of data to populate the template
+        output_filename (str, optional): Custom filename for output
+
+    Returns:
+        dict: {
+            "success": bool,
+            "file_path": str,  # Path to generated document
+            "template_used": str,
+            "output_size_bytes": int,
+            "data_keys": list  # Keys from data dict that were used
+        }
+
+    Example:
+        await generate_skill_document({
+            "skill_name": "incident-reporter",
+            "template_name": "k8s_incident_report",
+            "data": {
+                "timestamp": "2025-10-23T12:00:00Z",
+                "severity": "high",
+                "summary": "MySQL pod crashed",
+                # ... more template variables
+            }
+        })
+    """
+    try:
+        skill_name = args.get("skill_name")
+        template_name = args.get("template_name")
+        data = args.get("data", {})
+        custom_filename = args.get("output_filename")
+
+        # Validation
+        if not skill_name:
+            return {"success": False, "error": "skill_name is required"}
+        if not template_name:
+            return {"success": False, "error": "template_name is required"}
+        if not isinstance(data, dict):
+            return {"success": False, "error": "data must be a dictionary"}
+
+        logger.info(f"Generating document: skill={skill_name}, template={template_name}")
+
+        # Get template engine
+        engine = _get_template_engine()
+
+        # Locate skill file
+        skills_dir = Path(".claude/skills")
+        skill_path = skills_dir / f"{skill_name}.md"
+
+        if not skill_path.exists():
+            # Try alternative path format
+            skill_path = skills_dir / skill_name / "SKILL.md"
+
+        if not skill_path.exists():
+            return {
+                "success": False,
+                "error": f"Skill not found: {skill_name}",
+                "searched_paths": [
+                    str(skills_dir / f"{skill_name}.md"),
+                    str(skills_dir / skill_name / "SKILL.md")
+                ]
+            }
+
+        # Parse templates from skill
+        templates = engine.parse_skill_templates(skill_path)
+
+        if template_name not in templates:
+            return {
+                "success": False,
+                "error": f"Template '{template_name}' not found in skill '{skill_name}'",
+                "available_templates": list(templates.keys())
+            }
+
+        # Get template content
+        template_content = templates[template_name]
+
+        # Validate template syntax
+        is_valid, error_msg = engine.validate_template_syntax(template_content)
+        if not is_valid:
+            return {
+                "success": False,
+                "error": f"Template syntax error: {error_msg}"
+            }
+
+        # Render template
+        try:
+            rendered_content = engine.render_template(template_content, data, strict=False)
+        except Exception as e:
+            logger.error(f"Template rendering failed: {e}")
+            return {
+                "success": False,
+                "error": f"Template rendering failed: {str(e)}"
+            }
+
+        # Generate filename
+        if custom_filename:
+            filename = custom_filename
+        else:
+            filename = engine.generate_filename(template_name, data, extension="md")
+
+        # Save document
+        try:
+            file_path = engine.save_document(rendered_content, filename)
+        except Exception as e:
+            logger.error(f"Failed to save document: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to save document: {str(e)}"
+            }
+
+        # Success response
+        result = {
+            "success": True,
+            "file_path": str(file_path),
+            "template_used": template_name,
+            "output_size_bytes": len(rendered_content.encode('utf-8')),
+            "data_keys": list(data.keys()),
+            "skill_name": skill_name
+        }
+
+        logger.info(
+            f"✅ Document generated successfully: {file_path} "
+            f"({result['output_size_bytes']} bytes)"
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error generating skill document: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "skill_name": args.get("skill_name"),
+            "template_name": args.get("template_name")
         }

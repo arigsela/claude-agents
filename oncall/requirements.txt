@@ -23,6 +23,9 @@ datadog-api-client>=2.28.0
 # Async HTTP Requests
 aiohttp>=3.9.0
 
+# Template Engine for Skills
+jinja2>=3.1.0
+
 # FastAPI and API Server
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0

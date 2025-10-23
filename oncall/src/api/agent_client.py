@@ -28,7 +28,8 @@ from api.custom_tools import (
     correlate_nat_spike_with_zeus_jobs,
     query_datadog_metrics,
     get_resource_usage_trends,
-    check_network_traffic
+    check_network_traffic,
+    generate_skill_document
 )
 
 logger = logging.getLogger(__name__)
@@ -150,7 +151,7 @@ Correlation: Pod restart loops (5+) → Check recent ArgoCD sync, GitHub PR, ECR
 """
 
         # Load skills and append to prompt
-        skills_to_load = ["k8s-failure-patterns", "homelab-runbooks"]
+        skills_to_load = ["k8s-failure-patterns", "homelab-runbooks", "incident-reporter"]
 
         for skill_name in skills_to_load:
             skill_content = self._load_skill_content(skill_name)
@@ -173,6 +174,28 @@ When troubleshooting Kubernetes issues, YOU MUST:
    - chores-tracker slow startup checks
    - ArgoCD deployment correlation
 5. **Cite which skill you're using** in your response (e.g., "According to the homelab-runbooks...")
+
+## IMPORTANT: Generating Incident Reports
+
+After investigating a significant incident (P0/P1 severity), YOU MUST generate an incident report using the incident-reporter skill:
+
+1. **Gather investigation data** as you troubleshoot (logs, events, commands, findings)
+2. **Structure the data** with these fields:
+   - timestamp (ISO format)
+   - severity (critical/high/medium/low)
+   - summary (1-2 sentence description)
+   - affected_resources (list of pods/deployments/services)
+   - investigation_steps (chronological list with commands and findings)
+   - root_cause (clear RCA)
+   - remediation_actions (what was done to fix it)
+   - recommendations (how to prevent recurrence)
+3. **Call generate_skill_document** tool with:
+   - skill_name: "incident-reporter"
+   - template_name: "k8s_incident_report"
+   - data: Your structured investigation data
+4. **Return the file path** to the user so they can attach it to Slack/Teams
+
+The incident report will be saved to /tmp/oncall-reports/ and can be attached to notifications.
 
 The skills knowledge provided above contains detailed troubleshooting procedures. Use them!
 """
@@ -339,6 +362,32 @@ The skills knowledge provided above contains detailed troubleshooting procedures
                     },
                     "required": ["service_name", "namespace"]
                 }
+            },
+            {
+                "name": "generate_skill_document",
+                "description": "Generate a formatted document (incident report, runbook, status report) from a skill template. Use this to create professional documentation after troubleshooting incidents.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Name of the skill containing the template (e.g., 'incident-reporter')"
+                        },
+                        "template_name": {
+                            "type": "string",
+                            "description": "Name of the template to use (e.g., 'k8s_incident_report')"
+                        },
+                        "data": {
+                            "type": "object",
+                            "description": "Dictionary of data to populate the template with (timestamp, severity, summary, affected_resources, etc.)"
+                        },
+                        "output_filename": {
+                            "type": "string",
+                            "description": "Optional custom filename for the output document"
+                        }
+                    },
+                    "required": ["skill_name", "template_name", "data"]
+                }
             }
         ]
 
@@ -445,7 +494,7 @@ The skills knowledge provided above contains detailed troubleshooting procedures
         Returns:
             Tool execution result
         """
-        # Map tool names to functions (K3s homelab tools only)
+        # Map tool names to functions (K3s homelab tools + skills)
         tool_map = {
             "list_namespaces": list_namespaces,
             "list_pods": list_pods,
@@ -455,6 +504,7 @@ The skills knowledge provided above contains detailed troubleshooting procedures
             "list_services": list_services,
             "search_recent_deployments": search_recent_deployments,
             "analyze_service_health": analyze_service_health,
+            "generate_skill_document": generate_skill_document,
         }
 
         if tool_name not in tool_map:
