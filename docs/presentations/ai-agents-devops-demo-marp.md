@@ -7,11 +7,22 @@ author: Ari Sela
 title: Smarter DevOps with Claude AI Agents
 ---
 
+<style scoped>
+.author-info {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    font-size: 18px;
+}
+</style>
+
 # Smarter DevOps with Claude AI Agents
 
-**Proactive Monitoring & Interactive Troubleshooting**
+![width:400px](./images/smarter_devops.png)
 
-<div style="position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 18px;">
+<div class="author-info">
 
 **Ari Sela**
 Senior DevOps Manager at NomiHealth
@@ -19,11 +30,22 @@ Senior DevOps Manager at NomiHealth
 </div>
 
 ---
+
+<style scoped>
+section {
+    font-size: 26px;
+}
+.content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: center;
+}
+</style>
+
 ## The Problem We Face Today
 
-### Manual Troubleshooting Challenges
-
-<div style="font-size: 0.85em;">
+<div class="content">
 
 🔀 **Multiple Data Sources**
 ⏱️ **Time-Consuming Correlation**
@@ -32,15 +54,43 @@ Senior DevOps Manager at NomiHealth
 🧠 **Tribal Knowledge Gap**
 ❌ **Missed Connections**
 
+![width:350px](./images/multiple-sources.png)
+
 </div>
 
-![width:500px](./images/multiple-sources.png)
-
 ---
+
+<style scoped>
+section {
+    font-size: 26px;
+}
+.impact-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+}
+</style>
+
 ### Real-World Impact
 
+<div class="impact-content">
+
+<div>
+
 ⏱️ **20-40 minutes Average incident investigation time**
+
 🎯 **Our Goal: Reduce to 2-5 minutes**
+
+</div>
+
+<div style="text-align: center;">
+
+![width:300px](./images/time-reduction.png)
+
+</div>
+
+</div>
 
 ---
 
@@ -124,11 +174,8 @@ Senior DevOps Manager at NomiHealth
 **Blocks dangerous operations before execution**
 
 ---
-
 ## OnCall Agent
-
 **Architecture & Tech Stack**
-
 ---
 
 ### Built on Anthropic API (Direct)
@@ -139,18 +186,6 @@ Senior DevOps Manager at NomiHealth
 📚 **Direct Python Libraries**
 💬 **Slack Integration**
 🔄 **Two-Turn Investigation**
-
----
-
-### Dual-Mode Operation
-
-<div style="font-size: 1.2em; text-align: center; margin: 40px 0;">
-
-**1. API Mode** → 🔌 HTTP Server (n8n)
-
-**2. Daemon Mode** → ⏰ Autonomous Monitoring
-
-</div>
 
 ---
 
@@ -168,9 +203,13 @@ Senior DevOps Manager at NomiHealth
 
 ---
 
-## Benefits for DevOps
+### Dual-Mode Operation
 
-<!-- .slide: data-background="#27ae60" -->
+<div style="text-align: center; margin: 60px 0;">
+
+![width:450px](./images/dual_mode_operation.png)
+
+</div>
 
 ---
 
@@ -189,19 +228,6 @@ Senior DevOps Manager at NomiHealth
 🔎 **Deep Investigation**
 🔌 **Flexible Integration**
 📖 **Low Barrier to Entry**
-
----
-
-### When to Use Each
-
-| Use Case | K8s Monitor | OnCall Agent |
-|----------|-------------|--------------|
-| **Proactive monitoring** | ✅ | |
-| **Interactive questions** | | ✅ |
-| **Comprehensive coverage** | ✅ | |
-| **Fast responses** | | ✅ |
-| **Safety-critical** | ✅ | |
-| **External integrations** | | ✅ |
 
 ---
 
