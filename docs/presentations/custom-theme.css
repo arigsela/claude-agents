@@ -1,0 +1,93 @@
+/* Custom theme for AI Agents presentation */
+
+.reveal {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.reveal h1,
+.reveal h2,
+.reveal h3 {
+  text-transform: none;
+  font-weight: bold;
+}
+
+.reveal h2 {
+  color: #3498db;
+}
+
+/* Icon + text grid styling */
+.reveal .icon-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 40px;
+  text-align: center;
+  margin: 40px 0;
+}
+
+.reveal .icon-grid > div {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.reveal .icon-grid > div:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-5px);
+}
+
+/* Table styling */
+.reveal table {
+  font-size: 0.9em;
+  border-collapse: collapse;
+}
+
+.reveal table th {
+  background: #3498db;
+  color: white;
+  padding: 15px;
+}
+
+.reveal table td {
+  padding: 12px;
+  border: 1px solid #444;
+}
+
+.reveal table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Code blocks */
+.reveal pre {
+  box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.3);
+  border-radius: 5px;
+}
+
+.reveal code {
+  background: #2c3e50;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Emoji sizing */
+.reveal div[style*="font-size: 1.5em"] {
+  line-height: 1.8;
+}
+
+/* Make checkmarks more visible */
+.reveal td:contains("✅") {
+  font-size: 1.5em;
+}
+
+/* Highlight important metrics */
+.reveal div[style*="font-size: 3em"] {
+  color: #e74c3c;
+  font-weight: bold;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Goal highlighting */
+.reveal div[style*="margin-top: 40px"] {
+  color: #27ae60;
+  font-weight: bold;
+}
