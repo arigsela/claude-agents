@@ -143,8 +143,9 @@ class Monitor:
             agents=agents_config,
             # Do NOT load filesystem agents - use programmatic definitions only
             setting_sources=[],
-            # MCP Servers (optional - only if available)
-            mcp_servers=mcp_servers if mcp_servers else None,
+            # MCP Servers (TEMPORARILY DISABLED - troubleshooting timeout)
+            # TODO: Re-enable after fixing MCP server initialization
+            mcp_servers=None,  # DISABLED: mcp_servers if mcp_servers else None,
             # Tools available to orchestrator (None = all tools including MCP tools)
             # Important: Must allow MCP tools like mcp__slack__post_message
             allowed_tools=None,  # Allow all tools including MCP

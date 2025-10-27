@@ -26,14 +26,16 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
     findings_dicts = []
 
     # Parse Critical Issues (P0) - try multiple patterns
-    critical_section = _extract_section(response, "Critical Issues|P0|🔴 Critical")
+    # Now handles: "Critical Issues", "**Critical Issues**", "Critical Issues (Require...)", etc.
+    critical_section = _extract_section(response, r"\*\*Critical Issues.*?\*\*|Critical Issues|P0|🔴 Critical")
     if critical_section:
         findings_dicts.extend(
             _parse_issue_section(critical_section, severity="critical", priority="P0")
         )
 
     # Parse High Priority Issues (P1) - try multiple patterns
-    high_section = _extract_section(response, "High Priority|P1|⚠️.*?Issue")
+    # Now handles: "High Priority", "**High Priority**", "High Priority (Important)", etc.
+    high_section = _extract_section(response, r"\*\*High Priority.*?\*\*|High Priority|P1|⚠️.*?Issue")
     if high_section:
         findings_dicts.extend(
             _parse_issue_section(high_section, severity="high", priority="P1")
@@ -75,10 +77,12 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
             finding = Finding(**finding_dict)
             findings.append(finding)
         except Exception as e:
-            # Log conversion errors but continue processing other findings
+            # Log conversion errors but append dict anyway for backward compatibility
             import sys
             print(f"Warning: Failed to convert finding dict to Finding object: {e}", file=sys.stderr)
             print(f"  Dict: {finding_dict}", file=sys.stderr)
+            # Append the dict anyway so it's not lost
+            findings.append(finding_dict)
 
     return findings
 
@@ -200,12 +204,57 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
                     "severity": severity,
                     "priority": priority,
                     "description": f"{service_name} - {first_line}",
+                    "service": service_name,  # Include service field
                 })
 
         if findings:
             return findings
 
-    # Strategy 2: Look for all bulleted items with **service-name** pattern
+    # Strategy 2: Look for bold headers with colons at start of line (no bullet)
+    # Pattern: "**CRITICAL - service-name is DOWN:**" or "**MySQL Configuration Issue:**"
+    header_pattern = r'^\*\*([A-Z]+\s*-\s*)?(.+?):\*\*'
+    header_matches = list(re.finditer(header_pattern, section, re.MULTILINE))
+
+    if header_matches:
+        for match in header_matches:
+            severity_label = match.group(1).strip() if match.group(1) else ""
+            service_desc = match.group(2).strip()
+
+            # Determine severity from label or preceding context
+            # Check if CRITICAL appears anywhere in the matched text or before it
+            match_start = match.start()
+            preceding_text = section[:match_start]
+            full_header = match.group(0)
+
+            if 'CRITICAL' in full_header.upper() or 'CRITICAL' in preceding_text[-100:].upper():
+                severity = "critical"
+                priority = "P0"
+            elif 'HIGH' in full_header.upper() or 'HIGH' in preceding_text[-100:].upper():
+                severity = "high"
+                priority = "P1"
+            else:
+                # Default to critical if we see DEGRADED in context
+                if 'DEGRADED' in preceding_text[-200:]:
+                    severity = "critical"
+                    priority = "P0"
+                else:
+                    severity = "warning"
+                    priority = "P2"
+
+            # Extract service name (remove "is DOWN/UP" suffix if present)
+            service_name = re.sub(r'\s+is\s+(DOWN|UP|DEGRADED|UNHEALTHY)', '', service_desc, flags=re.IGNORECASE)
+
+            findings.append({
+                "severity": severity,
+                "priority": priority,
+                "description": match.group(0).replace('**', '').replace(':', '').strip(),
+                "service": service_name,
+            })
+
+        if findings:
+            return findings
+
+    # Strategy 3: Look for all bulleted items with **service-name** pattern
     # Pattern: "- **service-name** description"
     bullet_pattern = r'^[\s]*[-*]\s+\*\*([^*]+)\*\*\s*(.+?)(?=\n|$)'
     matches = re.finditer(bullet_pattern, section, re.MULTILINE)
@@ -236,6 +285,7 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
                 "severity": severity,
                 "priority": priority,
                 "description": f"{service_name} - {description}",
+                "service": service_name,  # Include service field
             })
 
     return findings
@@ -288,15 +338,22 @@ def _parse_issue_section(
                 if issue_match:
                     description += f" | {issue_match.group(1).strip()}"
 
+                # Extract service name from description if possible
+                service_name = None
+                service_match = re.search(r'Service:\s+(.+?)(?:\s+\||$)', description)
+                if service_match:
+                    service_name = service_match.group(1).strip()
+
                 findings.append({
                     "severity": severity,
                     "priority": priority,
                     "description": description,
+                    "service": service_name,  # Include service field
                 })
         return findings
 
     # Strategy 2: Fallback - look for numbered lists or bullet points
-    # Pattern: "1. Service: pod down" or "- Service: pod down"
+    # Pattern: "1. **Service-name - Issue**" or "1. Service: pod down" or "- Service: pod down"
     numbered_pattern = r"^\s*\d+\.\s+(.+?)(?=^\s*\d+\.|\n\n|$)"
     bullet_pattern = r"^[\s]*[-*]\s+(.+?)(?=\n[\s]*[-*]|\n\n|$)"
 
@@ -317,14 +374,35 @@ def _parse_issue_section(
 
         # Skip empty lines and section headers
         if issue_text and not issue_text.startswith("#") and len(issue_text) > 10:
-            # Clean up the text: remove newlines, collapse whitespace
+            # Extract service name from various patterns:
+            # Pattern 1: **service-name - Issue**
+            # Pattern 2: **service-name Issue**
+            # Pattern 3: Service: service-name
+            service_name = None
+
+            # Try pattern: **service-name - Issue** (extract service name and issue from bold text)
+            service_pattern_1 = re.match(r'^\*\*(.+?)\s+[-–]\s+(.+?)\*\*', issue_text)
+            if service_pattern_1:
+                service_name = service_pattern_1.group(1).strip()
+                issue_desc = service_pattern_1.group(2).strip()
+                # Build clean description from first line only
+                issue_text = f"{service_name} - {issue_desc}"
+            else:
+                # Try pattern: Service: service-name
+                service_match = re.search(r'Service:\s+(.+?)(?:\s+\||$)', issue_text)
+                if service_match:
+                    service_name = service_match.group(1).strip()
+
+            # Clean up the text: remove newlines, collapse whitespace, remove bold markers
             issue_text = re.sub(r'\n', ' ', issue_text)
             issue_text = re.sub(r'\s+', ' ', issue_text)
+            issue_text = re.sub(r'\*\*', '', issue_text)  # Remove bold markers
 
             findings.append({
                 "severity": severity,
                 "priority": priority,
                 "description": issue_text,
+                "service": service_name,  # Include service field
             })
 
     return findings
