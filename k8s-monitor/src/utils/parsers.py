@@ -41,11 +41,11 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
             _parse_issue_section(high_section, severity="high", priority="P1")
         )
 
-    # Parse Warnings (P2/P3) - handle multiple naming conventions
+    # Parse Warnings (P2) - handle multiple naming conventions
     warning_section = _extract_section(response, "Warnings|P2|P3|Minor Issues|Issues Found")
     if warning_section:
         findings_dicts.extend(
-            _parse_issue_section(warning_section, severity="warning", priority="P2/P3")
+            _parse_issue_section(warning_section, severity="warning", priority="P2")
         )
 
     # Parse generic Key Findings section if no structured sections found
@@ -157,8 +157,12 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
     # 1. **MySQL** - Database Connection Failure
     #    - Namespace: mysql
     #    - Severity: P0
+    # BUT: Skip section headers like "### P1 Critical Issues (Service Impact)"
     numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
     matches = list(re.finditer(numbered_pattern, section, re.MULTILINE | re.DOTALL))
+
+    # Filter out section headers (they don't have " - " separator and end with parentheses or colons)
+    matches = [m for m in matches if not re.match(r'^(P\d+|Critical|High|Warning|Note|Issues?)\s', m.group(1).strip(), re.IGNORECASE)]
 
     if matches:
         for match in matches:
@@ -370,6 +374,11 @@ def _parse_issue_section(
         # Skip sub-bullets with generic labels (like "**Service**:", "**Namespace**:", "**Issue**:")
         # But keep specific items like "**route53-updater**:" or "**ECR secret warnings**:"
         if re.match(r'^\*\*(Service|Namespace|Issue|Impact|Root Cause|Recent Events|Max Downtime|Services Affected)\*\*:', issue_text):
+            continue
+
+        # Skip section headers that look like "P1 Critical Issues (Service Impact)" or "Note"
+        # These don't have the format: "service-name - issue description"
+        if re.match(r'^(P\d+|Critical|High|Warning|Note|Issues?)\s+', issue_text, re.IGNORECASE):
             continue
 
         # Skip empty lines and section headers
