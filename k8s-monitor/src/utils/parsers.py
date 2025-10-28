@@ -184,8 +184,9 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
     # 1. **MySQL** - Database Connection Failure
     #    - Namespace: mysql
     #    - Severity: P0
+    # Also handles: ### 1. **MySQL** - Issue (with heading prefix)
     # BUT: Skip section headers like "### P1 Critical Issues (Service Impact)"
-    numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
+    numbered_pattern = r'^(?:###\s+)?\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n(?:###\s+)?\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
     matches = list(re.finditer(numbered_pattern, section, re.MULTILINE | re.DOTALL))
 
     # Filter out section headers (they don't have " - " separator and end with parentheses or colons)
@@ -201,7 +202,8 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
             priority = "P2"
 
             # Look for explicit severity/priority indicators in the block
-            severity_match = re.search(r'Severity:\s*(P0|P1|P2|P3|critical|high|warning)', description_block, re.IGNORECASE)
+            # Handles: "Severity: **P1**" or "Severity: P1" or "**P1**" inline
+            severity_match = re.search(r'Severity:\s*\*?\*?(P0|P1|P2|P3|critical|high|warning)\*?\*?', description_block, re.IGNORECASE)
             if severity_match:
                 sev_value = severity_match.group(1).upper()
                 if sev_value.startswith('P0') or sev_value == 'CRITICAL':
@@ -210,6 +212,9 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
                 elif sev_value.startswith('P1') or sev_value == 'HIGH':
                     severity = "high"
                     priority = "P1"
+                elif sev_value.startswith('P2') or sev_value == 'WARNING':
+                    severity = "warning"
+                    priority = "P2"
 
             # Also check if this block appears under a critical marker in preceding text
             if not severity_match:
