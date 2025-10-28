@@ -41,11 +41,11 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
             _parse_issue_section(high_section, severity="high", priority="P1")
         )
 
-    # Parse Warnings (P2/P3) - handle multiple naming conventions
+    # Parse Warnings (P2) - handle multiple naming conventions
     warning_section = _extract_section(response, "Warnings|P2|P3|Minor Issues|Issues Found")
     if warning_section:
         findings_dicts.extend(
-            _parse_issue_section(warning_section, severity="warning", priority="P2/P3")
+            _parse_issue_section(warning_section, severity="warning", priority="P2")
         )
 
     # Parse generic Key Findings section if no structured sections found
@@ -53,8 +53,14 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
     if not findings_dicts:
         key_findings_section = _extract_section(response, "Key Findings")
         if key_findings_section:
-            # Look for **bold service names** with issues (pattern: **service-name** followed by description)
-            findings_dicts.extend(_parse_key_findings_section(key_findings_section))
+            # Look for **Critical Issues:** subsection within Key Findings
+            critical_subsection = _extract_bold_subsection(key_findings_section, "Critical Issues")
+            if critical_subsection:
+                findings_dicts.extend(_parse_key_findings_section(critical_subsection))
+
+            # If still no findings, look for any **bold service names** with issues
+            if not findings_dicts:
+                findings_dicts.extend(_parse_key_findings_section(key_findings_section))
 
     # Parse ## FINDINGS section (2 hashes) - Claude may output this format
     # This is a direct response to our explicit instructions in the query
@@ -101,6 +107,27 @@ def _extract_section(content: str, section_pattern: str) -> str:
     # This allows #### subsections within the ### section
     pattern = (
         f"^###\\s+(?:{section_pattern}).*?(?=^###\\s+|\\Z)"
+    )
+    match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+    if match:
+        return match.group(0)
+    return ""
+
+
+def _extract_bold_subsection(content: str, subsection_pattern: str) -> str:
+    """Extract content after a bold subsection marker like **Critical Issues:**.
+
+    Args:
+        content: Content to search within
+        subsection_pattern: Pattern to match (e.g., "Critical Issues")
+
+    Returns:
+        Content from the bold marker until the next bold subsection or end
+    """
+    # Match **Pattern:** and capture until next **Anything:** or end
+    pattern = (
+        rf"\*\*{subsection_pattern}:?\*\*.*?(?=\*\*[A-Z][^*]+:?\*\*|###|\Z)"
     )
     match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
 
@@ -157,8 +184,13 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
     # 1. **MySQL** - Database Connection Failure
     #    - Namespace: mysql
     #    - Severity: P0
-    numbered_pattern = r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
+    # Also handles: ### 1. **MySQL** - Issue (with heading prefix)
+    # BUT: Skip section headers like "### P1 Critical Issues (Service Impact)"
+    numbered_pattern = r'^(?:###\s+)?\s*\d+\.\s+\*\*([^*]+)\*\*\s*[-–]\s*(.+?)(?=\n(?:###\s+)?\s*\d+\.|\n(?:\s*##|\s*###)|\Z)'
     matches = list(re.finditer(numbered_pattern, section, re.MULTILINE | re.DOTALL))
+
+    # Filter out section headers (they don't have " - " separator and end with parentheses or colons)
+    matches = [m for m in matches if not re.match(r'^(P\d+|Critical|High|Warning|Note|Issues?)\s', m.group(1).strip(), re.IGNORECASE)]
 
     if matches:
         for match in matches:
@@ -170,7 +202,8 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
             priority = "P2"
 
             # Look for explicit severity/priority indicators in the block
-            severity_match = re.search(r'Severity:\s*(P0|P1|P2|P3|critical|high|warning)', description_block, re.IGNORECASE)
+            # Handles: "Severity: **P1**" or "Severity: P1" or "**P1**" inline
+            severity_match = re.search(r'Severity:\s*\*?\*?(P0|P1|P2|P3|critical|high|warning)\*?\*?', description_block, re.IGNORECASE)
             if severity_match:
                 sev_value = severity_match.group(1).upper()
                 if sev_value.startswith('P0') or sev_value == 'CRITICAL':
@@ -179,6 +212,9 @@ def _parse_key_findings_section(section: str) -> list[dict[str, Any]]:
                 elif sev_value.startswith('P1') or sev_value == 'HIGH':
                     severity = "high"
                     priority = "P1"
+                elif sev_value.startswith('P2') or sev_value == 'WARNING':
+                    severity = "warning"
+                    priority = "P2"
 
             # Also check if this block appears under a critical marker in preceding text
             if not severity_match:
@@ -370,6 +406,11 @@ def _parse_issue_section(
         # Skip sub-bullets with generic labels (like "**Service**:", "**Namespace**:", "**Issue**:")
         # But keep specific items like "**route53-updater**:" or "**ECR secret warnings**:"
         if re.match(r'^\*\*(Service|Namespace|Issue|Impact|Root Cause|Recent Events|Max Downtime|Services Affected)\*\*:', issue_text):
+            continue
+
+        # Skip section headers that look like "P1 Critical Issues (Service Impact)" or "Note"
+        # These don't have the format: "service-name - issue description"
+        if re.match(r'^(P\d+|Critical|High|Warning|Note|Issues?)\s+', issue_text, re.IGNORECASE):
             continue
 
         # Skip empty lines and section headers

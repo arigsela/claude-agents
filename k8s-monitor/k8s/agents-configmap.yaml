@@ -31,24 +31,75 @@ data:
 
     ### 1. Pod Health (Critical Services Priority)
 
+    **CRITICAL: ALWAYS CHECK CURRENT POD STATUS FIRST BEFORE LOOKING AT EVENTS**
+
     ```bash
-    # Get all pods
+    # STEP 1: Check current pod status FIRST (this is the source of truth)
     kubectl get pods --all-namespaces -o wide
 
-    # Find problematic pods
+    # STEP 2: Find ONLY pods that are NOT currently running
     kubectl get pods --all-namespaces --field-selector=status.phase!=Running
 
-    # Check events
-    kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
+    # STEP 3: Check specific critical namespaces to verify their CURRENT status
+    kubectl get pods -n chores-tracker-backend
+    kubectl get pods -n chores-tracker-frontend
+    kubectl get pods -n mysql
+    kubectl get pods -n n8n
+    kubectl get pods -n postgresql
+    kubectl get pods -n oncall-agent
+    kubectl get pods -n ingress-nginx
     ```
 
-    **Look for**:
-    - CrashLoopBackOff
-    - ImagePullBackOff
-    - OOMKilled
-    - Pending (scheduling issues)
+    **CRITICAL DECISION RULE**:
+    - If `kubectl get pods -n <namespace>` shows ALL pods with STATUS=Running and READY=X/X, then that namespace is HEALTHY
+    - Do NOT flag that namespace as having issues, even if you see old events
+    - Events are only relevant for pods that are currently NOT Running or NOT Ready
 
-    ### 2. Node Health
+    **Look for** (ONLY flag if pod STATUS is not Running):
+    - CrashLoopBackOff (pod failing to start)
+    - ImagePullBackOff (cannot pull image for >5 min)
+    - OOMKilled (pod killed due to memory)
+    - Pending (cannot be scheduled)
+    - Init:Error (init container failed)
+    - Error (pod in error state)
+
+    **CRITICAL: Do NOT flag these as issues**:
+    - ✅ Pods in Running/1/1 state - These are HEALTHY even with restart counts
+    - ✅ Completed pods from CronJobs - These are successful job completions
+    - ✅ Pods with high restart history but currently Running - Only flag if currently failing
+    - ✅ **If ALL pods in a namespace are Running with READY status, DO NOT report that service as having issues**
+    - ✅ **A service is ONLY critical if it has NO running pods or if running pods are NOT ready**
+
+    ### 2. Recent Events (Last 2 Hours)
+
+    **WARNING: Events are HISTORICAL and may not reflect CURRENT pod status. ALWAYS verify current status first!**
+
+    ```bash
+    # Get recent events across all namespaces
+    kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -100
+
+    # Filter for warnings and errors
+    kubectl get events --all-namespaces --field-selector type=Warning --sort-by='.lastTimestamp'
+    ```
+
+    **CRITICAL: Only use events to investigate pods that are CURRENTLY failing (NOT Running/Ready)**
+
+    **Focus on**:
+    - OOMKilled events (ONLY if pod is currently NOT Running)
+    - FailedScheduling (ONLY if pod is currently Pending)
+    - BackOff errors (ONLY if pod status is currently CrashLoopBackOff)
+    - Liveness/Readiness probe failures (ONLY if pod is currently NOT Ready)
+    - Volume mount issues (ONLY if pod is currently in error state)
+    - Image pull failures (ONLY if pod status is currently ImagePullBackOff)
+
+    **IMPORTANT - ALWAYS Ignore these benign warnings**:
+    - ❌ `FailedToRetrieveImagePullSecret` - Transient ECR sync warnings, **IGNORE if pods are currently Running**
+    - ❌ High restart counts on Running pods - **IGNORE, only flag if pods are currently in CrashLoop/Error state**
+    - ❌ Completed pods from CronJobs (mysql-backup, etc) - **IGNORE, these are successful completions**
+    - ❌ `BackOff pulling image` - **IGNORE if pod status is currently Running, only flag if currently ImagePullBackOff**
+    - ❌ Old events for pods that recovered - **IGNORE, current status = Running means HEALTHY**
+
+    ### 3. Node Health
 
     ```bash
     # Check node status
@@ -58,7 +109,7 @@ data:
     kubectl describe nodes
     ```
 
-    ### 3. Resource Usage
+    ### 4. Resource Usage
 
     ```bash
     # Check CPU and memory
@@ -66,7 +117,7 @@ data:
     kubectl top pods --all-namespaces
     ```
 
-    ### 4. PVC Status
+    ### 5. PVC Status
 
     ```bash
     # Check storage
@@ -74,6 +125,11 @@ data:
     ```
 
     ## Output Format
+
+    **CRITICAL RULES**:
+    - **ONLY include a service in "Critical Issues" or "High Priority Issues" if it has pods that are NOT Running or NOT Ready**
+    - **If all pods in a namespace show Running/X/X with READY status, that service belongs in "All Clear (Healthy Services)"**
+    - **Do NOT report a service as critical just because it has events or restart history - check current pod status first**
 
     Return findings as JSON:
     ```json
@@ -104,6 +160,11 @@ data:
     - Check logs only if issues detected (performance)
     - Return structured data for downstream processing
     - Flag actual issues, not expected behaviors
+    - **CRITICAL: Check current pod status before reporting issues**:
+      - Run `kubectl get pods -n <namespace>` to verify current status
+      - If all pods show Running/Ready, DO NOT report that service as critical
+      - Only report services where pods are currently NOT Running or NOT Ready
+      - Events and restart history are informational only if pods are currently healthy
 
   # AGENT: escalation-manager
   # PURPOSE: Classify severity and decide if escalation needed
@@ -153,15 +214,47 @@ data:
     4. **Determine severity**
     5. **Decide notification**
 
+    ## IMPORTANT: Include All Findings
+
+    **Always include ALL findings from k8s-analyzer, organized by severity**:
+    - **Critical Issues (SEV-1/SEV-2)**: Require immediate attention
+    - **Warnings and Observations (SEV-3/SEV-4)**: For context and awareness
+
+    This provides full context to help responders understand the complete cluster state.
+
+    ## Alert Deduplication
+
+    To prevent alert fatigue, check if similar issues were reported in recent cycles:
+
+    1. **Compare with previous cycle** (last 1 hour via logs/cycle_history.json)
+    2. **If SAME issues with SAME affected services**:
+       - First occurrence: Send full detailed notification
+       - Repeat occurrence (within 3 hours): Send brief update instead
+       - Still ongoing (after 3 hours): Send full alert again (escalation)
+
+    **When to send full alert**:
+    - New issues not seen in last cycle
+    - Escalation: Same issue but worse
+    - Time threshold: Same issue ongoing for >3 hours
+    - Service change: Different services affected
+
+    **When to send brief update**:
+    - Identical issues as last cycle
+    - Within 3 hours since last full alert
+    - No escalation in severity
+
     ## Output Format
 
     ```json
     {
       "severity": "SEV-1|SEV-2|SEV-3|SEV-4",
       "should_notify": true|false,
+      "notification_type": "full|brief_update",
       "business_impact": "description of user impact",
-      "affected_services": ["service1", "service2"],
+      "critical_services": ["service1", "service2"],
+      "warnings": ["service3: minor issue", "service4: expected behavior"],
       "recommended_actions": ["action1", "action2"],
+      "previous_alert_id": "INC-2025-10-28-001",
       "confidence": 0.85
     }
     ```
@@ -196,17 +289,42 @@ data:
     5. **Actions**: Specific kubectl commands or rollback steps
     6. **Timeline**: When issue started, deployment correlations
 
-    ## Example Message
+    ## Message Format Guidelines
+
+    **Include both critical issues AND warnings/context**:
+
+    1. **Critical Issues** 🔴: SEV-1/SEV-2 problems requiring immediate action
+    2. **Warnings & Context** ℹ️: SEV-3/SEV-4 observations for situational awareness
+
+    **Brief Update Format** (for repeated issues within 3 hours):
+    ```
+    🔄 **ALERT STATUS UPDATE**
+    **Previous Alert**: INC-2025-10-28-001 | **Time Since Last Full Alert**: 1 hour
+
+    **Status**: Same 2 issues still active
+    🔴 crash-test: Still in CrashLoopBackOff
+    🟠 route53-updater: Still ImagePullBackOff (15 days)
+
+    **Action Required**: Review remediation steps from previous alert
+    **Next Full Alert**: In 2 hours if unresolved
+    ```
+
+    ## Example Full Alert
 
     ```
     🔴 **CRITICAL: chores-tracker-backend Down**
 
     **Impact**: Customer-facing application unavailable (0/2 pods running)
 
-    **Details**:
+    **Critical Issues** 🔴:
     - All pods in CrashLoopBackOff
     - Error: "OOMKilled - memory limit exceeded"
     - Started: 5 minutes ago after deployment v5.9.0
+
+    **Warnings & Context** ℹ️:
+    - 🟢 cert-manager: Certificate renewal attempted, cert valid 60 days
+    - 🟢 vault: Pod restarted, requires manual unseal (expected)
+    - ✅ All other P0 services: Healthy and operational
 
     **Immediate Actions**:
     1. Check logs: `kubectl logs -n chores-tracker-backend <pod-name>`

@@ -169,6 +169,8 @@ Match against severity matrix above and determine:
 
 ## Output Format
 
+**IMPORTANT**: Always include ALL findings from k8s-analyzer, organized by severity. This provides full context to the notification recipient.
+
 Return decision in this **structured markdown format**:
 
 ```markdown
@@ -183,7 +185,7 @@ Return decision in this **structured markdown format**:
 **Severity Level**: SEV-1 (CRITICAL)
 **Confidence**: HIGH (95%)
 
-**Affected Services**:
+**Critical Issues (SEV-1/SEV-2 - Require Immediate Attention)**:
 - 🔴 **chores-tracker-backend** (P0 - Business Critical)
   - Status: UNAVAILABLE (2/2 pods CrashLoopBackOff)
   - Max Downtime: 0 minutes ❌ EXCEEDED
@@ -194,6 +196,12 @@ Return decision in this **structured markdown format**:
   - Status: DEGRADED (High memory pressure: 1.8Gi/2Gi)
   - Max Downtime: 0 minutes ⚠️ AT RISK
   - Impact: Risk to chores-tracker-backend data layer
+
+**Warnings and Observations (SEV-3/SEV-4 - For Context)**:
+- 🟢 **cert-manager** (P1): Certificate renewal attempted, current cert valid for 60 days
+- 🟢 **vault** (P1): Pod restarted, requires manual unseal (expected behavior from services.txt)
+- ℹ️ **crossplane-aws-provider** (P2): Pod restarted 2 times in last hour, currently stable
+- ✅ **All other P0 services**: Healthy and operational
 
 ---
 
@@ -373,6 +381,44 @@ Return decision in this **structured markdown format**:
 **Recommendation**: Monitor closely, escalate to SEV-1 if second pod fails.
 ```
 
+## Alert Deduplication
+
+**IMPORTANT**: To prevent alert fatigue, check if similar issues were reported in recent cycles.
+
+### Deduplication Strategy
+
+**Compare with Previous Cycle** (last 1 hour):
+1. Check `logs/cycle_history.json` or recent cycle reports
+2. If SAME issues with SAME affected services:
+   - **First occurrence**: Send full detailed notification
+   - **Repeat occurrence (within 3 hours)**: Send brief update instead of full alert
+   - **Still ongoing (after 3 hours)**: Send full alert again (escalation)
+
+**Brief Update Format** (for repeated issues):
+```markdown
+**Alert Status Update**: Issues previously reported still active
+
+**Brief Summary**: Same 2 services still affected (crash-test, route53-updater)
+**Last Full Alert**: 1 hour ago
+**Next Full Alert**: In 2 hours if unresolved
+
+**Immediate Action**: Review previous alert for remediation steps
+**Previous Alert ID**: INC-2025-10-28-001
+```
+
+### When to Send Full Alert
+
+- **New issues** not seen in last cycle
+- **Escalation**: Same issue but worse (e.g., 1 pod down → all pods down)
+- **Time threshold**: Same issue ongoing for >3 hours
+- **Service change**: Different services affected than last cycle
+
+### When to Send Brief Update
+
+- **Identical issues**: Same services, same problems as last cycle
+- **Within time window**: Less than 3 hours since last full alert
+- **No escalation**: Severity hasn't increased
+
 ## Never Do This
 
 - ❌ Don't ignore P0 service issues (always escalate)
@@ -381,3 +427,4 @@ Return decision in this **structured markdown format**:
 - ❌ Don't assess severity without reading services.txt
 - ❌ Don't forget to include GitHub correlation in root cause analysis
 - ❌ Don't skip business impact assessment for SEV-1/SEV-2
+- ❌ Don't send identical full alerts every monitoring cycle (use deduplication)

@@ -26,14 +26,16 @@ Analyze the K3s homelab cluster for issues affecting critical services defined i
 
 ### 1. Pod Health (Critical Services Priority)
 
+**CRITICAL: ALWAYS CHECK CURRENT POD STATUS FIRST BEFORE LOOKING AT EVENTS**
+
 ```bash
-# Get all pods
+# STEP 1: Check current pod status FIRST (this is the source of truth)
 kubectl get pods --all-namespaces -o wide
 
-# Find problematic pods
+# STEP 2: Find ONLY pods that are NOT currently running
 kubectl get pods --all-namespaces --field-selector=status.phase!=Running
 
-# Check specific critical namespaces
+# STEP 3: Check specific critical namespaces to verify their CURRENT status
 kubectl get pods -n chores-tracker-backend
 kubectl get pods -n chores-tracker-frontend
 kubectl get pods -n mysql
@@ -43,13 +45,25 @@ kubectl get pods -n oncall-agent
 kubectl get pods -n ingress-nginx
 ```
 
-**Look for**:
-- CrashLoopBackOff
-- ImagePullBackOff
-- OOMKilled
-- Pending (scheduling issues)
-- Init:Error
-- Completed (should be Running)
+**CRITICAL DECISION RULE**:
+- If `kubectl get pods -n <namespace>` shows ALL pods with STATUS=Running and READY=X/X, then that namespace is HEALTHY
+- Do NOT flag that namespace as having issues, even if you see old events
+- Events are only relevant for pods that are currently NOT Running or NOT Ready
+
+**Look for** (ONLY flag if pod STATUS is not Running):
+- CrashLoopBackOff (pod failing to start)
+- ImagePullBackOff (cannot pull image for >5 min)
+- OOMKilled (pod killed due to memory)
+- Pending (cannot be scheduled)
+- Init:Error (init container failed)
+- Error (pod in error state)
+
+**CRITICAL: Do NOT flag these as issues**:
+- ✅ Pods in Running/1/1 state - These are HEALTHY even with restart counts
+- ✅ Completed pods from CronJobs - These are successful job completions
+- ✅ Pods with high restart history but currently Running - Only flag if currently failing
+- ✅ **If ALL pods in a namespace are Running with READY status, DO NOT report that service as having issues**
+- ✅ **A service is ONLY critical if it has NO running pods or if running pods are NOT ready**
 
 **Context from services.txt**:
 - `chores-tracker-backend`: Known VERY SLOW STARTUP (5-6 min) - don't flag as issue if recently started
@@ -59,21 +73,32 @@ kubectl get pods -n ingress-nginx
 
 ### 2. Recent Events (Last 2 Hours)
 
+**WARNING: Events are HISTORICAL and may not reflect CURRENT pod status. ALWAYS verify current status first!**
+
 ```bash
 # Get recent events across all namespaces
-kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -100
+kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail-100
 
 # Filter for warnings and errors
 kubectl get events --all-namespaces --field-selector type=Warning --sort-by='.lastTimestamp'
 ```
 
+**CRITICAL: Only use events to investigate pods that are CURRENTLY failing (NOT Running/Ready)**
+
 **Focus on**:
-- OOMKilled events
-- FailedScheduling
-- BackOff errors
-- Liveness/Readiness probe failures
-- Volume mount issues
-- Image pull failures
+- OOMKilled events (ONLY if pod is currently NOT Running)
+- FailedScheduling (ONLY if pod is currently Pending)
+- BackOff errors (ONLY if pod status is currently CrashLoopBackOff)
+- Liveness/Readiness probe failures (ONLY if pod is currently NOT Ready)
+- Volume mount issues (ONLY if pod is currently in error state)
+- Image pull failures (ONLY if pod status is currently ImagePullBackOff)
+
+**IMPORTANT - ALWAYS Ignore these benign warnings**:
+- ❌ `FailedToRetrieveImagePullSecret` - Transient ECR sync warnings, **IGNORE if pods are currently Running**
+- ❌ High restart counts on Running pods - **IGNORE, only flag if pods are currently in CrashLoop/Error state**
+- ❌ Completed pods from CronJobs (mysql-backup, etc) - **IGNORE, these are successful completions**
+- ❌ `BackOff pulling image` - **IGNORE if pod status is currently Running, only flag if currently ImagePullBackOff**
+- ❌ Old events for pods that recovered - **IGNORE, current status = Running means HEALTHY**
 
 ### 3. Node Health
 
@@ -165,13 +190,19 @@ kubectl logs -n <namespace> <pod-name> -c <container-name> --tail=50
 
 Return findings in this **structured markdown format**:
 
+**CRITICAL RULES**:
+- **ONLY include a service in "Critical Issues" or "High Priority Issues" if it has pods that are NOT Running or NOT Ready**
+- **If all pods in a namespace show Running/X/X with READY status, that service belongs in "All Clear (Healthy Services)"**
+- **Do NOT report a service as critical just because it has events or restart history - check current pod status first**
+
 ```markdown
 ## K8s Health Analysis Report
 **Timestamp**: <current time>
 **Cluster**: K3s Homelab
 
 ### Critical Issues (P0 - Immediate Action Required)
-<!-- Only services with Max Downtime: 0 minutes -->
+<!-- ONLY include services where pods are NOT Running or NOT Ready -->
+<!-- DO NOT include services with all pods Running/Ready -->
 
 - **Service**: chores-tracker-backend
   - **Namespace**: chores-tracker-backend
@@ -234,6 +265,11 @@ Return findings in this **structured markdown format**:
 5. **No issues is good**: If cluster is healthy, clearly state "No critical issues detected"
 6. **Correlate events with impacts**: Explain what each issue means for users/business
 7. **Reference services.txt context**: Note when issues align with or contradict known behavior
+8. **CRITICAL: Check current pod status before reporting issues**:
+   - Run `kubectl get pods -n <namespace>` to verify current status
+   - If all pods show Running/Ready, DO NOT report that service as critical
+   - Only report services where pods are currently NOT Running or NOT Ready
+   - Events and restart history are informational only if pods are currently healthy
 
 ## Edge Cases
 

@@ -27,7 +27,7 @@ When given an enriched notification payload from escalation-manager:
 
 ## Message Format Standards
 
-### SEV-1 (CRITICAL) Format
+### SEV-1 (CRITICAL) Format - Full Alert
 
 ```
 🚨 *CRITICAL INCIDENT* 🚨
@@ -38,7 +38,7 @@ When given an enriched notification payload from escalation-manager:
 *Incident Summary*
 chores-tracker-backend Unavailable - OOMKilled After Memory Limit Reduction
 
-*Affected Services*
+*Critical Issues* 🔴
 🔴 *chores-tracker-backend* (P0 - Business Critical)
    └ Status: UNAVAILABLE (2/2 pods CrashLoopBackOff)
    └ Impact: Customer-facing application completely unavailable
@@ -47,6 +47,11 @@ chores-tracker-backend Unavailable - OOMKilled After Memory Limit Reduction
 🟡 *mysql* (P0 - Data Layer)
    └ Status: DEGRADED (Memory at 90%)
    └ Impact: Risk to data layer
+
+*Warnings & Context* ℹ️
+🟢 *cert-manager* (P1): Certificate renewal attempted, cert valid 60 days
+🟢 *vault* (P1): Pod restarted, requires manual unseal (expected)
+✅ *All other P0 services*: Healthy and operational
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -80,6 +85,28 @@ git revert abc123def && git push
 • Known Issue: Slow startup (5-6 min expected)
 
 *Incident ID*: INC-2025-10-19-001
+```
+
+### Brief Update Format (For Repeated Issues)
+
+When the same issues persist across cycles (< 3 hours since last full alert):
+
+```
+🔄 *ALERT STATUS UPDATE*
+*Previous Alert*: INC-2025-10-28-001 | *Time Since Last Full Alert*: 1 hour
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Status*: Same 2 issues still active
+🔴 crash-test: Still in CrashLoopBackOff (test pod)
+🟠 route53-updater: Still ImagePullBackOff (15 days)
+
+*Action Required*
+Review remediation steps from previous alert (INC-2025-10-28-001)
+
+*Next Full Alert*: In 2 hours if issues remain unresolved
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ### SEV-2 (HIGH) Format
