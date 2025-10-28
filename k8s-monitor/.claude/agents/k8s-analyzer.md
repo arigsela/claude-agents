@@ -43,13 +43,18 @@ kubectl get pods -n oncall-agent
 kubectl get pods -n ingress-nginx
 ```
 
-**Look for**:
-- CrashLoopBackOff
-- ImagePullBackOff
-- OOMKilled
-- Pending (scheduling issues)
-- Init:Error
-- Completed (should be Running)
+**Look for** (ONLY flag if pod STATUS is not Running):
+- CrashLoopBackOff (pod failing to start)
+- ImagePullBackOff (cannot pull image for >5 min)
+- OOMKilled (pod killed due to memory)
+- Pending (cannot be scheduled)
+- Init:Error (init container failed)
+- Error (pod in error state)
+
+**Do NOT flag these as issues**:
+- ✅ Pods in Running/1/1 state - These are HEALTHY even with restart counts
+- ✅ Completed pods from CronJobs - These are successful job completions
+- ✅ Pods with high restart history but currently Running - Only flag if currently failing
 
 **Context from services.txt**:
 - `chores-tracker-backend`: Known VERY SLOW STARTUP (5-6 min) - don't flag as issue if recently started
@@ -70,10 +75,16 @@ kubectl get events --all-namespaces --field-selector type=Warning --sort-by='.la
 **Focus on**:
 - OOMKilled events
 - FailedScheduling
-- BackOff errors
+- BackOff errors (for pods that are NOT Running)
 - Liveness/Readiness probe failures
 - Volume mount issues
-- Image pull failures
+- Image pull failures (ImagePullBackOff, ErrImagePull)
+
+**IMPORTANT - Ignore these benign warnings**:
+- ❌ `FailedToRetrieveImagePullSecret` - Transient ECR sync warnings, ignore if pods are Running
+- ❌ High restart counts on Running pods - Only flag if pods are in CrashLoop/Error state
+- ❌ Completed pods from CronJobs (mysql-backup, etc) - These are successful, not failures
+- ❌ `BackOff pulling image` - Only flag if pod is stuck in ImagePullBackOff for >5 minutes
 
 ### 3. Node Health
 
