@@ -51,10 +51,12 @@ kubectl get pods -n ingress-nginx
 - Init:Error (init container failed)
 - Error (pod in error state)
 
-**Do NOT flag these as issues**:
+**CRITICAL: Do NOT flag these as issues**:
 - ✅ Pods in Running/1/1 state - These are HEALTHY even with restart counts
 - ✅ Completed pods from CronJobs - These are successful job completions
 - ✅ Pods with high restart history but currently Running - Only flag if currently failing
+- ✅ **If ALL pods in a namespace are Running with READY status, DO NOT report that service as having issues**
+- ✅ **A service is ONLY critical if it has NO running pods or if running pods are NOT ready**
 
 **Context from services.txt**:
 - `chores-tracker-backend`: Known VERY SLOW STARTUP (5-6 min) - don't flag as issue if recently started
@@ -176,13 +178,19 @@ kubectl logs -n <namespace> <pod-name> -c <container-name> --tail=50
 
 Return findings in this **structured markdown format**:
 
+**CRITICAL RULES**:
+- **ONLY include a service in "Critical Issues" or "High Priority Issues" if it has pods that are NOT Running or NOT Ready**
+- **If all pods in a namespace show Running/X/X with READY status, that service belongs in "All Clear (Healthy Services)"**
+- **Do NOT report a service as critical just because it has events or restart history - check current pod status first**
+
 ```markdown
 ## K8s Health Analysis Report
 **Timestamp**: <current time>
 **Cluster**: K3s Homelab
 
 ### Critical Issues (P0 - Immediate Action Required)
-<!-- Only services with Max Downtime: 0 minutes -->
+<!-- ONLY include services where pods are NOT Running or NOT Ready -->
+<!-- DO NOT include services with all pods Running/Ready -->
 
 - **Service**: chores-tracker-backend
   - **Namespace**: chores-tracker-backend
@@ -245,6 +253,11 @@ Return findings in this **structured markdown format**:
 5. **No issues is good**: If cluster is healthy, clearly state "No critical issues detected"
 6. **Correlate events with impacts**: Explain what each issue means for users/business
 7. **Reference services.txt context**: Note when issues align with or contradict known behavior
+8. **CRITICAL: Check current pod status before reporting issues**:
+   - Run `kubectl get pods -n <namespace>` to verify current status
+   - If all pods show Running/Ready, DO NOT report that service as critical
+   - Only report services where pods are currently NOT Running or NOT Ready
+   - Events and restart history are informational only if pods are currently healthy
 
 ## Edge Cases
 
