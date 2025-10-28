@@ -58,15 +58,10 @@ class Scheduler:
         """
         self.logger.info(f"Running scheduled job: {job_name}")
         try:
-            # Create a task for the coroutine in the current event loop
-            # This is called from the scheduler loop which is already async
+            # Schedule the coroutine in the existing event loop
+            # schedule.run_pending() is called from run_forever() which is already async
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Already in an async context, create a task
-                asyncio.create_task(func())
-            else:
-                # Not in an async context, run directly
-                asyncio.run(func())
+            asyncio.ensure_future(func(), loop=loop)
         except Exception as e:
             self.logger.error(f"Error in scheduled job {job_name}: {e}", exc_info=True)
 

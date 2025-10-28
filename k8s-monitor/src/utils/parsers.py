@@ -53,8 +53,14 @@ def parse_k8s_analyzer_output(response: str) -> list[Finding]:
     if not findings_dicts:
         key_findings_section = _extract_section(response, "Key Findings")
         if key_findings_section:
-            # Look for **bold service names** with issues (pattern: **service-name** followed by description)
-            findings_dicts.extend(_parse_key_findings_section(key_findings_section))
+            # Look for **Critical Issues:** subsection within Key Findings
+            critical_subsection = _extract_bold_subsection(key_findings_section, "Critical Issues")
+            if critical_subsection:
+                findings_dicts.extend(_parse_key_findings_section(critical_subsection))
+
+            # If still no findings, look for any **bold service names** with issues
+            if not findings_dicts:
+                findings_dicts.extend(_parse_key_findings_section(key_findings_section))
 
     # Parse ## FINDINGS section (2 hashes) - Claude may output this format
     # This is a direct response to our explicit instructions in the query
@@ -101,6 +107,27 @@ def _extract_section(content: str, section_pattern: str) -> str:
     # This allows #### subsections within the ### section
     pattern = (
         f"^###\\s+(?:{section_pattern}).*?(?=^###\\s+|\\Z)"
+    )
+    match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+    if match:
+        return match.group(0)
+    return ""
+
+
+def _extract_bold_subsection(content: str, subsection_pattern: str) -> str:
+    """Extract content after a bold subsection marker like **Critical Issues:**.
+
+    Args:
+        content: Content to search within
+        subsection_pattern: Pattern to match (e.g., "Critical Issues")
+
+    Returns:
+        Content from the bold marker until the next bold subsection or end
+    """
+    # Match **Pattern:** and capture until next **Anything:** or end
+    pattern = (
+        rf"\*\*{subsection_pattern}:?\*\*.*?(?=\*\*[A-Z][^*]+:?\*\*|###|\Z)"
     )
     match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE | re.DOTALL)
 
