@@ -43,6 +43,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "📦 Step 1: Building Docker image..."
 docker build \
+  --no-cache \
   --tag "${IMAGE_URI}" \
   --tag "${LATEST_URI}" \
   --file Dockerfile \
