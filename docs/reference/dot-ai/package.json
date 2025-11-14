@@ -1,0 +1,126 @@
+{
+  "name": "@vfarcic/dot-ai",
+  "version": "0.139.0",
+  "description": "AI-powered development productivity platform that enhances software development workflows through intelligent automation and AI-driven assistance",
+  "mcpName": "io.github.vfarcic/dot-ai",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "dot-ai-mcp": "./dist/mcp/server.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./mcp": "./dist/mcp/server.js"
+  },
+  "scripts": {
+    "test": "npm run test:integration",
+    "test:integration:teardown": "./tests/integration/infrastructure/teardown-cluster.sh",
+    "test:integration:server": "KUBECONFIG=./kubeconfig-test.yaml PORT=3456 DOT_AI_SESSION_DIR=./tmp/sessions TRANSPORT_TYPE=http QDRANT_URL=http://localhost:6335 QDRANT_CAPABILITIES_COLLECTION=capabilities-policies ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY OPENAI_API_KEY=$OPENAI_API_KEY node dist/mcp/server.js",
+    "test:integration": "./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:watch": "vitest --config=vitest.integration.config.ts --test-timeout=1200000",
+    "test:integration:sonnet": "AI_PROVIDER=anthropic AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:haiku": "AI_PROVIDER=anthropic_haiku AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:gpt": "AI_PROVIDER=openai AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:gpt-pro": "AI_PROVIDER=openai_pro AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:gemini": "AI_PROVIDER=google AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:gemini-flash": "AI_PROVIDER=google_fast AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:grok": "AI_PROVIDER=xai AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:grok-fast": "AI_PROVIDER=xai_fast AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:mistral": "AI_PROVIDER=mistral AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:deepseek": "AI_PROVIDER=deepseek AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:bedrock": "AI_PROVIDER=amazon_bedrock AI_MODEL=global.anthropic.claude-sonnet-4-20250514-v1:0 AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "test:integration:custom-endpoint": "AI_PROVIDER=openai AI_PROVIDER_SDK=vercel DEBUG_DOT_AI=true ./tests/integration/infrastructure/run-integration-tests.sh",
+    "eval:comparative": "DEBUG_DOT_AI=true npx tsx src/evaluation/eval-runner.ts",
+    "eval:platform-synthesis": "DEBUG_DOT_AI=true npx tsx src/evaluation/run-platform-synthesis.ts",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean && npm run lint",
+    "build": "tsc --sourceMap false",
+    "postbuild": "chmod +x dist/mcp/server.js",
+    "build:prod": "npm run clean && tsc --sourceMap false --removeComments true",
+    "build:dev": "tsc --sourceMap true",
+    "build:watch": "tsc --watch",
+    "build:mcp": "npm run build && echo 'MCP server built successfully'",
+    "dev": "ts-node src/index.ts",
+    "start:mcp": "node dist/mcp/server.js",
+    "lint": "eslint src/ --ext .ts",
+    "format": "prettier --write src/",
+    "audit": "npm audit",
+    "version:dev": "npm version patch --preid=devel --prerelease",
+    "version:prod": "npm version patch"
+  },
+  "keywords": [
+    "kubernetes",
+    "deployment",
+    "mcp",
+    "devops",
+    "containers",
+    "ai",
+    "automation",
+    "cloud-native"
+  ],
+  "author": "Viktor Farcic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vfarcic/dot-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vfarcic/dot-ai/issues"
+  },
+  "homepage": "https://github.com/vfarcic/dot-ai#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "prompts",
+    "shared-prompts",
+    "assets",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/glob": "^9.0.0",
+    "@types/handlebars": "^4.0.40",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^3.0.50",
+    "@ai-sdk/anthropic": "^2.0.23",
+    "@ai-sdk/deepseek": "^1.0.23",
+    "@ai-sdk/google": "^2.0.17",
+    "@ai-sdk/mistral": "^2.0.19",
+    "@ai-sdk/openai": "^2.0.42",
+    "@ai-sdk/xai": "^2.0.26",
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@kubernetes/client-node": "^1.3.0",
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+    "@opentelemetry/resources": "^2.2.0",
+    "@opentelemetry/sdk-node": "^0.207.0",
+    "@opentelemetry/sdk-trace-node": "^2.2.0",
+    "@opentelemetry/semantic-conventions": "^1.37.0",
+    "@qdrant/js-client-rest": "^1.15.0",
+    "ai": "^5.0.60",
+    "handlebars": "^4.7.8",
+    "yaml": "^2.8.0",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.52.5"
+  }
+}

@@ -1,0 +1,352 @@
+name: CI Pipeline, Security & Publish
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+# Restrict default permissions to read-only for security
+permissions: read-all
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 30
+    permissions:
+      contents: read  # Required to checkout code
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      with:
+        node-version: '22.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Devbox
+      uses: jetify-com/devbox-install-action@a03caf5813591bc882139eba6ae947930a83a427 # v0.11.0
+      with:
+        enable-cache: true
+
+    - name: Run linter
+      run: devbox run -- npm run lint
+
+    - name: Build project
+      run: devbox run -- npm run build
+
+    - name: Run integration tests (with automated cluster creation and server management)
+      run: devbox run -- npm run test:integration
+      timeout-minutes: 15
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  security:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    permissions:
+      contents: read           # Required to checkout code
+      security-events: write   # Required to upload CodeQL results
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@5d5cd550d3e189c569da8f16ea8de2d821c9bf7a # v3
+      with:
+        languages: typescript
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      with:
+        node-version: '22.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build project
+      run: npm run build
+
+    - name: Run dependency security audit
+      run: npm audit --audit-level moderate
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@5d5cd550d3e189c569da8f16ea8de2d821c9bf7a # v3
+
+  version:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read  # Required to checkout code and read package.json
+    outputs:
+      new-version: ${{ steps.version-check.outputs.new-version }}
+      version-changed: ${{ steps.version-check.outputs.version-changed }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Pull latest changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git pull origin main
+    
+    - name: Calculate next version
+      id: version-check
+      run: |
+        PUBLISHED_VERSION=$(npm view @vfarcic/dot-ai version 2>/dev/null || echo "0.0.0")
+        CURRENT_VERSION=$(node -p "require('./package.json').version")
+        echo "published-version=$PUBLISHED_VERSION" >> $GITHUB_OUTPUT
+        echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        
+        # Check if current version is newer than published version
+        if [ "$CURRENT_VERSION" != "$PUBLISHED_VERSION" ]; then
+          echo "new-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Version will be published: $CURRENT_VERSION (currently published: $PUBLISHED_VERSION)"
+          echo "version-changed=true" >> $GITHUB_OUTPUT
+        else
+          # Parse published version and increment minor version
+          MAJOR=$(echo $PUBLISHED_VERSION | cut -d. -f1)
+          MINOR=$(echo $PUBLISHED_VERSION | cut -d. -f2)
+          PATCH=$(echo $PUBLISHED_VERSION | cut -d. -f3)
+          
+          # Increment minor version, reset patch to 0
+          NEW_MINOR=$((MINOR + 1))
+          NEW_VERSION="$MAJOR.$NEW_MINOR.0"
+          
+          echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Version will be incremented from $PUBLISHED_VERSION to $NEW_VERSION"
+          echo "version-changed=true" >> $GITHUB_OUTPUT
+        fi
+
+  release:
+    needs: [version]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.version.outputs.version-changed == 'true'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write  # Required for MCP Registry OIDC authentication
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup git config
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git pull origin main
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      with:
+        node-version: '22.x'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build project
+      run: npm run build
+    
+    - name: Update package.json version if needed
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        CURRENT_VERSION=$(node -p "require('./package.json').version")
+        
+        if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+          echo "Updating package.json from $CURRENT_VERSION to $VERSION"
+          npm version $VERSION --no-git-tag-version
+        else
+          echo "Package.json already at correct version: $VERSION"
+        fi
+
+    - name: Update server.json version
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        if [ ! -f "server.json" ]; then
+          echo "ERROR: server.json file not found!"
+          echo "The server.json file is required for MCP registry publication."
+          exit 1
+        fi
+        
+        echo "Updating server.json to version $VERSION"
+        # Update both version fields in server.json
+        sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/g" server.json
+        echo "Updated server.json:"
+        cat server.json
+    
+    - name: Publish to npm
+      run: npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+      with:
+        context: .
+        push: true
+        build-args: |
+          PACKAGE_VERSION=${{ needs.version.outputs.new-version }}
+        tags: |
+          ghcr.io/vfarcic/dot-ai:${{ needs.version.outputs.new-version }}
+          ghcr.io/vfarcic/dot-ai:latest
+        labels: |
+          org.opencontainers.image.source=https://github.com/vfarcic/dot-ai
+          org.opencontainers.image.description=AI-powered development productivity platform that enhances software development workflows through intelligent automation and AI-driven assistance
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.version=${{ needs.version.outputs.new-version }}
+        platforms: linux/amd64,linux/arm64
+    
+    - name: Install Helm
+      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+      with:
+        version: 'v3.14.0'
+    
+    - name: Update Chart.yaml and values.yaml versions
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        
+        # Update Chart.yaml versions to match the coordinated release
+        sed -i "s/^version: .*/version: \"$VERSION\"/" charts/Chart.yaml
+        # Update Chart.yaml appVersion to match the Docker image we just built
+        sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" charts/Chart.yaml
+        
+        # Update values.yaml image tag to reference the Docker image we just built
+        sed -i "s/tag: \".*\"/tag: \"$VERSION\"/" charts/values.yaml
+        
+        echo "Updated chart to reference Docker image: ghcr.io/vfarcic/dot-ai:$VERSION"
+    
+    - name: Log in to GitHub Container Registry for Helm
+      run: |
+        helm registry login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GHCR_TOKEN }}"
+      env:
+        HELM_EXPERIMENTAL_OCI: 1
+    
+    - name: Package and push Helm chart
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        
+        # Package the chart with coordinated version
+        helm package charts/ --version $VERSION --app-version $VERSION
+        
+        # Push versioned chart to GHCR as OCI artifact
+        helm push dot-ai-$VERSION.tgz oci://ghcr.io/vfarcic/dot-ai/charts
+        
+        echo "Published Helm chart: oci://ghcr.io/vfarcic/dot-ai/charts/dot-ai:$VERSION"
+    
+    - name: Commit all coordinated changes and create Git tag
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        
+        # Add all version-related changes
+        git add package.json charts/Chart.yaml charts/values.yaml server.json
+        
+        git commit -m "chore: coordinated release v$VERSION
+
+        - npm package: v$VERSION
+        - docker image: ghcr.io/vfarcic/dot-ai:$VERSION  
+        - helm chart: oci://ghcr.io/vfarcic/dot-ai/charts/dot-ai:$VERSION
+        
+        [skip ci]"
+        
+        # Create release tag
+        git tag -a "v$VERSION" -m "Release v$VERSION - coordinated npm, docker, and helm chart release"
+        
+        # Push changes and tag
+        git push origin main
+        git push origin "v$VERSION"
+        
+        echo "Released coordinated version: $VERSION"
+    
+    # Temporarily disabled: MCP Registry schema migration in progress
+    # The 2025-09-29 schema is marked as deprecated but documentation hasn't been updated
+    # with the new schema version yet. Re-enable once new schema is documented.
+    # See: https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/CHANGELOG.md
+    # - name: Publish to MCP Registry
+    #   run: |
+    #     VERSION=${{ needs.version.outputs.new-version }}
+    #     echo "Publishing dot-ai v$VERSION to MCP Registry"
+    #
+    #     # Install MCP publisher CLI (latest version with bug fixes)
+    #     echo "Installing MCP publisher CLI v1.1.0..."
+    #     curl -L "https://github.com/modelcontextprotocol/registry/releases/download/v1.1.0/mcp-publisher_1.1.0_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+    #
+    #     # Use GitHub OIDC for authentication (no login needed in GitHub Actions)
+    #     echo "Authenticating with GitHub OIDC..."
+    #     ./mcp-publisher login github-oidc
+    #
+    #     # Publish the server
+    #     echo "Publishing server.json..."
+    #     ./mcp-publisher publish server.json
+    #
+    #     echo "Successfully published dot-ai v$VERSION to MCP Registry"
+    
+    - name: Create GitHub Release with auto-generated notes
+      run: |
+        VERSION=${{ needs.version.outputs.new-version }}
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+
+        # Create release notes header with coordinated artifacts
+        cat > release_header.md << 'EOF'
+        ## Coordinated Release Artifacts
+        - **npm package**: `@vfarcic/dot-ai@$VERSION`
+        - **Docker image**: `ghcr.io/vfarcic/dot-ai:$VERSION` (also available as `latest`)
+        - **Helm chart**: `oci://ghcr.io/vfarcic/dot-ai/charts/dot-ai:$VERSION`
+
+        EOF
+
+        # Replace VERSION placeholder
+        sed -i "s/\$VERSION/$VERSION/g" release_header.md
+
+        # Create release with automatic notes generation and custom header
+        # GitHub will categorize PRs based on .github/release.yml
+        if [ -n "$PREV_TAG" ]; then
+          gh release create "v$VERSION" \
+            --title "Release v$VERSION" \
+            --notes-file release_header.md \
+            --generate-notes \
+            --notes-start-tag "$PREV_TAG"
+        else
+          gh release create "v$VERSION" \
+            --title "Release v$VERSION" \
+            --notes-file release_header.md \
+            --generate-notes
+        fi
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
