@@ -1,0 +1,34 @@
+{
+  "service_name": "chores-tracker-backend",
+  "service_repo": {
+    "owner": "arigsela",
+    "name": "chores-tracker"
+  },
+  "gitops_repo": {
+    "owner": "arigsela",
+    "name": "kubernetes"
+  },
+  "deployment_manifest_path": "base-apps/chores-tracker-backend/deployments.yaml",
+  "container_name": "chores-tracker",
+  "jira_patterns": [
+    "\\[([A-Z]+-\\d+)\\]",
+    "\\b([A-Z]+-\\d+)\\b",
+    "Jira:\\s*([A-Z]+-\\d+)"
+  ],
+  "pr_title_patterns": [
+    "update chores-tracker-backend to (v?[0-9.]+)",
+    "chore: update chores-tracker-backend to (v?[0-9.]+)",
+    "chores-tracker-backend to (v?[0-9.]+)"
+  ],
+  "commit_message_prefixes": [
+    "fix:",
+    "feat:",
+    "refactor:",
+    "perf:",
+    "docs:",
+    "test:",
+    "chore:"
+  ],
+  "github_mcp_enabled": true,
+  "description": "Configuration for tracking Jira tickets deployed with chores-tracker-backend service through artemishealth deployments"
+}

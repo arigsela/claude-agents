@@ -1,0 +1,16 @@
+# Note: We use tag-only references (not SHA256 digests) to support multi-architecture builds.
+# Docker Buildx automatically selects the correct architecture-specific image for each platform.
+# Using SHA256 digests would pin to a single architecture and cause "exec format error" on other platforms.
+FROM qdrant/qdrant:v1.15.5
+
+# Copy pre-loaded qdrant data to the container
+COPY qdrant_storage/ /qdrant/storage/
+
+# Build argument for version
+ARG VERSION=latest
+
+# OCI labels for GitHub package association
+LABEL org.opencontainers.image.source="https://github.com/vfarcic/dot-ai"
+LABEL org.opencontainers.image.description="Qdrant vector database with pre-loaded DevOps AI Toolkit data"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.version="${VERSION}"

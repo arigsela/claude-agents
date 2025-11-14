@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "service_name": "chores-tracker-backend",
+  "service_display_name": "Chores Tracker Backend",
+  "service_repo": {
+    "owner": "arigsela",
+    "name": "chores-tracker"
+  },
+  "gitops_repo": {
+    "owner": "arigsela",
+    "name": "kubernetes"
+  },
+  "deployment_manifest_path": "base-apps/chores-tracker-backend/deployments.yaml",
+  "jira_patterns": [
+    "\\[([A-Z]+-\\d+)\\]",
+    "([A-Z]+-\\d+):",
+    "Jira[:\\s]+([A-Z]+-\\d+)",
+    "([A-Z]+-\\d+)\\b"
+  ],
+  "pr_title_patterns": [
+    "chore: update chores-tracker-backend to v?([0-9.]+)",
+    "update chores-tracker-backend to v?([0-9.]+)"
+  ],
+  "pr_labels": [
+    "chores-tracker-backend",
+    "deployment",
+    "automated"
+  ]
+}
