@@ -25,7 +25,7 @@
 | **Docker Desktop** | `4.36.0+` | Latest stable release |
 | **Kubernetes** | `1.31.x` | Latest stable (1.32 in beta) |
 | **kubectl** | `1.31.x` | Match K8s version |
-| **idpbuilder** | `v0.8.x` | Latest from CNOE |
+| **idpbuilder** | `v0.10.1` | Latest stable release |
 | **CAIPE** | `v0.1.x` | Active development |
 | **Kind** | `0.24.0+` | Bundled with idpbuilder |
 | **ArgoCD** | `v2.12.x` | Part of CNOE stack |
@@ -156,21 +156,59 @@ idpbuilder version
 
 ### **Step 2.2: Deploy CNOE Reference Implementation**
 
+**Choose your deployment option based on your needs:**
+
+| Option | Includes | Resource Usage | Recommended For |
+|--------|----------|----------------|-----------------|
+| **Basic CNOE** | ArgoCD, Gitea, Backstage, Keycloak, NGINX | Low | Learning CNOE basics |
+| **CNOE + CAIPE Base** | Basic CNOE + Core CAIPE components | Medium | Testing CAIPE fundamentals |
+| **CNOE + CAIPE Complete** | Basic CNOE + Full CAIPE stack | High | Production-like environment |
+| **CNOE + CAIPE Complete Slim** | Basic CNOE + Streamlined CAIPE | Medium-High | Resource-constrained environments |
+
 ```bash
-# Deploy the full CNOE stack with CAIPE integration
+# Deploy the stack with CAIPE integration
+# Note: idpbuilder v0.10.1+ uses --package instead of --package-dir
+# and --name instead of --build-name
+
+# Option 1: Basic CNOE stack only (RECOMMENDED FOR FIRST-TIME USERS)
+# Use this if you want to understand CNOE first, then add CAIPE later
 idpbuilder create \
   --use-path-routing \
-  --package-dir https://github.com/cnoe-io/stacks//ref-implementation \
-  --package-dir https://github.com/cnoe-io/ai-platform-engineering//examples/basic-setup \
-  --build-name caipe-local
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --name caipe-local
 
-# This will take 10-15 minutes to complete
+# Option 2: CNOE + CAIPE Base (RECOMMENDED FOR THIS TUTORIAL)
+# Includes core CAIPE components for AI platform engineering
+idpbuilder create \
+  --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/cnoe-io/stacks//caipe/base \
+  --name caipe-local
+
+# Option 3: CNOE + CAIPE Complete
+# Full-featured CAIPE with all components (requires 16GB+ RAM)
+idpbuilder create \
+  --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/cnoe-io/stacks//caipe/complete \
+  --name caipe-local
+
+# Option 4: CNOE + CAIPE Complete Slim
+# Streamlined CAIPE with reduced resource overhead
+idpbuilder create \
+  --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/cnoe-io/stacks//caipe/complete-slim \
+  --name caipe-local
+
+# This will take 10-20 minutes to complete (longer with CAIPE packages)
 # Expected output:
 # ✓ Creating kind cluster
 # ✓ Installing ArgoCD
 # ✓ Deploying core packages
 # ✓ Setting up ingress
 # ✓ Configuring Backstage
+# ✓ Syncing CAIPE components (if included)
 ```
 
 **What gets deployed:**
@@ -217,9 +255,179 @@ open https://backstage.cnoe.localtest.me:8443
 # Password: [from above command]
 ```
 
+### **Step 2.5: Configure LLM Provider Credentials (REQUIRED for CAIPE)**
+
+**⚠️ IMPORTANT:** If you deployed CAIPE (Option 2, 3, or 4 in Step 2.2), the CAIPE agents require LLM provider credentials to function. Without these credentials, the agent pods will fail with `CreateContainerConfigError`.
+
+CAIPE uses **Vault** and **External Secrets Operator** to manage credentials securely. You need to configure your LLM provider credentials in Vault.
+
+#### **Step 2.5.1: Get Vault Root Token**
+
+```bash
+# Get the Vault root token
+export VAULT_ROOT_TOKEN=$(kubectl get secret -n vault vault-root-token \
+  --context kind-caipe-local \
+  -o jsonpath='{.data.token}' | base64 -d)
+
+echo "Vault Root Token: $VAULT_ROOT_TOKEN"
+```
+
+#### **Step 2.5.2: Configure Anthropic Credentials**
+
+**Supported LLM Providers:**
+- `anthropic-claude` - Anthropic Claude (this tutorial)
+- `azure-openai` - Azure OpenAI
+- `openai` - OpenAI
+- `aws-bedrock` - AWS Bedrock
+- `gcp-vertexai` - Google Vertex AI
+- `google-gemini` - Google Gemini
+
+**For Anthropic Claude (recommended for this tutorial):**
+
+```bash
+# Configure Anthropic credentials in Vault
+kubectl exec -n vault vault-0 --context kind-caipe-local -- sh -c "
+export VAULT_TOKEN=$VAULT_ROOT_TOKEN
+export VAULT_SKIP_VERIFY=true
+
+vault kv put secret/ai-platform-engineering/global \
+  LLM_PROVIDER=anthropic-claude \
+  ANTHROPIC_API_KEY=sk-ant-api03-YOUR-API-KEY-HERE \
+  ANTHROPIC_MODEL_NAME=claude-sonnet-4-20250514 \
+  AZURE_OPENAI_API_KEY='' \
+  AZURE_OPENAI_ENDPOINT='' \
+  AZURE_OPENAI_API_VERSION='' \
+  AZURE_OPENAI_DEPLOYMENT='' \
+  OPENAI_API_KEY='' \
+  OPENAI_ENDPOINT='' \
+  OPENAI_API_VERSION='' \
+  OPENAI_MODEL_NAME='' \
+  AWS_ACCESS_KEY_ID='' \
+  AWS_SECRET_ACCESS_KEY='' \
+  AWS_REGION='' \
+  AWS_BEDROCK_MODEL_ID='' \
+  AWS_BEDROCK_PROVIDER=''
+"
+```
+
+**Available Anthropic Models:**
+- `claude-sonnet-4-20250514` (recommended - latest, best balance)
+- `claude-opus-4-20250514` (most capable, slower, more expensive)
+- `claude-sonnet-3-5-20241022` (previous generation)
+- `claude-haiku-3-5-20250307` (fastest, cheapest)
+
+#### **Step 2.5.3: Update ExternalSecret to Include ANTHROPIC Keys**
+
+The default ExternalSecret doesn't map ANTHROPIC_API_KEY and ANTHROPIC_MODEL_NAME. We need to add these mappings:
+
+```bash
+# Disable ArgoCD auto-sync to prevent our changes from being reverted
+kubectl patch application ai-platform-engineering \
+  -n argocd \
+  --context kind-caipe-local \
+  --type=merge \
+  -p='{"spec":{"syncPolicy":{"automated":null}}}'
+
+# Add ANTHROPIC_API_KEY mapping
+kubectl patch externalsecret llm-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local \
+  --type='json' \
+  -p='[
+    {
+      "op": "add",
+      "path": "/spec/data/0",
+      "value": {
+        "secretKey": "ANTHROPIC_API_KEY",
+        "remoteRef": {
+          "key": "secret/ai-platform-engineering/global",
+          "property": "ANTHROPIC_API_KEY"
+        }
+      }
+    }
+  ]'
+
+# Add ANTHROPIC_MODEL_NAME mapping
+kubectl patch externalsecret llm-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local \
+  --type='json' \
+  -p='[
+    {
+      "op": "add",
+      "path": "/spec/data/-",
+      "value": {
+        "secretKey": "ANTHROPIC_MODEL_NAME",
+        "remoteRef": {
+          "key": "secret/ai-platform-engineering/global",
+          "property": "ANTHROPIC_MODEL_NAME"
+        }
+      }
+    }
+  ]'
+```
+
+#### **Step 2.5.4: Force Secret Refresh and Restart CAIPE Agents**
+
+```bash
+# Delete the secret to force External Secrets Operator to recreate it
+kubectl delete secret llm-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+
+# Wait for secret to be recreated (10 seconds)
+sleep 10
+
+# Verify the secret has the required keys
+kubectl get secret llm-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local \
+  -o jsonpath='{.data}' | grep -o "ANTHROPIC_API_KEY\|ANTHROPIC_MODEL_NAME\|LLM_PROVIDER"
+
+# Restart CAIPE agent deployments to pick up the new credentials
+kubectl rollout restart deployment \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+```
+
+#### **Step 2.5.5: Monitor CAIPE Agent Startup**
+
+CAIPE agents can take 5-10 minutes to start up on first launch as they:
+1. Initialize multi-agent system graphs
+2. Load LLM model configurations
+3. Check connectivity to other agent services
+4. Build RAG (Retrieval Augmented Generation) indexes
+
+```bash
+# Watch pod status (wait for all agents to be 1/1 Ready)
+watch kubectl get pods -n ai-platform-engineering --context kind-caipe-local
+
+# Check specific agent logs if needed
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-supervisor-agent \
+  --context kind-caipe-local \
+  --tail=50
+
+# Expected final state:
+# - 3 MCP servers: 1/1 Running (fast startup)
+# - 4 Agents: 1/1 Running (slow startup, 5-10 minutes)
+```
+
+**Common Issues:**
+
+| Issue | Error Message | Solution |
+|-------|--------------|----------|
+| **Missing API Key** | `CreateContainerConfigError: secret "llm-secret" not found` | Complete Step 2.5.2 to configure Vault |
+| **Wrong Provider** | `ValueError: Unsupported provider: anthropic` | Use `anthropic-claude` not `anthropic` in Step 2.5.2 |
+| **Missing Model Name** | `OSError: ANTHROPIC_MODEL_NAME environment variable is required` | Complete Step 2.5.3 to add model name mapping |
+| **Slow Startup** | Pods stuck in `Running 0/1` for >5 minutes | Normal - CAIPE agents are complex, wait up to 10 minutes |
+| **CrashLoopBackOff** | Repeated restarts | Check logs with `kubectl logs` command above |
+
 ---
 
 ## **🤖 Phase 3: Deploy CAIPE Components (30 minutes)**
+
+**⚠️ NOTE:** If you deployed CAIPE via Step 2.2 Options 2-4, CAIPE components are already deployed. This phase is only needed if you deployed Option 1 (Basic CNOE only) and want to add CAIPE manually later.
 
 ### **Step 3.1: Clone CAIPE Repository**
 
@@ -1353,7 +1561,91 @@ chmod +x ~/caipe-backup/restore.sh
 
 ### **Common Issues**
 
-#### **1. MCP Server Connection Failures**
+#### **0. idpbuilder Command Flag Errors**
+
+**Symptoms:**
+- `Error: unknown flag: --package-dir`
+- `Error: unknown flag: --build-name`
+
+**Cause:**
+You're using an older version of idpbuilder (< v0.10.0) or following outdated documentation.
+
+**Solutions:**
+
+```bash
+# Check your idpbuilder version
+idpbuilder version
+
+# If version is < v0.10.1, update it
+# macOS (Homebrew)
+brew upgrade cnoe-io/tap/idpbuilder
+
+# Or download latest manually
+version=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/cnoe-io/idpbuilder/releases/latest)
+version=${version##*/}
+curl -L -o ./idpbuilder.tar.gz "https://github.com/cnoe-io/idpbuilder/releases/download/${version}/idpbuilder-darwin-arm64.tar.gz"
+tar xvzf idpbuilder.tar.gz
+sudo mv idpbuilder /usr/local/bin/
+
+# Flag changes in v0.10.1:
+# OLD: --package-dir → NEW: --package or -p
+# OLD: --build-name → NEW: --name
+```
+
+#### **1. CAIPE Package Path Not Found**
+
+**Symptoms:**
+- `Error: getting yaml files from repo... no such file or directory`
+- References to `ai-platform-engineering//examples/basic-setup`
+
+**Cause:**
+The CAIPE package path changed. The old path was in the `ai-platform-engineering` repository, but it's now in the `stacks` repository.
+
+**Solutions:**
+
+```bash
+# INCORRECT (old path):
+--package https://github.com/cnoe-io/ai-platform-engineering//examples/basic-setup
+
+# CORRECT (new path):
+--package https://github.com/cnoe-io/stacks//caipe/base
+# Or: --package https://github.com/cnoe-io/stacks//caipe/complete
+# Or: --package https://github.com/cnoe-io/stacks//caipe/complete-slim
+```
+
+#### **2. CAIPE Agent Pods Failing to Start**
+
+**Symptoms:**
+- Pods in `CreateContainerConfigError` state
+- Error: `secret "llm-secret" not found`
+- All agent pods stuck at 0/1 Ready
+
+**Cause:**
+CAIPE requires LLM provider credentials that must be configured in Vault.
+
+**Solutions:**
+
+See **Step 2.5: Configure LLM Provider Credentials** for complete instructions. Quick fix:
+
+```bash
+# 1. Get Vault token
+export VAULT_ROOT_TOKEN=$(kubectl get secret -n vault vault-root-token \
+  --context kind-caipe-local -o jsonpath='{.data.token}' | base64 -d)
+
+# 2. Configure Anthropic in Vault
+kubectl exec -n vault vault-0 --context kind-caipe-local -- sh -c "
+export VAULT_TOKEN=$VAULT_ROOT_TOKEN
+export VAULT_SKIP_VERIFY=true
+vault kv put secret/ai-platform-engineering/global \
+  LLM_PROVIDER=anthropic-claude \
+  ANTHROPIC_API_KEY=your-api-key-here \
+  ANTHROPIC_MODEL_NAME=claude-sonnet-4-20250514
+"
+
+# 3. Update ExternalSecret and restart (see Step 2.5.3-2.5.4)
+```
+
+#### **3. MCP Server Connection Failures**
 
 **Symptoms:**
 - Agent returns "Failed to connect to MCP server"
@@ -1603,11 +1895,14 @@ Use this checklist to track your implementation progress:
 
 - [ ] **Phase 2:** CNOE IDP Deployment
   - [ ] idpbuilder downloaded and installed
-  - [ ] CNOE stack deployed (ArgoCD, Backstage, Gitea, Keycloak)
+  - [ ] CNOE stack deployed (ArgoCD, Backstage, Gitea, Keycloak, CAIPE base)
   - [ ] All applications synced and healthy
   - [ ] Backstage accessible at https://backstage.cnoe.localtest.me:8443
+  - [ ] LLM provider credentials configured in Vault
+  - [ ] ExternalSecret updated with ANTHROPIC keys
+  - [ ] CAIPE agent pods running (1/1 Ready)
 
-- [ ] **Phase 3:** CAIPE Components
+- [ ] **Phase 3:** CAIPE Components (Skip if deployed via Step 2.2)
   - [ ] CAIPE repository cloned
   - [ ] CAIPE CRDs deployed
   - [ ] CAIPE controller running
