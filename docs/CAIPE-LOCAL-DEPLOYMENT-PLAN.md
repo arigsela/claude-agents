@@ -453,6 +453,335 @@ kubectl logs -n ai-platform-engineering \
 | **Slow Startup** | Pods stuck in `Running 0/1` for >5 minutes | Normal - CAIPE agents are complex, wait up to 10 minutes |
 | **CrashLoopBackOff** | Repeated restarts | Check logs with `kubectl logs` command above |
 
+#### **Step 2.5.6: Configure ArgoCD Agent Authentication (REQUIRED)**
+
+The ArgoCD agent needs API credentials to query ArgoCD applications. Without this, chatbot queries to ArgoCD will fail with "401 - no session information" errors.
+
+**Generate ArgoCD API Token:**
+
+```bash
+# The 'developer' account has apiKey capability enabled by default
+# Generate a token for this account
+kubectl exec -n argocd deployment/argocd-server --context kind-caipe-local -- \
+  argocd account generate-token --account developer
+
+# Save the output token (long JWT string)
+# Example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhcmdvY2Qi...
+```
+
+**Configure ArgoCD Credentials in Vault:**
+
+```bash
+# Get Vault root token (if not already set)
+export VAULT_ROOT_TOKEN=$(kubectl get secret -n vault vault-root-token \
+  --context kind-caipe-local -o jsonpath='{.data.token}' | base64 -d)
+
+# Store ArgoCD token in Vault
+# Replace YOUR_ARGOCD_TOKEN_HERE with the token from previous command
+kubectl exec -n vault vault-0 --context kind-caipe-local -- sh -c "
+export VAULT_TOKEN=$VAULT_ROOT_TOKEN
+export VAULT_SKIP_VERIFY=true
+
+vault kv put secret/ai-platform-engineering/argocd-secret \
+  ARGOCD_TOKEN='YOUR_ARGOCD_TOKEN_HERE' \
+  ARGOCD_API_URL='http://argocd-server.argocd.svc.cluster.local' \
+  ARGOCD_VERIFY_SSL='false'
+"
+```
+
+**Update ExternalSecret to Map ArgoCD Token:**
+
+```bash
+# The ArgoCD MCP server expects ARGOCD_API_TOKEN environment variable
+# Map Vault's ARGOCD_TOKEN to Kubernetes secret's ARGOCD_API_TOKEN
+kubectl patch externalsecret agent-argocd-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local \
+  --type='json' \
+  -p='[
+    {
+      "op": "replace",
+      "path": "/spec/data/0",
+      "value": {
+        "secretKey": "ARGOCD_API_TOKEN",
+        "remoteRef": {
+          "key": "secret/ai-platform-engineering/argocd-secret",
+          "property": "ARGOCD_TOKEN"
+        }
+      }
+    }
+  ]'
+```
+
+**Force Secret Refresh and Restart ArgoCD Services:**
+
+```bash
+# Delete the secret to force recreation with new token
+kubectl delete secret agent-argocd-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+
+# Wait for External Secrets Operator to recreate it
+sleep 10
+
+# Verify the secret has ARGOCD_API_TOKEN
+kubectl get secret agent-argocd-secret \
+  -n ai-platform-engineering \
+  --context kind-caipe-local \
+  -o jsonpath='{.data}' | jq 'keys'
+
+# Expected output: ["ARGOCD_API_TOKEN", "ARGOCD_API_URL", "ARGOCD_VERIFY_SSL"]
+
+# Restart ArgoCD MCP server to pick up new credentials
+kubectl rollout restart deployment/ai-platform-engineering-agent-argocd-mcp \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+
+# Restart ArgoCD agent (optional, but recommended)
+kubectl rollout restart deployment/ai-platform-engineering-agent-argocd \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+
+# Wait for both to be ready
+kubectl rollout status deployment/ai-platform-engineering-agent-argocd-mcp \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+
+kubectl rollout status deployment/ai-platform-engineering-agent-argocd \
+  -n ai-platform-engineering \
+  --context kind-caipe-local
+```
+
+**Verify ArgoCD Integration:**
+
+```bash
+# Check ArgoCD MCP server logs for successful startup
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-agent-argocd-mcp \
+  --context kind-caipe-local \
+  --tail=20
+
+# Should see: "Starting MCP server 'ArgoCD MCP'" and "Uvicorn running"
+
+# Test in Backstage chatbot (after completing Step 2.6)
+# Query: "What ArgoCD applications are deployed?"
+# Should return list of applications instead of "401 - no session information"
+```
+
+### **Step 2.6: Understanding the CAIPE Chatbot in Backstage**
+
+After completing the deployment, you'll notice a **chatbot icon at the bottom right** of the Backstage UI. This is the **CAIPE AI Platform Engineer Assistant** - a multi-agent system that can help you with platform engineering tasks.
+
+#### **🤖 What is CAIPE?**
+
+CAIPE (Cloud-native AI Platform Engineering) is a **multi-agent orchestration system** built on:
+- **Anthropic Claude** - The LLM powering the agents
+- **MCP (Model Context Protocol)** - Structured tool access for agents
+- **Multi-agent architecture** - Specialized agents for different tasks
+
+#### **📊 Architecture Overview**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Backstage UI (You)                       │
+│              https://cnoe.localtest.me:8443                 │
+└────────────────────────┬────────────────────────────────────┘
+                         │ Chat via AgentForge plugin
+                         ↓
+┌─────────────────────────────────────────────────────────────┐
+│           Supervisor Agent (ai-platform-engineering)        │
+│  • Receives user queries from Backstage                     │
+│  • Routes tasks to specialized sub-agents                   │
+│  • Aggregates responses and returns to user                 │
+└────────────┬─────────────────┬──────────────────┬───────────┘
+             │                 │                  │
+    ┌────────▼────────┐ ┌─────▼──────┐  ┌───────▼────────┐
+    │ ArgoCD Agent    │ │ Backstage  │  │ GitHub Agent   │
+    │                 │ │ Agent      │  │                │
+    │ • Deploy apps   │ │ • Register │  │ • Create repos │
+    │ • Sync GitOps   │ │   services │  │ • Manage PRs   │
+    │ • Check status  │ │ • Update   │  │ • Webhooks     │
+    └────────┬────────┘ └─────┬──────┘  └────────┬───────┘
+             │                │                   │
+    ┌────────▼────────┐ ┌─────▼──────┐  ┌────────▼───────┐
+    │ ArgoCD MCP      │ │ Backstage  │  │ (No MCP yet)   │
+    │ Server          │ │ MCP Server │  │                │
+    │                 │ │            │  │                │
+    │ • gRPC API      │ │ • REST API │  │ • GitHub API   │
+    └─────────────────┘ └────────────┘  └────────────────┘
+```
+
+#### **🔧 How It Works**
+
+1. **You type a query** in the Backstage chatbot (bottom right corner)
+   - Example: "Deploy my app to production" or "Create a GitHub repository"
+
+2. **Backstage sends your query** to the Supervisor Agent via HTTP POST:
+   ```
+   POST https://cnoe.localtest.me:8443/ai-platform-engineering/api/chat
+   {
+     "message": "Deploy my app to production",
+     "userId": "user1",
+     "sessionId": "abc123"
+   }
+   ```
+
+3. **Supervisor Agent analyzes** your request using Claude:
+   - Determines which sub-agent(s) to invoke
+   - Plans the execution strategy
+   - Decides what tools are needed
+
+4. **Sub-agents execute tasks** using MCP servers:
+   - **ArgoCD Agent** → Calls ArgoCD MCP Server → Creates ArgoCD Application
+   - **Backstage Agent** → Calls Backstage MCP Server → Registers service in catalog
+   - **GitHub Agent** → Calls GitHub API → Creates repository (no MCP yet)
+
+5. **Results flow back** to the Supervisor:
+   - Sub-agents return structured responses
+   - Supervisor aggregates the results
+   - Supervisor generates user-friendly summary
+
+6. **You see the response** in the Backstage chatbot:
+   - Streaming updates (if enabled) showing progress
+   - Final summary with links and next steps
+   - Witty "thinking messages" while processing 😄
+
+#### **💡 Example Interactions**
+
+The chatbot has **initial suggestions** you can click:
+
+| Suggestion | What It Does | Agents Involved |
+|------------|--------------|-----------------|
+| **Create GitHub Repository** | Creates a new GitHub repo with templates | GitHub Agent |
+| **Deploy ArgoCD Application** | Deploys an app via GitOps | ArgoCD Agent |
+| **Create AWS Resources** | Provisions AWS infrastructure | AWS Agent (if configured) |
+| **Get LLM keys** | Retrieves API keys from Vault | Vault Agent (if configured) |
+
+**Custom queries you can try:**
+```
+"What applications are deployed in production?"
+→ ArgoCD Agent lists all apps in production namespace
+
+"Register my service in the catalog"
+→ Backstage Agent creates catalog-info.yaml entry
+
+"Show me failing pods in staging"
+→ Kubernetes Agent (if configured) checks pod status
+
+"Create a PR to update my app version"
+→ GitHub Agent creates pull request with version bump
+```
+
+#### **⚙️ Configuration (What You Just Set Up)**
+
+The chatbot is configured in `/backstage-config` ConfigMap:
+
+```yaml
+agentForge:
+  baseUrl: ${AGENT_FORGE_URL}  # https://cnoe.localtest.me:8443/ai-platform-engineering
+  botName: CAIPE
+  headerTitle: CAIPE
+  headerSubtitle: AI Platform Engineer Assistant
+  inputPlaceholder: Ask CAIPE anything...
+
+  # Authentication
+  useOpenIDToken: true  # Uses your Keycloak login token
+
+  # Streaming (currently disabled)
+  enableStreaming: false  # Set to true for real-time updates
+
+  # Timeout
+  requestTimeout: 300  # 5 minutes max per query
+
+  # Initial suggestions (buttons you see when opening chatbot)
+  initialSuggestions:
+    - Create GitHub Repository
+    - Deploy ArgoCD Application
+    - Create AWS Resources
+    - Get LLM keys
+
+  # "Thinking" messages (fun loading messages)
+  thinkingMessagesInterval: 7000  # Show new message every 7 seconds
+  thinkingMessages:
+    - "⚙️ Processing query — even great thoughts start with a single thread."
+    - "🤖 Contacting agents — because collaboration beats computation."
+    - "📦 Carrying bits — somewhere in here lies meaning… and metadata."
+    # ... 17 more witty messages
+```
+
+#### **🔍 Monitoring Chatbot Activity**
+
+```bash
+# Watch Supervisor Agent logs (main orchestrator)
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-supervisor-agent \
+  --context kind-caipe-local -f
+
+# Watch ArgoCD Agent logs
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-agent-argocd \
+  --context kind-caipe-local -f
+
+# Watch Backstage Agent logs
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-agent-backstage \
+  --context kind-caipe-local -f
+
+# Check all agent pods status
+kubectl get pods -n ai-platform-engineering --context kind-caipe-local
+```
+
+#### **🧪 Testing the Chatbot**
+
+1. **Open Backstage**: `https://cnoe.localtest.me:8443`
+2. **Login** with `user1` credentials
+3. **Click the chatbot icon** (bottom right corner)
+4. **Try a simple query**:
+   ```
+   What ArgoCD applications are deployed?
+   ```
+5. **Watch the response**:
+   - You'll see "thinking messages" rotate every 7 seconds
+   - Supervisor routes to ArgoCD Agent
+   - ArgoCD Agent queries ArgoCD MCP Server
+   - Results displayed in chat
+
+#### **🔐 Security & Token Usage**
+
+- **Authentication**: Uses your Keycloak OpenID token (`useOpenIDToken: true`)
+- **Authorization**: Agents run with limited Kubernetes RBAC permissions
+- **Token Budget**: Each query uses ~5K-15K tokens (depends on complexity)
+- **Daily Usage**: With typical usage (~10 queries/day), expect ~100K-150K tokens/day
+- **Cost**: At Claude Sonnet 4 pricing (~$3/million input tokens), ~$0.30-$0.45/day
+
+#### **🎨 Customizing the Chatbot**
+
+To customize the chatbot experience, edit the ConfigMap:
+
+```bash
+# Edit Backstage configuration
+kubectl edit configmap backstage-config -n backstage --context kind-caipe-local
+
+# Change botName, headerTitle, initialSuggestions, etc.
+
+# Restart Backstage to apply changes
+kubectl rollout restart deployment/backstage -n backstage --context kind-caipe-local
+```
+
+**Popular customizations:**
+- Add more `initialSuggestions` for your common tasks
+- Customize `thinkingMessages` with team-specific humor
+- Enable `enableStreaming: true` for real-time updates (experimental)
+- Adjust `requestTimeout` for longer-running tasks
+
+#### **📚 Next Steps**
+
+Now that you understand how the chatbot works:
+1. Try the initial suggestions to see agents in action
+2. Check agent logs to see multi-agent orchestration
+3. Customize the chatbot for your team's needs
+4. (Optional) Add custom MCP servers for new capabilities
+
 ---
 
 ## **🤖 Phase 3: Deploy CAIPE Components (30 minutes)**
@@ -1806,7 +2135,69 @@ curl -k -s https://cnoe.localtest.me:8443/argocd
 curl -k -s https://cnoe.localtest.me:8443/gitea
 ```
 
-#### **6. Safety Constraints Too Restrictive**
+#### **6. ArgoCD Chatbot Queries Failing with 401 Authentication Error**
+
+**Symptoms:**
+- Chatbot query "What ArgoCD applications are deployed?" returns error
+- Error message: "Unable to list ArgoCD applications due to authentication error (401 - no session information)"
+- ArgoCD MCP server logs show: `HTTP Request: GET http://argocd-server.argocd.svc.cluster.local/api/v1/applications "HTTP/1.1 401 Unauthorized"`
+
+**Cause:**
+The ArgoCD MCP server requires an API token to authenticate with ArgoCD, but it wasn't configured during initial deployment.
+
+**Solutions:**
+
+See **Step 2.5.6: Configure ArgoCD Agent Authentication** for complete instructions. Quick fix:
+
+```bash
+# 1. Generate ArgoCD API token
+ARGOCD_TOKEN=$(kubectl exec -n argocd deployment/argocd-server --context kind-caipe-local -- \
+  argocd account generate-token --account developer)
+
+# 2. Get Vault root token
+VAULT_ROOT_TOKEN=$(kubectl get secret -n vault vault-root-token \
+  --context kind-caipe-local -o jsonpath='{.data.token}' | base64 -d)
+
+# 3. Store token in Vault
+kubectl exec -n vault vault-0 --context kind-caipe-local -- sh -c "
+export VAULT_TOKEN=$VAULT_ROOT_TOKEN
+export VAULT_SKIP_VERIFY=true
+vault kv put secret/ai-platform-engineering/argocd-secret \
+  ARGOCD_TOKEN='$ARGOCD_TOKEN' \
+  ARGOCD_API_URL='http://argocd-server.argocd.svc.cluster.local' \
+  ARGOCD_VERIFY_SSL='false'
+"
+
+# 4. Update ExternalSecret mapping
+kubectl patch externalsecret agent-argocd-secret \
+  -n ai-platform-engineering --context kind-caipe-local --type='json' \
+  -p='[{"op":"replace","path":"/spec/data/0","value":{"secretKey":"ARGOCD_API_TOKEN","remoteRef":{"key":"secret/ai-platform-engineering/argocd-secret","property":"ARGOCD_TOKEN"}}}]'
+
+# 5. Force secret refresh
+kubectl delete secret agent-argocd-secret -n ai-platform-engineering --context kind-caipe-local
+
+# 6. Restart ArgoCD services
+kubectl rollout restart deployment/ai-platform-engineering-agent-argocd-mcp \
+  -n ai-platform-engineering --context kind-caipe-local
+kubectl rollout restart deployment/ai-platform-engineering-agent-argocd \
+  -n ai-platform-engineering --context kind-caipe-local
+```
+
+**Verify:**
+```bash
+# Check MCP server logs
+kubectl logs -n ai-platform-engineering \
+  deployment/ai-platform-engineering-agent-argocd-mcp \
+  --context kind-caipe-local --tail=10
+
+# Should see "Uvicorn running" with no errors
+
+# Test in Backstage chatbot
+# Query: "What ArgoCD applications are deployed?"
+# Should return application list
+```
+
+#### **7. Safety Constraints Too Restrictive**
 
 **Symptoms:**
 - Legitimate operations being blocked
