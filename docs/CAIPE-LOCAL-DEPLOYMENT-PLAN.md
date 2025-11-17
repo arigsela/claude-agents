@@ -492,8 +492,8 @@ vault kv put secret/ai-platform-engineering/argocd-secret \
 **Update ExternalSecret to Map ArgoCD Token:**
 
 ```bash
-# The ArgoCD MCP server expects ARGOCD_API_TOKEN environment variable
-# Map Vault's ARGOCD_TOKEN to Kubernetes secret's ARGOCD_API_TOKEN
+# The ArgoCD agent expects ARGOCD_TOKEN environment variable
+# Map Vault's ARGOCD_TOKEN to Kubernetes secret's ARGOCD_TOKEN
 kubectl patch externalsecret agent-argocd-secret \
   -n ai-platform-engineering \
   --context kind-caipe-local \
@@ -503,7 +503,7 @@ kubectl patch externalsecret agent-argocd-secret \
       "op": "replace",
       "path": "/spec/data/0",
       "value": {
-        "secretKey": "ARGOCD_API_TOKEN",
+        "secretKey": "ARGOCD_TOKEN",
         "remoteRef": {
           "key": "secret/ai-platform-engineering/argocd-secret",
           "property": "ARGOCD_TOKEN"
@@ -524,13 +524,13 @@ kubectl delete secret agent-argocd-secret \
 # Wait for External Secrets Operator to recreate it
 sleep 10
 
-# Verify the secret has ARGOCD_API_TOKEN
+# Verify the secret has ARGOCD_TOKEN
 kubectl get secret agent-argocd-secret \
   -n ai-platform-engineering \
   --context kind-caipe-local \
   -o jsonpath='{.data}' | jq 'keys'
 
-# Expected output: ["ARGOCD_API_TOKEN", "ARGOCD_API_URL", "ARGOCD_VERIFY_SSL"]
+# Expected output: ["ARGOCD_API_URL", "ARGOCD_TOKEN", "ARGOCD_VERIFY_SSL"]
 
 # Restart ArgoCD MCP server to pick up new credentials
 kubectl rollout restart deployment/ai-platform-engineering-agent-argocd-mcp \
@@ -2141,9 +2141,13 @@ curl -k -s https://cnoe.localtest.me:8443/gitea
 - Chatbot query "What ArgoCD applications are deployed?" returns error
 - Error message: "Unable to list ArgoCD applications due to authentication error (401 - no session information)"
 - ArgoCD MCP server logs show: `HTTP Request: GET http://argocd-server.argocd.svc.cluster.local/api/v1/applications "HTTP/1.1 401 Unauthorized"`
+- OR supervisor logs show: `HTTP Error 503: Network communication error: peer closed connection without sending complete message body`
+- ArgoCD agent logs show: `ValueError: ARGOCD_TOKEN must be set as an environment variable`
 
 **Cause:**
-The ArgoCD MCP server requires an API token to authenticate with ArgoCD, but it wasn't configured during initial deployment.
+The ArgoCD agent requires the `ARGOCD_TOKEN` environment variable to authenticate with ArgoCD. This can fail if:
+1. The token wasn't configured during initial deployment
+2. The ExternalSecret maps to the wrong environment variable name (e.g., `ARGOCD_API_TOKEN` instead of `ARGOCD_TOKEN`)
 
 **Solutions:**
 
@@ -2168,10 +2172,10 @@ vault kv put secret/ai-platform-engineering/argocd-secret \
   ARGOCD_VERIFY_SSL='false'
 "
 
-# 4. Update ExternalSecret mapping
+# 4. Update ExternalSecret mapping (agent expects ARGOCD_TOKEN)
 kubectl patch externalsecret agent-argocd-secret \
   -n ai-platform-engineering --context kind-caipe-local --type='json' \
-  -p='[{"op":"replace","path":"/spec/data/0","value":{"secretKey":"ARGOCD_API_TOKEN","remoteRef":{"key":"secret/ai-platform-engineering/argocd-secret","property":"ARGOCD_TOKEN"}}}]'
+  -p='[{"op":"replace","path":"/spec/data/0","value":{"secretKey":"ARGOCD_TOKEN","remoteRef":{"key":"secret/ai-platform-engineering/argocd-secret","property":"ARGOCD_TOKEN"}}}]'
 
 # 5. Force secret refresh
 kubectl delete secret agent-argocd-secret -n ai-platform-engineering --context kind-caipe-local
