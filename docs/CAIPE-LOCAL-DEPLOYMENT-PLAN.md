@@ -216,11 +216,16 @@ idpbuilder create \
 | Component | Purpose | Access |
 |-----------|---------|--------|
 | **Kind Cluster** | Local Kubernetes cluster | `kubectl cluster-info` |
-| **ArgoCD** | GitOps CD platform | `https://argocd.cnoe.localtest.me:8443` |
-| **Gitea** | Internal Git server | `https://gitea.cnoe.localtest.me:8443` |
-| **Backstage** | Developer portal | `https://backstage.cnoe.localtest.me:8443` |
-| **Keycloak** | Identity provider | `https://keycloak.cnoe.localtest.me:8443` |
+| **ArgoCD** | GitOps CD platform | `https://cnoe.localtest.me:8443/argocd` |
+| **Gitea** | Internal Git server | `https://cnoe.localtest.me:8443/gitea` |
+| **Backstage** | Developer portal | `https://cnoe.localtest.me:8443` |
+| **Keycloak** | Identity provider | `https://cnoe.localtest.me:8443/keycloak` |
+| **Argo Workflows** | Workflow engine | `https://cnoe.localtest.me:8443/argo-workflows` |
+| **AI Platform** | CAIPE multi-agent system | `https://cnoe.localtest.me:8443/ai-platform-engineering` |
+| **Vault** | Secrets management | `https://vault.cnoe.localtest.me:8443` |
 | **NGINX Ingress** | Traffic routing | Automatic |
+
+**📌 Important:** All services use **path-based routing** on the same domain `cnoe.localtest.me:8443`, except Vault which uses its own subdomain `vault.cnoe.localtest.me:8443`.
 
 ### **Step 2.3: Verify Deployment**
 
@@ -241,19 +246,44 @@ watch kubectl get applications -n argocd
 # Expected: All applications show "Synced" and "Healthy"
 ```
 
-### **Step 2.4: Access Backstage**
+### **Step 2.4: Access Web Interfaces**
 
 ```bash
-# Get admin credentials
-kubectl get secret -n keycloak keycloak-admin-credentials -o jsonpath='{.data.password}' | base64 -d
+# Get user credentials (recommended for daily use)
+kubectl get secret -n keycloak keycloak-config --context kind-caipe-local \
+  -o jsonpath='{.data.USER_PASSWORD}' | base64 -d && echo
 
-# Open Backstage
-open https://backstage.cnoe.localtest.me:8443
+# Get admin credentials (for Keycloak administration)
+kubectl get secret -n keycloak keycloak-config --context kind-caipe-local \
+  -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d && echo
 
-# Default credentials:
-# Username: admin
-# Password: [from above command]
+# Open Backstage (main developer portal)
+open https://cnoe.localtest.me:8443
+
+# Open ArgoCD (GitOps dashboard)
+open https://cnoe.localtest.me:8443/argocd
+
+# Open Gitea (internal Git server)
+open https://cnoe.localtest.me:8443/gitea
 ```
+
+**Login Credentials:**
+
+| Username | Password | Use Case |
+|----------|----------|----------|
+| `user1` | Run first command above | **Recommended** - Daily Backstage access |
+| `admin` | Run second command above | Keycloak administration only |
+
+**Note:** When accessing Backstage, you'll be redirected to Keycloak for authentication. Use the `user1` credentials for normal usage.
+
+**All Service URLs:**
+- **Backstage**: `https://cnoe.localtest.me:8443` (root path)
+- **ArgoCD**: `https://cnoe.localtest.me:8443/argocd`
+- **Gitea**: `https://cnoe.localtest.me:8443/gitea`
+- **Keycloak**: `https://cnoe.localtest.me:8443/keycloak`
+- **Argo Workflows**: `https://cnoe.localtest.me:8443/argo-workflows`
+- **AI Platform Engineering**: `https://cnoe.localtest.me:8443/ai-platform-engineering`
+- **Vault**: `https://vault.cnoe.localtest.me:8443` (separate subdomain)
 
 ### **Step 2.5: Configure LLM Provider Credentials (REQUIRED for CAIPE)**
 
@@ -1733,7 +1763,50 @@ kubectl rollout restart deployment/backstage -n backstage
 # Clear browser cache and reload
 ```
 
-#### **5. Safety Constraints Too Restrictive**
+#### **5. Getting 404 Not Found When Accessing Services**
+
+**Symptoms:**
+- Browser shows "404 Not Found" from nginx
+- Trying to access `https://backstage.cnoe.localtest.me:8443`
+- Trying to access `https://argocd.cnoe.localtest.me:8443`
+
+**Cause:**
+All services (except Vault) use **path-based routing** on the same domain `cnoe.localtest.me:8443`, not subdomain-based routing.
+
+**Solutions:**
+
+```bash
+# ❌ INCORRECT URLs (subdomain-based):
+https://backstage.cnoe.localtest.me:8443  # 404 error
+https://argocd.cnoe.localtest.me:8443     # 404 error
+https://gitea.cnoe.localtest.me:8443      # 404 error
+
+# ✅ CORRECT URLs (path-based):
+https://cnoe.localtest.me:8443                        # Backstage (root path)
+https://cnoe.localtest.me:8443/argocd                 # ArgoCD
+https://cnoe.localtest.me:8443/gitea                  # Gitea
+https://cnoe.localtest.me:8443/keycloak               # Keycloak
+https://cnoe.localtest.me:8443/argo-workflows         # Argo Workflows
+https://cnoe.localtest.me:8443/ai-platform-engineering # AI Platform
+https://vault.cnoe.localtest.me:8443                  # Vault (exception - uses subdomain)
+
+# Verify ingress paths
+kubectl get ingress --all-namespaces --context kind-caipe-local
+```
+
+**Quick Test:**
+```bash
+# Test Backstage (should return HTML)
+curl -k -s https://cnoe.localtest.me:8443 | head -5
+
+# Test ArgoCD (should return HTML or redirect)
+curl -k -s https://cnoe.localtest.me:8443/argocd
+
+# Test Gitea (should return HTML)
+curl -k -s https://cnoe.localtest.me:8443/gitea
+```
+
+#### **6. Safety Constraints Too Restrictive**
 
 **Symptoms:**
 - Legitimate operations being blocked
