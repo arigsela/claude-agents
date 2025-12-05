@@ -1,5 +1,10 @@
 # RAG MCP Server Configuration
 # Contains non-sensitive configuration for the MCP server
+#
+# Backend Selection:
+#   - For local/Qdrant: RAG_VECTOR_BACKEND=qdrant
+#   - For RDS/pgvector: RAG_VECTOR_BACKEND=pgvector
+#
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,8 +14,15 @@ metadata:
     app.kubernetes.io/name: rag-mcp-server
     app.kubernetes.io/component: config
 data:
-  # Qdrant connection (internal service)
+  # Vector Store Backend: 'qdrant' or 'pgvector'
+  # For Kubernetes with RDS, use 'pgvector'
+  RAG_VECTOR_BACKEND: "pgvector"
+
+  # Qdrant connection (used when RAG_VECTOR_BACKEND=qdrant)
   RAG_QDRANT_URL: "http://qdrant:6333"
+
+  # PostgreSQL connection is in Secret (used when RAG_VECTOR_BACKEND=pgvector)
+  # RAG_DATABASE_URL is set via ExternalSecret or manually
 
   # MCP Server settings
   RAG_MCP_MODE: "http"
@@ -22,6 +34,9 @@ data:
 
   # Embedding model (cached in image)
   RAG_EMBEDDING_MODEL: "BAAI/bge-small-en-v1.5"
+
+  # Vector configuration
+  RAG_VECTOR_SIZE: "384"
 
   # Search defaults
   RAG_SEARCH_LIMIT: "10"

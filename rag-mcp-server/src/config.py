@@ -9,7 +9,13 @@ from pydantic import Field
 class Settings(BaseSettings):
     """RAG MCP Server configuration settings."""
 
-    # Qdrant Configuration
+    # Vector Store Backend Selection
+    vector_backend: str = Field(
+        default="qdrant",
+        description="Vector store backend: 'qdrant' or 'pgvector'",
+    )
+
+    # Qdrant Configuration (used when vector_backend='qdrant')
     qdrant_url: str = Field(
         default="http://localhost:6333",
         description="Qdrant server URL",
@@ -21,6 +27,12 @@ class Settings(BaseSettings):
     qdrant_timeout: int = Field(
         default=30,
         description="Qdrant client timeout in seconds",
+    )
+
+    # PostgreSQL + pgvector Configuration (used when vector_backend='pgvector')
+    database_url: Optional[str] = Field(
+        default=None,
+        description="PostgreSQL connection string for pgvector backend",
     )
 
     # Embedding Configuration

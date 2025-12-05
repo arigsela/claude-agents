@@ -1,36 +1,21 @@
 """RAG Search Tool - Semantic search across document collections.
 
 Provides the rag_search MCP tool for retrieving relevant documents
-from Qdrant vector database using semantic similarity.
+from the vector database using semantic similarity.
+
+Supports multiple backends:
+    - Qdrant (local development)
+    - PostgreSQL + pgvector (Kubernetes/RDS)
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
-
 from src.config import get_settings
 from src.embeddings import get_embedding_service
+from src.vectorstore import get_vector_store
 
 logger = logging.getLogger(__name__)
-
-# Qdrant client singleton
-_qdrant_client: Optional[QdrantClient] = None
-
-
-def get_qdrant_client() -> QdrantClient:
-    """Get or create Qdrant client instance."""
-    global _qdrant_client
-    if _qdrant_client is None:
-        settings = get_settings()
-        _qdrant_client = QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            timeout=settings.qdrant_timeout,
-        )
-        logger.info(f"Connected to Qdrant at {settings.qdrant_url}")
-    return _qdrant_client
 
 
 async def rag_search(
@@ -42,7 +27,7 @@ async def rag_search(
 ) -> Dict[str, Any]:
     """Search for relevant documents using semantic similarity.
 
-    Performs vector similarity search in Qdrant to find documents
+    Performs vector similarity search to find documents
     that are semantically related to the query.
 
     Args:
@@ -77,51 +62,24 @@ async def rag_search(
         embedding_service = get_embedding_service()
         query_vector = embedding_service.embed_text(query)
 
-        # Build filter if specified
-        search_filter = None
-        if filter_source:
-            search_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="source",
-                        match=MatchValue(value=filter_source),
-                    )
-                ]
-            )
+        # Get vector store and search
+        store = get_vector_store()
+        await store.initialize()
 
-        # Perform search using query_points (qdrant-client 1.7+ API)
-        client = get_qdrant_client()
-        from qdrant_client.models import QueryResponse
-        search_response = client.query_points(
-            collection_name=collection_name,
-            query=query_vector,
+        search_results = await store.search(
+            query_embedding=query_vector,
+            collection=collection_name,
             limit=limit,
             score_threshold=threshold,
-            query_filter=search_filter,
-            with_payload=True,
+            filter_source=filter_source,
         )
-        # Extract points from QueryResponse
-        search_results = search_response.points if hasattr(search_response, 'points') else []
 
         # Format results
-        results = []
-        for hit in search_results:
-            result = {
-                "id": str(hit.id),
-                "score": round(hit.score, 4),
-                "content": hit.payload.get("content", ""),
-                "metadata": {
-                    "source": hit.payload.get("source", "unknown"),
-                    "chunk_index": hit.payload.get("chunk_index", 0),
-                    "timestamp": hit.payload.get("timestamp", ""),
-                    "title": hit.payload.get("title", ""),
-                },
-            }
-            results.append(result)
+        results = [result.to_dict() for result in search_results]
 
         logger.info(
-            f"Search in '{collection_name}': query='{query[:50]}...', "
-            f"found={len(results)}, limit={limit}"
+            f"Search in '{collection_name}' ({store.backend_name}): "
+            f"query='{query[:50]}...', found={len(results)}, limit={limit}"
         )
 
         return {

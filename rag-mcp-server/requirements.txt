@@ -5,8 +5,13 @@
 mcp>=1.23.1
 fastmcp>=2.0.0
 
-# Vector Database
+# Vector Database - Qdrant (local development)
 qdrant-client>=1.16.1
+
+# Vector Database - PostgreSQL + pgvector (Kubernetes/RDS)
+# Install with: pip install asyncpg pgvector
+asyncpg>=0.30.0
+pgvector>=0.4.1
 
 # Embeddings (ONNX-based, no GPU required)
 fastembed>=0.7.1
