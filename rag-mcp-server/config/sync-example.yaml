@@ -1,0 +1,22 @@
+# Example Sync Configuration for Testing
+#
+# This config indexes sample playbooks for testing the sync pipeline.
+# Run with: python -m src.sync.sync_job --config config/sync-example.yaml
+
+sources:
+  # Index sample playbooks from this repo
+  - name: sample-playbooks
+    type: local
+    path: ./sample-playbooks
+    patterns:
+      - "**/*.md"
+    collection: test-playbooks
+    recursive: true
+
+chunking:
+  strategy: header
+  max_chunk_size: 800
+  min_chunk_size: 50
+  overlap: 50
+
+cache_file: .rag-sync-cache-test.json

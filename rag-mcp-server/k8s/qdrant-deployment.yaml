@@ -1,0 +1,129 @@
+# Qdrant Vector Database Deployment
+# High-performance vector search engine for RAG retrieval
+#
+# Ports:
+#   - 6333: HTTP API (REST)
+#   - 6334: gRPC API
+#
+# Apply: kubectl apply -f k8s/qdrant-deployment.yaml
+# Verify: kubectl get pods -n rag-mcp -l app=qdrant
+# Logs: kubectl logs -n rag-mcp -l app=qdrant -f
+# Port-forward: kubectl port-forward svc/qdrant 6333:6333 -n rag-mcp
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qdrant
+  namespace: rag-mcp
+  labels:
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/version: "1.16.2"
+    app.kubernetes.io/component: vector-database
+    app.kubernetes.io/part-of: rag-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  strategy:
+    type: Recreate  # Required for PVC with ReadWriteOnce
+  template:
+    metadata:
+      labels:
+        app: qdrant
+        app.kubernetes.io/name: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.16.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+          env:
+            # Performance tuning
+            - name: QDRANT__SERVICE__HTTP_PORT
+              value: "6333"
+            - name: QDRANT__SERVICE__GRPC_PORT
+              value: "6334"
+            # Storage configuration
+            - name: QDRANT__STORAGE__STORAGE_PATH
+              value: "/qdrant/storage"
+            # Logging
+            - name: QDRANT__LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+            - name: qdrant-config
+              mountPath: /qdrant/config
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            readOnlyRootFilesystem: false
+            runAsNonRoot: false
+      volumes:
+        - name: qdrant-storage
+          persistentVolumeClaim:
+            claimName: qdrant-storage
+        - name: qdrant-config
+          configMap:
+            name: qdrant-config
+            optional: true
+      # Pod scheduling
+      terminationGracePeriodSeconds: 30
+
+---
+# Qdrant Service
+# Exposes Qdrant within the cluster for RAG MCP server access
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: rag-mcp
+  labels:
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/component: vector-database
+    app.kubernetes.io/part-of: rag-mcp-server
+spec:
+  type: ClusterIP
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+      protocol: TCP

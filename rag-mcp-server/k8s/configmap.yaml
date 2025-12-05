@@ -1,0 +1,81 @@
+# RAG MCP Server Configuration
+# Contains non-sensitive configuration for the MCP server
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mcp-config
+  namespace: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-mcp-server
+    app.kubernetes.io/component: config
+data:
+  # Qdrant connection (internal service)
+  RAG_QDRANT_URL: "http://qdrant:6333"
+
+  # MCP Server settings
+  RAG_MCP_MODE: "http"
+  RAG_MCP_HOST: "0.0.0.0"
+  RAG_MCP_PORT: "8003"
+
+  # Default collection for storage
+  RAG_DEFAULT_COLLECTION: "default"
+
+  # Embedding model (cached in image)
+  RAG_EMBEDDING_MODEL: "BAAI/bge-small-en-v1.5"
+
+  # Search defaults
+  RAG_SEARCH_LIMIT: "10"
+  RAG_SCORE_THRESHOLD: "0.7"
+
+  # Logging
+  RAG_LOG_LEVEL: "INFO"
+---
+# Sync Job Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-sync-config
+  namespace: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-mcp-server
+    app.kubernetes.io/component: sync-config
+data:
+  sync.yaml: |
+    # RAG Content Sync Configuration
+    # This ConfigMap defines what content to index
+
+    sources:
+      # Example: Local playbooks mounted from volume
+      - name: playbooks
+        type: local
+        path: /app/playbooks
+        patterns:
+          - "**/*.md"
+          - "**/*.yaml"
+          - "**/*.txt"
+        collection: oncall-playbooks
+        metadata:
+          source_type: playbook
+          team: oncall
+
+      # Example: Git repository (uncomment and configure)
+      # - name: runbooks
+      #   type: git
+      #   url: https://github.com/org/runbooks.git
+      #   branch: main
+      #   paths:
+      #     - "docs/**/*.md"
+      #   collection: oncall-runbooks
+      #   auth:
+      #     type: token
+      #     secret: github-token  # References K8s secret
+
+    chunking:
+      strategy: header  # header, paragraph, fixed
+      max_chunk_size: 1000
+      overlap: 100
+
+    options:
+      deduplicate: true
+      normalize_whitespace: true
+      cache_dir: /app/cache

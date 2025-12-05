@@ -1,0 +1,9 @@
+# RAG MCP Server Namespace
+# Isolates RAG components from other workloads
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-mcp
+    app.kubernetes.io/component: namespace

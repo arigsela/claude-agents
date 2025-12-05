@@ -1,0 +1,173 @@
+---
+# RAG Content Sync CronJob
+#
+# Periodically syncs content from configured sources to Qdrant.
+# Runs hourly by default, or triggered manually for immediate sync.
+#
+# Manual trigger:
+#   kubectl create job --from=cronjob/rag-sync-job rag-sync-manual-$(date +%s) -n rag-mcp
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rag-sync-job
+  namespace: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-sync-job
+    app.kubernetes.io/component: sync
+    app.kubernetes.io/part-of: rag-mcp-server
+spec:
+  # Run every hour at minute 0
+  schedule: "0 * * * *"
+
+  # Timezone (optional, requires K8s 1.27+)
+  # timeZone: "America/New_York"
+
+  # Don't run if previous job still running
+  concurrencyPolicy: Forbid
+
+  # Keep last 3 successful and 1 failed job
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+  # Start job within 5 minutes of schedule, or skip
+  startingDeadlineSeconds: 300
+
+  jobTemplate:
+    spec:
+      # Retry failed jobs up to 2 times
+      backoffLimit: 2
+
+      # Timeout after 30 minutes
+      activeDeadlineSeconds: 1800
+
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rag-sync-job
+            app.kubernetes.io/component: sync
+        spec:
+          restartPolicy: OnFailure
+
+          serviceAccountName: rag-mcp-sa
+
+          # Security context
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+
+          containers:
+            - name: sync
+              image: rag-mcp-server:latest
+              imagePullPolicy: IfNotPresent
+
+              command:
+                - python
+                - -m
+                - src.sync.sync_job
+                - --config
+                - /app/config/sync.yaml
+
+              env:
+                # Qdrant connection
+                - name: RAG_QDRANT_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: rag-mcp-config
+                      key: QDRANT_URL
+
+                # Logging
+                - name: RAG_LOG_LEVEL
+                  value: "INFO"
+
+              volumeMounts:
+                # Sync configuration
+                - name: sync-config
+                  mountPath: /app/config
+                  readOnly: true
+
+                # Playbooks to index (if using local source)
+                - name: playbooks
+                  mountPath: /app/playbooks
+                  readOnly: true
+
+                # Cache for incremental sync
+                - name: sync-cache
+                  mountPath: /app/cache
+
+              resources:
+                requests:
+                  memory: "256Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
+
+          volumes:
+            # Sync configuration from ConfigMap
+            - name: sync-config
+              configMap:
+                name: rag-sync-config
+
+            # Playbooks volume (example - adjust to your source)
+            - name: playbooks
+              configMap:
+                name: oncall-playbooks
+                optional: true
+
+            # Cache volume for hash persistence
+            - name: sync-cache
+              emptyDir: {}
+
+---
+# ConfigMap for sync configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-sync-config
+  namespace: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-sync-config
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: rag-mcp-server
+data:
+  sync.yaml: |
+    # Sync configuration for Kubernetes deployment
+    sources:
+      # Local playbooks from ConfigMap
+      - name: oncall-playbooks
+        type: local
+        path: /app/playbooks
+        patterns:
+          - "**/*.md"
+          - "**/*.yaml"
+        collection: oncall-playbooks
+        recursive: true
+
+      # Example: Add git sources here
+      # - name: runbooks
+      #   type: git
+      #   url: https://github.com/your-org/runbooks.git
+      #   branch: main
+      #   patterns:
+      #     - "docs/**/*.md"
+      #   collection: oncall-runbooks
+
+    chunking:
+      strategy: header
+      max_chunk_size: 1000
+      min_chunk_size: 100
+      overlap: 100
+
+    cache_file: /app/cache/.rag-sync-cache.json
+
+---
+# ServiceAccount for sync job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-mcp-sa
+  namespace: rag-mcp
+  labels:
+    app.kubernetes.io/name: rag-mcp-sa
+    app.kubernetes.io/part-of: rag-mcp-server

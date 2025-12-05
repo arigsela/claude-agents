@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-mcp-server"
+version = "0.1.0"
+description = "RAG MCP Server - Retrieval Augmented Generation via Model Context Protocol"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "AI Platform Engineering"}
+]
+keywords = ["mcp", "rag", "qdrant", "vector-database", "ai-agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # MCP Protocol (verified December 2025)
+    "mcp>=1.23.1",
+    "fastmcp>=2.0.0",
+
+    # Vector Database
+    "qdrant-client>=1.16.1",
+
+    # Embeddings (ONNX-based, no GPU required)
+    "fastembed>=0.7.1",
+
+    # Content Sync
+    "gitpython>=3.1.45",
+    "watchdog>=6.0.0",
+    "pyyaml>=6.0.2",
+    "markdown>=3.7",
+
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+rag-mcp-server = "src.server:main"
+rag-sync = "src.sync.sync_job:main"
+
+[project.urls]
+"Homepage" = "https://github.com/your-org/rag-mcp-server"
+"Bug Tracker" = "https://github.com/your-org/rag-mcp-server/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
