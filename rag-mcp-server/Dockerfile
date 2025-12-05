@@ -44,7 +44,7 @@ FROM python:3.11-slim as runtime
 
 # Labels
 LABEL org.opencontainers.image.title="RAG MCP Server"
-LABEL org.opencontainers.image.description="MCP server for RAG with Qdrant vector database"
+LABEL org.opencontainers.image.description="MCP server for RAG with Qdrant or PostgreSQL+pgvector backend"
 LABEL org.opencontainers.image.version="1.0.0"
 
 # Create non-root user
@@ -53,9 +53,13 @@ RUN groupadd -r ragmcp && useradd -r -g ragmcp ragmcp
 WORKDIR /app
 
 # Install runtime dependencies
+# - git: for sync job cloning
+# - curl: for health checks and Qdrant connectivity
+# - postgresql-client: for pgvector backend connectivity (pg_isready)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder

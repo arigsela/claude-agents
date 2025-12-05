@@ -1,16 +1,17 @@
 """RAG Collections Tool - Manage vector database collections.
 
 Provides MCP tools for listing collections and getting collection statistics.
+
+Supports multiple backends:
+    - Qdrant (local development)
+    - PostgreSQL + pgvector (Kubernetes/RDS)
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import CollectionInfo
-
 from src.config import get_settings
-from src.tools.search import get_qdrant_client
+from src.vectorstore import get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,12 @@ async def rag_list_collections() -> Dict[str, Any]:
         # {"success": True, "collections": ["oncall-playbooks", "runbooks"], "count": 2}
     """
     try:
-        client = get_qdrant_client()
-        collections_response = client.get_collections()
+        store = get_vector_store()
+        await store.initialize()
 
-        collection_names = [c.name for c in collections_response.collections]
+        collection_names = await store.list_collections()
 
-        logger.info(f"Listed {len(collection_names)} collections")
+        logger.info(f"Listed {len(collection_names)} collections ({store.backend_name})")
 
         return {
             "success": True,
@@ -90,51 +91,42 @@ async def rag_collection_stats(
         # {"success": True, "stats": [...], "total_collections": 3}
     """
     try:
-        client = get_qdrant_client()
-        settings = get_settings()
+        store = get_vector_store()
+        await store.initialize()
 
         if collection:
             # Get stats for specific collection
-            collection_name = collection
+            stats = await store.get_collection_stats(collection)
 
-            # Check if collection exists
-            collections = client.get_collections().collections
-            collection_names = [c.name for c in collections]
-
-            if collection_name not in collection_names:
+            if stats is None:
+                collection_names = await store.list_collections()
                 return {
                     "success": False,
-                    "error": f"Collection '{collection_name}' not found",
-                    "collection": collection_name,
+                    "error": f"Collection '{collection}' not found",
+                    "collection": collection,
                     "available_collections": collection_names,
                 }
 
-            # Get collection info
-            info = client.get_collection(collection_name)
-
-            stats = _format_collection_stats(info)
-
             logger.info(
-                f"Collection '{collection_name}' stats: "
-                f"{stats['points_count']} points, status={stats['status']}"
+                f"Collection '{collection}' stats ({store.backend_name}): "
+                f"{stats.points_count} points, status={stats.status}"
             )
 
             return {
                 "success": True,
-                "collection": collection_name,
-                "stats": stats,
+                "collection": collection,
+                "stats": stats.to_dict(),
             }
 
         else:
             # Get stats for all collections
-            collections = client.get_collections().collections
+            collection_names = await store.list_collections()
             all_stats = []
 
-            for col in collections:
-                info = client.get_collection(col.name)
-                stats = _format_collection_stats(info)
-                stats["name"] = col.name
-                all_stats.append(stats)
+            for name in collection_names:
+                stats = await store.get_collection_stats(name)
+                if stats:
+                    all_stats.append(stats.to_dict())
 
             # Sort by points count descending
             all_stats.sort(key=lambda x: x["points_count"], reverse=True)
@@ -142,7 +134,7 @@ async def rag_collection_stats(
             total_points = sum(s["points_count"] for s in all_stats)
 
             logger.info(
-                f"Retrieved stats for {len(all_stats)} collections, "
+                f"Retrieved stats for {len(all_stats)} collections ({store.backend_name}), "
                 f"total points: {total_points}"
             )
 
@@ -160,52 +152,6 @@ async def rag_collection_stats(
             "error": str(e),
             "stats": None,
         }
-
-
-def _format_collection_stats(info: CollectionInfo) -> Dict[str, Any]:
-    """Format collection info into stats dictionary.
-
-    Args:
-        info: Qdrant CollectionInfo object
-
-    Returns:
-        Formatted stats dictionary
-    """
-    # Extract vector config
-    vector_config = info.config.params.vectors
-
-    # Handle both single and named vector configs
-    if hasattr(vector_config, "size"):
-        # Single vector config
-        vector_size = vector_config.size
-        distance = str(vector_config.distance)
-    else:
-        # Named vectors - get first one
-        first_config = next(iter(vector_config.values()), None)
-        vector_size = first_config.size if first_config else 0
-        distance = str(first_config.distance) if first_config else "unknown"
-
-    # Handle qdrant-client 1.7+ API changes where counts might be in different locations
-    vectors_count = getattr(info, 'vectors_count', None)
-    points_count = getattr(info, 'points_count', None)
-    indexed_vectors_count = getattr(info, 'indexed_vectors_count', None)
-    segments_count = getattr(info, 'segments_count', None)
-
-    # Fallback to checking nested attributes for newer API versions
-    if vectors_count is None and hasattr(info, 'collection_info'):
-        vectors_count = getattr(info.collection_info, 'vectors_count', 0)
-    if points_count is None and hasattr(info, 'collection_info'):
-        points_count = getattr(info.collection_info, 'points_count', 0)
-
-    return {
-        "vectors_count": vectors_count or 0,
-        "points_count": points_count or 0,
-        "indexed_vectors_count": indexed_vectors_count or 0,
-        "status": str(info.status),
-        "vector_size": vector_size,
-        "distance": distance,
-        "segments_count": segments_count or 0,
-    }
 
 
 async def rag_delete_collection(
@@ -243,36 +189,39 @@ async def rag_delete_collection(
         }
 
     try:
-        client = get_qdrant_client()
+        store = get_vector_store()
+        await store.initialize()
 
-        # Check if collection exists
-        collections = client.get_collections().collections
-        collection_names = [c.name for c in collections]
-
-        if collection not in collection_names:
+        # Get stats before deletion for logging
+        stats = await store.get_collection_stats(collection)
+        if stats is None:
             return {
                 "success": False,
                 "error": f"Collection '{collection}' not found",
                 "collection": collection,
             }
 
-        # Get stats before deletion for logging
-        info = client.get_collection(collection)
-        points_count = info.points_count or 0
+        points_count = stats.points_count
 
         # Delete collection
-        client.delete_collection(collection)
+        deleted = await store.delete_collection(collection)
 
-        logger.warning(
-            f"Deleted collection '{collection}' with {points_count} points"
-        )
-
-        return {
-            "success": True,
-            "collection": collection,
-            "message": f"Collection '{collection}' deleted ({points_count} points removed)",
-            "points_deleted": points_count,
-        }
+        if deleted:
+            logger.warning(
+                f"Deleted collection '{collection}' with {points_count} points ({store.backend_name})"
+            )
+            return {
+                "success": True,
+                "collection": collection,
+                "message": f"Collection '{collection}' deleted ({points_count} points removed)",
+                "points_deleted": points_count,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to delete collection '{collection}'",
+                "collection": collection,
+            }
 
     except Exception as e:
         logger.error(f"Error deleting collection '{collection}': {e}", exc_info=True)

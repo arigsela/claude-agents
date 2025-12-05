@@ -31,6 +31,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: rag-mcp-config
+            - secretRef:
+                name: rag-mcp-secrets
+                optional: true  # Optional for Qdrant-only deployments
           resources:
             requests:
               memory: "256Mi"
