@@ -1,0 +1,62 @@
+# RAG MCP Server - Sync Configuration
+#
+# Defines content sources to index into the vector database.
+# Run sync with: python -m src.sync.sync_job --config config/sync.yaml
+#
+# Environment variables can be used: ${VAR_NAME}
+
+# Sources to sync
+sources:
+  # Example: Local playbooks directory
+  - name: oncall-playbooks
+    type: local
+    path: /app/playbooks
+    patterns:
+      - "**/*.md"
+      - "**/*.yaml"
+    collection: oncall-playbooks
+    recursive: true
+
+  # Example: Git repository
+  # - name: runbooks
+  #   type: git
+  #   url: https://github.com/your-org/runbooks.git
+  #   branch: main
+  #   patterns:
+  #     - "docs/**/*.md"
+  #     - "playbooks/**/*.md"
+  #   collection: oncall-runbooks
+  #   shallow: true  # Use shallow clone for speed
+
+  # Example: Multiple patterns from single repo
+  # - name: incident-docs
+  #   type: git
+  #   url: https://github.com/your-org/incidents.git
+  #   branch: main
+  #   patterns:
+  #     - "postmortems/**/*.md"
+  #     - "runbooks/**/*.md"
+  #   collection: oncall-incidents
+
+# Chunking configuration
+chunking:
+  # Strategy: "header" (split on ##), "paragraph", "fixed"
+  strategy: header
+
+  # Maximum chunk size in characters
+  max_chunk_size: 1000
+
+  # Minimum chunk size (smaller chunks get merged)
+  min_chunk_size: 100
+
+  # Overlap between chunks (for fixed strategy)
+  overlap: 100
+
+# Hash cache file for incremental sync
+# Stores content hashes to detect changes between syncs
+cache_file: .rag-sync-cache.json
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
