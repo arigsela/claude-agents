@@ -17,7 +17,7 @@
     - ⚠️ VERY SLOW STARTUP: 5-6 minutes to be ready (initialDelaySeconds: 300-360s) - slowest in cluster
   - Health Check: /health on port 8000
   - Replicas: 2 (HA enabled)
-  - Image: 852893458518.dkr.ecr.us-east-2.amazonaws.com/chores-tracker:5.8.0
+  - Image: YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/chores-tracker:5.8.0
   - Ingress: https://api.chores.arigsela.com
   - Resources: 256Mi-512Mi RAM, 200m-500m CPU
 
@@ -112,7 +112,7 @@
   - Max Downtime: 0 minutes (operational tool - business critical for incident response)
   - Health Check: /health on port 8000
   - Replicas: 2 (HA)
-  - Image: 852893458518.dkr.ecr.us-east-2.amazonaws.com/oncall-agent:v0.0.1
+  - Image: YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/oncall-agent:v0.0.1
   - Resources: 512Mi-1Gi RAM, 500m-1000m CPU
   - Quirks:
     - Integrates with Anthropic API (Claude)
@@ -265,7 +265,7 @@
 
   4.4 Image Registry Pattern
 
-  - ECR Account: 852893458518.dkr.ecr.us-east-2.amazonaws.com
+  - ECR Account: YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com
     - chores-tracker:5.8.0
     - oncall-agent:v0.0.1
   - Authentication: ecr-registry secret (synced by ecr-auth cronjob to kube-system)

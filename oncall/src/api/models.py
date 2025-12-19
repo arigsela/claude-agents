@@ -116,7 +116,7 @@ class SessionRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "user_id": "devops-user@artemishealth.com",
+                "user_id": "devops-user@your-org.com",
                 "metadata": {
                     "source": "n8n-chat",
                     "team": "devops"
@@ -258,7 +258,7 @@ class SessionResponse(BaseModel):
             "example": {
                 "status": "success",
                 "session_id": "550e8400-e29b-41d4-a716-446655440000",
-                "user_id": "devops-user@artemishealth.com",
+                "user_id": "devops-user@your-org.com",
                 "created_at": "2025-06-19T10:00:00Z",
                 "last_accessed": "2025-06-19T10:30:00Z",
                 "conversation_history": []

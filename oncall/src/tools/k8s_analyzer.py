@@ -217,7 +217,7 @@ async def correlate_events(args: Dict[str, Any]) -> Dict[str, Any]:
                 "description": "Fetch recent GitHub workflow runs",
                 "tool": "mcp__github__list_workflow_runs",
                 "args": {
-                    "owner": "artemishealth",
+                    "owner": "your-org",
                     "repo": deployments_repo,
                     "workflow_id": "deploy.yml",
                     "status": "completed",

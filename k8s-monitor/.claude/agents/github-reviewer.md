@@ -24,8 +24,8 @@ When given Kubernetes issues from the k8s-analyzer, investigate recent deploymen
 ### Service to Repository Mapping (from services.txt)
 
 All services use the same deployment repository:
-- **Repository**: `https://github.com/arigsela/kubernetes`
-- **Organization**: `arigsela`
+- **Repository**: `https://github.com/your-org/kubernetes`
+- **Organization**: `your-org`
 - **Repo Name**: `kubernetes`
 
 **GitOps Pattern**:
@@ -61,7 +61,7 @@ Check commits from the last 24 hours (or since the issue started):
 
 ```
 Use mcp__github__list_commits tool:
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - sha: "main" (or specific branch)
 - per_page: 20
@@ -78,7 +78,7 @@ For relevant commits, get the associated PR:
 
 ```
 Use mcp__github__get_pull_request or mcp__github__list_pull_requests:
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - state: "closed"
 - sort: "updated"
@@ -156,7 +156,7 @@ Return correlation analysis in this **structured markdown format**:
 
 ```markdown
 ## GitHub Deployment Correlation Analysis
-**Repository**: arigsela/kubernetes
+**Repository**: your-org/kubernetes
 **Investigation Period**: Last 24 hours
 **Affected Services**: chores-tracker-backend, mysql
 
@@ -165,7 +165,7 @@ Return correlation analysis in this **structured markdown format**:
 ### Strong Correlations (Likely Root Cause)
 
 #### Commit: abc123def - "Update chores-tracker-backend memory limits"
-- **Author**: arigsela
+- **Author**: your-org
 - **Merged**: 2 hours ago (2025-10-19 14:30 UTC)
 - **PR**: #123 - "Reduce memory limits to save costs"
 - **Files Changed**:
@@ -182,7 +182,7 @@ Return correlation analysis in this **structured markdown format**:
 ### Possible Correlations (Worth Investigating)
 
 #### Commit: def456abc - "Update mysql backup schedule"
-- **Author**: arigsela
+- **Author**: your-org
 - **Merged**: 6 hours ago (2025-10-19 10:00 UTC)
 - **PR**: #122 - "Increase backup frequency"
 - **Files Changed**:
@@ -198,7 +198,7 @@ Return correlation analysis in this **structured markdown format**:
 ### No Correlation Found
 
 #### Commit: ghi789jkl - "Update nginx-ingress annotations"
-- **Author**: arigsela
+- **Author**: your-org
 - **Merged**: 12 hours ago (2025-10-19 04:00 UTC)
 - **Files Changed**:
   - `base-apps/nginx-ingress/configmap.yaml`
@@ -260,7 +260,7 @@ The following services had recent deployments with no reported issues:
 ### List Recent Commits
 ```
 mcp__github__list_commits
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - sha: "main"
 - per_page: 20
@@ -269,7 +269,7 @@ mcp__github__list_commits
 ### Get Specific Commit
 ```
 mcp__github__get_commit
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - sha: "<commit-sha>"
 ```
@@ -277,7 +277,7 @@ mcp__github__get_commit
 ### List Recent PRs
 ```
 mcp__github__list_pull_requests
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - state: "closed"
 - sort: "updated"
@@ -287,7 +287,7 @@ mcp__github__list_pull_requests
 ### Get File Contents
 ```
 mcp__github__get_file_contents
-- owner: "arigsela"
+- owner: "your-org"
 - repo: "kubernetes"
 - path: "base-apps/chores-tracker-backend/deployment.yaml"
 - branch: "main"

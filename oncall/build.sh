@@ -4,7 +4,7 @@
 set -e
 
 VERSION=${1:-"latest"}
-ECR_REGISTRY="852893458518.dkr.ecr.us-east-2.amazonaws.com"
+ECR_REGISTRY="YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com"
 IMAGE_NAME="oncall-agent"
 
 echo "=========================================="

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAIPE: Unified AI Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8;
+            --accent-secondary: #818cf8;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Background Animation */
+        .background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.1) 0%, transparent 40%),
+                        radial-gradient(circle at 90% 80%, rgba(129, 140, 248, 0.1) 0%, transparent 40%);
+            animation: pulse 10s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        /* Slides Container */
+        .slides-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .slide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 4rem;
+            transform: translateY(20px) scale(0.95);
+        }
+
+        .slide.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0) scale(1);
+        }
+
+        .slide.prev {
+            transform: translateY(-50px) scale(0.95);
+            opacity: 0;
+        }
+
+        /* Content Styling */
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 5rem;
+            background: linear-gradient(135deg, #fff 0%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+            text-align: center;
+            line-height: 1.1;
+        }
+
+        h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3rem;
+            margin-bottom: 2rem;
+            color: var(--accent-color);
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            color: #94a3b8;
+            font-weight: 400;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        p {
+            font-size: 1.25rem;
+            line-height: 1.6;
+            color: #cbd5e1;
+            max-width: 800px;
+            margin-bottom: 1.5rem;
+        }
+
+        ul {
+            list-style: none;
+            max-width: 800px;
+        }
+
+        li {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.5s ease 0.3s;
+        }
+
+        .slide.active li {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .slide.active li:nth-child(1) { transition-delay: 0.2s; }
+        .slide.active li:nth-child(2) { transition-delay: 0.4s; }
+        .slide.active li:nth-child(3) { transition-delay: 0.6s; }
+        .slide.active li:nth-child(4) { transition-delay: 0.8s; }
+
+        li::before {
+            content: "→";
+            color: var(--accent-color);
+            margin-right: 1rem;
+            font-weight: bold;
+        }
+
+        /* Layouts */
+        .split-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            width: 100%;
+            max-width: 1400px;
+            align-items: center;
+        }
+
+        .text-content {
+            text-align: left;
+        }
+
+        .visual-content {
+            position: relative;
+            height: 500px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .visual-content img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 20px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            border: 1px solid var(--glass-border);
+            transition: transform 0.5s ease;
+        }
+        
+        .visual-content img:hover {
+            transform: scale(1.02);
+        }
+
+        /* Glass Card */
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 3rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        /* Navigation Controls */
+        .controls {
+            position: absolute;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 1rem;
+            z-index: 10;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+        }
+
+        .btn:hover {
+            background: var(--accent-color);
+            color: #000;
+        }
+
+        .progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: var(--accent-color);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        
+        /* Speaker Notes (Hidden by default, toggleable) */
+        .notes-panel {
+            position: absolute;
+            bottom: -300px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            background: #1e293b;
+            padding: 2rem;
+            border-radius: 20px 20px 0 0;
+            transition: bottom 0.3s ease;
+            z-index: 100;
+            border: 1px solid var(--accent-color);
+        }
+        
+        .notes-panel.visible {
+            bottom: 0;
+        }
+        
+        .notes-toggle {
+            position: absolute;
+            bottom: 2rem;
+            left: 2rem;
+            opacity: 0.5;
+            cursor: pointer;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="background"></div>
+
+    <div class="slides-container">
+        
+        <!-- Slide 1: Title -->
+        <div class="slide active" id="slide-1">
+            <h1>CAIPE</h1>
+            <h3>Community AI Platform Engineering</h3>
+            <div class="glass-card" style="text-align: center; margin-top: 2rem;">
+                <p style="font-size: 1.5rem; color: var(--accent-color);">The Unified AI Platform for Our Agents</p>
+                <p style="margin-top: 1rem;">Standardizing Deployment, Security, and Orchestration</p>
+            </div>
+            <p style="margin-top: 3rem; opacity: 0.6; font-size: 1rem;">Use Arrow Keys to Navigate</p>
+            
+            <div class="notes" style="display:none;">
+                Today I want to talk about how we move from building individual, isolated AI experiments to a mature, scalable platform. We are adopting CAIPE to be the backbone of our AI strategy.
+            </div>
+        </div>
+
+        <!-- Slide 2: The Challenge -->
+        <div class="slide" id="slide-2">
+            <div class="split-layout">
+                <div class="text-content">
+                    <h2>The Silo Problem</h2>
+                    <ul>
+                        <li><strong>Fragmentation:</strong> Agents like `oncall` and `k8s-monitor` are isolated.</li>
+                        <li><strong>Duplication:</strong> Re-implementing auth & logging every time.</li>
+                        <li><strong>Inconsistency:</strong> Different frameworks = maintenance nightmare.</li>
+                        <li><strong>No Collaboration:</strong> Agents can't talk to each other.</li>
+                    </ul>
+                </div>
+                <div class="visual-content">
+                    <img src="assets/silo.png" alt="Silo Problem Visual">
+                </div>
+            </div>
+            <div class="notes" style="display:none;">
+                Right now, every time we build an agent, we reinvent the wheel. We have no standard way for these agents to talk to each other. This doesn't scale.
+            </div>
+        </div>
+
+        <!-- Slide 3: The Solution -->
+        <div class="slide" id="slide-3">
+            <div class="split-layout">
+                <div class="visual-content">
+                    <img src="assets/infographic.png" alt="CAIPE Infographic">
+                </div>
+                <div class="text-content">
+                    <h2>The Solution: CAIPE</h2>
+                    <p>Think of it as <strong>"Kubernetes for Agents"</strong>.</p>
+                    <ul>
+                        <li><strong>Unified Platform:</strong> Handles hosting, security, and routing.</li>
+                        <li><strong>Supervisor Model:</strong> A central brain delegates tasks to specialists.</li>
+                        <li><strong>A2A Protocol:</strong> Standard language for agents to collaborate.</li>
+                        <li><strong>Open Source:</strong> Backed by CNOE.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="notes" style="display:none;">
+                CAIPE provides the plumbing. It gives us a standard way to deploy, secure, and manage our agents. It allows us to focus on the business logic.
+            </div>
+        </div>
+
+        <!-- Slide 4: Strategic Benefits -->
+        <div class="slide" id="slide-4">
+            <h2>Strategic Benefits</h2>
+            <div class="split-layout" style="grid-template-columns: 1fr 1fr 1fr; gap: 2rem;">
+                <div class="glass-card">
+                    <h3 style="color: var(--accent-color); margin-bottom: 1rem;">Standardize</h3>
+                    <p style="font-size: 1rem;">One way to deploy. One way to secure. One way to audit. Enterprise-ready governance out of the box.</p>
+                </div>
+                <div class="glass-card">
+                    <h3 style="color: var(--accent-color); margin-bottom: 1rem;">Flexible</h3>
+                    <p style="font-size: 1rem;">Not locked in. Use Anthropic SDK, LangGraph, or Python. As long as it speaks A2A, it works.</p>
+                </div>
+                <div class="glass-card">
+                    <h3 style="color: var(--accent-color); margin-bottom: 1rem;">Collaborate</h3>
+                    <p style="font-size: 1rem;">Multi-Agent Systems. Incident Agent can ask GitHub Agent for context to solve complex problems.</p>
+                </div>
+            </div>
+            <div class="notes" style="display:none;">
+                This enables Multi-Agent Systems. Complex problems require multiple experts working together. We get enterprise-grade security and governance.
+            </div>
+        </div>
+
+        <!-- Slide 5: Integration Roadmap -->
+        <div class="slide" id="slide-5">
+            <div class="split-layout">
+                <div class="text-content">
+                    <h2>Integration Strategy</h2>
+                    <ul>
+                        <li><strong>Phase 1: Pilot (Now)</strong><br>Deploy CAIPE Core & Integrate `oncall` agent.</li>
+                        <li><strong>Phase 2: Expand</strong><br>Add GitHub/Jira agents & Platform Persona.</li>
+                        <li><strong>Phase 3: Scale</strong><br>Rollout to Backstage & VS Code.</li>
+                    </ul>
+                </div>
+                <div class="visual-content">
+                    <img src="assets/roadmap.png" alt="Roadmap Visual">
+                </div>
+            </div>
+            <div class="notes" style="display:none;">
+                We are starting small. We will prove the value by integrating our existing work. Once the platform is up, adding new capabilities becomes trivial.
+            </div>
+        </div>
+
+        <!-- Slide 6: The Ask -->
+        <div class="slide" id="slide-6">
+            <h1>The Ask</h1>
+            <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+                <ul style="text-align: left;">
+                    <li><strong>Approval</strong> to proceed with CAIPE Pilot deployment.</li>
+                    <li><strong>Resources</strong> to dedicate engineering days to `oncall` integration.</li>
+                </ul>
+            </div>
+            <h3 style="margin-top: 3rem;">Ready to Execute</h3>
+            <div class="notes" style="display:none;">
+                We are ready to execute. We just need the green light to prioritize this platform work.
+            </div>
+        </div>
+
+    </div>
+
+    <div class="controls">
+        <button class="btn" onclick="prevSlide()">Previous</button>
+        <button class="btn" onclick="nextSlide()">Next</button>
+    </div>
+
+    <div class="progress-bar" id="progress"></div>
+    
+    <div class="notes-toggle" onclick="toggleNotes()">📝 Speaker Notes</div>
+    <div class="notes-panel" id="notesPanel">
+        <h4 style="color: var(--accent-color); margin-bottom: 1rem;">Speaker Notes</h4>
+        <p id="notesContent">Loading notes...</p>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+        const progressBar = document.getElementById('progress');
+        const notesPanel = document.getElementById('notesPanel');
+        const notesContent = document.getElementById('notesContent');
+
+        function updateSlide() {
+            slides.forEach((slide, index) => {
+                slide.classList.remove('active', 'prev');
+                if (index === currentSlide) {
+                    slide.classList.add('active');
+                    // Update notes
+                    const note = slide.querySelector('.notes');
+                    if (note) {
+                        notesContent.textContent = note.textContent.trim();
+                    }
+                } else if (index < currentSlide) {
+                    slide.classList.add('prev');
+                }
+            });
+            
+            // Update progress bar
+            const progress = ((currentSlide + 1) / totalSlides) * 100;
+            progressBar.style.width = `${progress}%`;
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                currentSlide++;
+                updateSlide();
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                currentSlide--;
+                updateSlide();
+            }
+        }
+        
+        function toggleNotes() {
+            notesPanel.classList.toggle('visible');
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === 'Space') {
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                prevSlide();
+            }
+        });
+
+        // Initialize
+        updateSlide();
+    </script>
+</body>
+</html>

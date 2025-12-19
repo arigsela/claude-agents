@@ -1,5 +1,5 @@
 # On-Call Troubleshooting Agent - Python Dependencies
-# ArtemisHealth DevOps Engineering
+# Your Organization DevOps Engineering
 
 # Core Claude Agent SDK
 claude-agent-sdk>=0.1.0

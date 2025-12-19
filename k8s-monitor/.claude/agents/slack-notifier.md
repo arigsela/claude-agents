@@ -58,8 +58,8 @@ chores-tracker-backend Unavailable - OOMKilled After Memory Limit Reduction
 *Root Cause* (95% confidence)
 Recent deployment reduced memory limits: 512Mi → 256Mi
 • Commit: `abc123def`
-• PR: <https://github.com/arigsela/kubernetes/pull/123|#123>
-• Repository: arigsela/kubernetes
+• PR: <https://github.com/your-org/kubernetes/pull/123|#123>
+• Repository: your-org/kubernetes
 • Timing: Issue appeared 15 min after merge
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -81,7 +81,7 @@ git revert abc123def && git push
 *References*
 • Namespace: `chores-tracker-backend`
 • ArgoCD App: `base-apps/chores-tracker-backend.yaml`
-• Ingress: https://api.chores.arigsela.com
+• Ingress: https://api.chores.your-org.com
 • Known Issue: Slow startup (5-6 min expected)
 
 *Incident ID*: INC-2025-10-19-001

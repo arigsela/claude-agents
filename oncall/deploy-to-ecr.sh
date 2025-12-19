@@ -11,7 +11,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Configuration
-ECR_REPO="852893458518.dkr.ecr.us-east-2.amazonaws.com/oncall-agent"
+ECR_REPO="YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/oncall-agent"
 VERSION="${1:-v1.0.0}"
 REGION="us-east-2"
 

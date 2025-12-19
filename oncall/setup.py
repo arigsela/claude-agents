@@ -13,15 +13,15 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 setup(
     name="oncall-agent-poc",
     version="0.1.0",
-    author="ArtemisHealth DevOps",
-    author_email="devops@artemishealth.com",
+    author="Your Organization DevOps",
+    author_email="devops@your-org.com",
     description="Intelligent on-call troubleshooting agent using Claude Agent SDK",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/artemishealth/oncall-agent-poc",
+    url="https://github.com/your-org/oncall-agent-poc",
     project_urls={
-        "Bug Tracker": "https://github.com/artemishealth/oncall-agent-poc/issues",
-        "Documentation": "https://github.com/artemishealth/oncall-agent-poc/docs",
+        "Bug Tracker": "https://github.com/your-org/oncall-agent-poc/issues",
+        "Documentation": "https://github.com/your-org/oncall-agent-poc/docs",
     },
     classifiers=[
         "Development Status :: 3 - Alpha",
