@@ -266,7 +266,7 @@ Return decision in this **structured markdown format**:
     "confidence": "high",
     "commit": "abc123def",
     "change": "Memory limit reduction: 512Mi → 256Mi",
-    "repository": "arigsela/kubernetes",
+    "repository": "your-org/kubernetes",
     "pr": "#123"
   },
   "immediate_actions": [
@@ -296,7 +296,7 @@ Return decision in this **structured markdown format**:
 **Recommended Action**: IMMEDIATE ROLLBACK
 
 **Rollback Steps**:
-1. Revert commit abc123def in arigsela/kubernetes
+1. Revert commit abc123def in your-org/kubernetes
 2. OR manually increase limits in manifest:
    ```yaml
    resources:

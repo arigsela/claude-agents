@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class GitHubDeploymentTracker:
     """
-    Tracks GitHub Actions deployments for the artemishealth organization.
+    Tracks GitHub Actions deployments for the your-org organization.
 
     This class provides helper methods for the agent to:
     - Query recent deployments via GitHub MCP tools
@@ -39,7 +39,7 @@ class GitHubDeploymentTracker:
     # Rollback decision threshold
     ROLLBACK_THRESHOLD = 0.8
 
-    def __init__(self, org: str = "artemishealth", deployments_repo: str = "deployments"):
+    def __init__(self, org: str = "your-org", deployments_repo: str = "deployments"):
         self.org = org
         self.deployments_repo = deployments_repo
 

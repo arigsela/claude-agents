@@ -40,8 +40,8 @@ This ensures NO Sonnet usage and keeps costs to ~$0.90-$1.50/year
 **Type**: K3s homelab cluster
 **Purpose**: Personal infrastructure hosting critical applications
 **Deployment Model**: GitOps via ArgoCD
-**Repository**: https://github.com/arigsela/kubernetes
-**Organization**: arigsela
+**Repository**: Your Kubernetes manifests repository
+**Organization**: Your GitHub organization
 
 ### GitOps Pattern
 
@@ -125,11 +125,10 @@ Non-critical infrastructure components:
 
 ## Image Registry Patterns
 
-**ECR Account**: 852893458518.dkr.ecr.us-east-2.amazonaws.com
-- chores-tracker:5.8.0
-- oncall-agent:v0.0.1
+**ECR Account**: Your AWS account ECR registry
+- Your application images
 
-**Authentication**: ecr-registry secret (synced by ecr-auth cronjob to kube-system)
+**Authentication**: ecr-registry secret (synced by ecr-auth cronjob)
 
 **Public Images**: n8n, mysql, postgresql, vault (Docker Hub)
 
@@ -143,7 +142,7 @@ Non-critical infrastructure components:
 
 ### Step 2: Deployment Correlation (github-reviewer)
 **Only if issues found in Step 1**
-- Query arigsela/kubernetes repository for recent commits
+- Query your-org/kubernetes repository for recent commits
 - Focus on manifest paths for affected services
 - Check commit timing vs issue timing (5-30 min correlation window)
 - Identify deployment-related changes

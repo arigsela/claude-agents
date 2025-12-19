@@ -387,7 +387,7 @@ data:
 
     ## Analysis Process
 
-    1. **Get recent commits** from arigsela/kubernetes repository
+    1. **Get recent commits** from your-org/kubernetes repository
     2. **Focus on affected services**: Only check commits touching affected service manifests
     3. **Map manifests**: base-apps/service-name/ directories
     4. **Look for**: Resource limit changes, image upgrades, replicas changes

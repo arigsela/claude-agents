@@ -154,10 +154,10 @@ kubectl get svc -n ingress-nginx
 ```
 
 **Critical ingresses to verify**:
-- `chores.arigsela.com` (chores-tracker-frontend)
-- `api.chores.arigsela.com` (chores-tracker-backend)
-- `n8n.arigsela.com` (n8n)
-- `vault.arigsela.com` (vault)
+- `chores.your-org.com` (chores-tracker-frontend)
+- `api.chores.your-org.com` (chores-tracker-backend)
+- `n8n.your-org.com` (n8n)
+- `vault.your-org.com` (vault)
 - Oncall agent ingress
 
 ### 6. Certificate Status

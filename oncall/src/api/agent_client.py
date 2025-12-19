@@ -77,7 +77,7 @@ class OnCallAgentClient:
 - vault (ns: vault): **Manual unseal required after pod restart**: `kubectl exec -n vault vault-0 -- vault operator unseal`, single replica
 - external-secrets (ns: external-secrets): Syncs from vault
 - cert-manager (ns: cert-manager): Let's Encrypt, pfSense→Route53 DNS
-- ecr-auth (ns: ecr-auth): CronJob syncs ECR creds every 12h to kube-system, account: 852893458518.dkr.ecr.us-east-2.amazonaws.com
+- ecr-auth (ns: ecr-auth): CronJob syncs ECR creds every 12h to kube-system, account: YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com
 - crossplane (ns: crossplane-system): AWS IaC (P2)
 
 **KNOWN ISSUES**:

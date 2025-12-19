@@ -578,7 +578,7 @@ MCP is what makes this actually useful vs just ChatGPT.
 kubectl get pods -n proteus-dev
 kubectl describe pod proteus-api-xyz -n proteus-dev
 kubectl logs proteus-api-xyz --tail=100
-gh pr list --repo artemishealth/proteus --state merged
+gh pr list --repo your-org/proteus --state merged
 # ... copy-paste results
 # ... manually correlate
 # ... write up findings
@@ -614,7 +614,7 @@ events = mcp__kubernetes__events_list(namespace="proteus-dev")
 logs = mcp__kubernetes__pods_logs(pod_name="proteus-api-xyz")
 
 # 4. Search GitHub for recent activity
-prs = mcp__github__list_pull_requests(repo="artemishealth/proteus")
+prs = mcp__github__list_pull_requests(repo="your-org/proteus")
 
 # 5. Correlate all data and explain root cause
 ```

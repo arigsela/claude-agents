@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-AWS_ACCOUNT_ID="852893458518"
+AWS_ACCOUNT_ID="YOUR_AWS_ACCOUNT"
 AWS_REGION="us-east-2"
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 IMAGE_NAME="k8s-monitor"

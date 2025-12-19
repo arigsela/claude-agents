@@ -14,7 +14,7 @@ services:
       - RUN_MODE=api
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_ORG=artemishealth
+      - GITHUB_ORG=your-org
       - K8S_CONTEXT=dev-eks
       - AGENT_LOG_LEVEL=INFO
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
