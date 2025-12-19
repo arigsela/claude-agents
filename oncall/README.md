@@ -1,80 +1,87 @@
-# OnCall Troubleshooting Agent API
+# OnCall Troubleshooting API
 
-Intelligent troubleshooting agent providing HTTP API endpoints for Kubernetes cluster analysis. Uses Claude LLM with service catalog awareness for context-aware incident response.
+FastAPI server exposing Claude-powered Kubernetes troubleshooting via RESTful endpoints with service catalog awareness.
 
-## Key Features
+---
 
-- **HTTP API** with 8 RESTful endpoints for n8n integration
-- **18 Custom Tools** - Kubernetes, GitHub, AWS, Datadog integration
-- **Service Catalog** - Built-in knowledge of service priorities (P0/P1/P2), known issues, dependencies
-- **GitOps Awareness** - Correlate incidents with ArgoCD deployments and GitHub PRs
-- **Session Management** - Multi-turn conversations with 30-min TTL
-- **Security** - API key authentication, rate limiting, CORS
+## Skills Demonstrated
 
-## Quick Start
+| Skill | Implementation |
+|-------|----------------|
+| **FastAPI Development** | 8 RESTful endpoints with automatic OpenAPI/Swagger documentation |
+| **Anthropic API Integration** | Direct tool calling without SDK overhead for performance |
+| **Custom Tool Development** | 18 tools spanning Kubernetes, GitHub, AWS, Datadog |
+| **API Security** | Key-based authentication, tiered rate limiting, CORS configuration |
+| **Session Management** | Multi-turn conversations with 30-min TTL and automatic cleanup |
+| **Service Catalog Design** | Priority classification (P0/P1/P2), dependency mapping, known issues |
+| **Middleware Architecture** | Request validation, authentication, rate limiting pipeline |
 
-### Local Development
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with: ANTHROPIC_API_KEY, GITHUB_TOKEN
-
-./run_api_server.sh
-open http://localhost:8000/docs  # Swagger UI
-```
-
-### Docker
-
-```bash
-docker compose up -d
-curl http://localhost:8000/health
-```
+---
 
 ## Architecture
 
 ```
 src/api/
-├── api_server.py      # FastAPI application (8 endpoints)
-├── agent_client.py    # Anthropic SDK wrapper with service catalog
-├── custom_tools.py    # 18 tools: K8s/GitHub/AWS/Datadog
-├── session_manager.py # Session lifecycle (30-min TTL)
-└── middleware.py      # Auth & rate limiting
+├── api_server.py      # FastAPI app with 8 endpoints
+├── agent_client.py    # Anthropic API wrapper with tool calling
+├── custom_tools.py    # 18 tool implementations (1,300+ lines)
+├── session_manager.py # Conversation state with TTL expiration
+└── middleware.py      # Auth & rate limiting middleware
+
+config/
+└── service_mapping.yaml  # Service catalog with priorities
 ```
+
+---
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/query` | POST | Primary troubleshooting endpoint |
-| `/session` | POST | Create conversation session |
-| `/session/{id}` | GET | Get session with history |
-| `/session/{id}` | DELETE | Delete session |
-| `/sessions/stats` | GET | Session statistics |
-| `/health` | GET | Health check |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/query` | POST | Primary troubleshooting - send natural language queries |
+| `/session` | POST | Create conversation session for multi-turn interactions |
+| `/session/{id}` | GET | Retrieve session with full conversation history |
+| `/session/{id}` | DELETE | Delete session and free resources |
+| `/sessions/stats` | GET | Session statistics and metrics |
+| `/health` | GET | Health check for load balancers |
 | `/docs` | GET | Interactive Swagger UI |
 
-## Custom Tools
+---
 
-### Kubernetes (6 tools)
-- `list_namespaces` - Discover namespaces
-- `list_pods` - List pods with status/restarts
-- `get_pod_logs` - Fetch pod logs
-- `get_pod_events` - K8s events for debugging
-- `get_deployment_status` - Deployment replica status
-- `list_services` - K8s Services with selectors
+## Custom Tools (18 Total)
 
-### GitHub (2 tools)
-- `search_recent_deployments` - Find recent GitHub Actions workflows
-- `get_recent_commits` - Get repository commit history
+**Kubernetes (6)**: `list_namespaces`, `list_pods`, `get_pod_logs`, `get_pod_events`, `get_deployment_status`, `list_services`
 
-### AWS (2 tools)
-- `check_secrets_manager` - Verify AWS secrets exist
-- `check_ecr_image` - Verify ECR container images
+**GitHub (2)**: `search_recent_deployments`, `get_recent_commits`
 
-### Analysis (2 tools)
-- `analyze_service_health` - Comprehensive health check
-- `correlate_deployment_with_incidents` - Link issues to deployments
+**AWS (2)**: `check_secrets_manager`, `check_ecr_image`
+
+**Datadog (3)**: `query_datadog_metrics`, `get_resource_usage_trends`, `check_network_traffic`
+
+**Analysis (3)**: `analyze_service_health`, `correlate_deployment_with_incidents`, `check_nat_gateway_metrics`
+
+**Correlation (2)**: `find_zeus_jobs_during_timeframe`, `correlate_nat_spike_with_zeus_jobs`
+
+---
+
+## Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Set: ANTHROPIC_API_KEY, GITHUB_TOKEN
+
+# Run API server
+./run_api_server.sh
+
+# Open Swagger UI
+open http://localhost:8000/docs
+```
+
+---
 
 ## Configuration
 
@@ -83,40 +90,22 @@ src/api/
 ANTHROPIC_API_KEY=sk-ant-...
 GITHUB_TOKEN=ghp_...
 
-# API Configuration
+# API Settings
 API_PORT=8000
-API_KEYS=your-secret-key  # Empty for dev mode (no auth)
+API_KEYS=your-secret-key  # Empty for dev mode
 SESSION_TTL_MINUTES=30
+
+# Rate Limits (requests/minute)
 RATE_LIMIT_AUTHENTICATED=60
-
-# Optional
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-DATADOG_API_KEY=...
+RATE_LIMIT_UNAUTHENTICATED=10
 ```
 
-## Example Queries
+---
 
-```bash
-# Basic health check
-curl -X POST http://localhost:8000/query \
-  -H "X-API-Key: your-key" \
-  -d '{"prompt": "Check pod status in default namespace"}'
+## Technologies
 
-# Multi-turn conversation
-curl -X POST http://localhost:8000/session \
-  -H "X-API-Key: your-key" \
-  -d '{"user_id": "oncall-engineer"}'
-# Returns session_id for follow-up queries
-```
+`FastAPI` `Anthropic API` `Pydantic` `Kubernetes Python Client` `PyGithub` `Boto3` `Datadog API` `Docker`
 
-## Testing
+---
 
-```bash
-pytest tests/api/ -v
-./test_query.sh
-```
-
-## License
-
-MIT
+MIT License

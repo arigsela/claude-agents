@@ -1,153 +1,146 @@
-# Claude Agents Repository
+# AI Agent Portfolio
 
-**Learning Lab for AI Agent Integration Patterns**
-
-A collection of production-ready AI agents demonstrating different approaches to building intelligent automation with Anthropic's Claude AI.
-
-## What You'll Learn
-
-This repository showcases different Anthropic integration patterns, helping you understand:
-
-1. **Claude Agent SDK** vs **Direct Anthropic API**
-2. **Multi-agent architecture** vs **Single-agent architecture**
-3. **MCP (Model Context Protocol)** vs **Direct API libraries**
-4. **Tradeoffs**: Flexibility vs simplicity, cost vs capability
+Production-ready AI agents demonstrating **Claude AI integration patterns** for DevOps automation.
 
 ---
 
-## Projects
+## Projects & Skills Demonstrated
 
-### 🤖 [K8s Monitoring Agent](./k8s-monitor/)
+### K8s Monitoring Agent ⭐⭐⭐
+> Multi-agent system with long-context trend detection
 
-**Architecture**: Multi-Agent + Claude SDK + MCP
+**What I Built**: Autonomous Kubernetes monitoring system using 4 specialized AI agents that coordinate to analyze cluster health, correlate issues with deployments, assess severity, and dispatch alerts.
 
-Autonomous monitoring agent with persistent memory, specialized subagents, and long-context trend detection.
+| Skill | Implementation |
+|-------|----------------|
+| **Multi-Agent Orchestration** | 4 subagents (analyzer, escalation, slack, github) with task delegation |
+| **Long-Context Management** | 120k token sessions with smart pruning to preserve critical findings |
+| **Session Persistence** | JSON-based state management across monitoring cycles |
+| **Cost Optimization** | Haiku model selection achieving ~$0.90-$1.50/year operational cost |
+| **Service Tier Modeling** | P0/P1/P2 criticality classification with max downtime thresholds |
 
-**Highlights**:
-- 4 specialized subagents (analyzer, escalation, slack, github)
-- Long-context monitoring with 120k token session management
-- Smart pruning preserves critical messages
-- Cost-optimized: All Haiku 4.5 (~$0.90-$1.50/year)
+**Technologies**: `Claude Agent SDK` `Python` `Kubernetes` `Slack API` `GitHub API`
 
-```bash
-cd k8s-monitor && ./start.sh  # Continuous monitoring
+```
+k8s-monitor/
+├── .claude/agents/      # 4 subagent definitions
+├── src/orchestrator/    # Long-context session management
+└── src/models/          # Structured findings with Pydantic
 ```
 
 ---
 
-### 🚨 [OnCall Troubleshooting Agent](./oncall/)
+### OnCall Troubleshooting API ⭐⭐⭐
+> HTTP API with 18 custom tools for incident response
 
-**Architecture**: FastAPI + Direct Anthropic API
+**What I Built**: FastAPI server exposing Claude-powered troubleshooting via RESTful endpoints. Integrates with n8n workflows for interactive incident response with service catalog awareness.
 
-HTTP API for Kubernetes troubleshooting with service catalog awareness and n8n integration.
+| Skill | Implementation |
+|-------|----------------|
+| **FastAPI Development** | 8 endpoints with Swagger UI, Pydantic validation |
+| **Custom Tool Development** | 18 tools: Kubernetes, GitHub, AWS, Datadog integrations |
+| **API Security** | Key authentication, rate limiting (60/30/10 req/min tiers), CORS |
+| **Session Management** | Multi-turn conversations with 30-min TTL, automatic cleanup |
+| **Service Catalog Design** | Priority classification, dependency mapping, known issues database |
 
-**Highlights**:
-- 8 RESTful endpoints with Swagger UI
-- 18 custom tools (K8s, GitHub, AWS, Datadog)
-- Session-based conversations (30-min TTL)
-- Built-in service catalog with priority classification
+**Technologies**: `Anthropic API` `FastAPI` `Kubernetes Python Client` `PyGithub` `Boto3` `Datadog API`
 
-```bash
-cd oncall && ./run_api_server.sh
-open http://localhost:8000/docs
+```
+oncall/
+├── src/api/
+│   ├── api_server.py      # 8 RESTful endpoints
+│   ├── custom_tools.py    # 18 tool implementations
+│   ├── session_manager.py # Conversation state management
+│   └── middleware.py      # Auth & rate limiting
+└── config/
+    └── service_mapping.yaml  # Service catalog
 ```
 
 ---
 
-### 📚 [RAG MCP Server](./rag-mcp-server/)
+### RAG MCP Server ⭐⭐
+> Vector search with dual backend support
 
-**Architecture**: MCP Server + Vector Database
+**What I Built**: Custom MCP server providing semantic search capabilities with abstracted vector storage. Supports both Qdrant (local dev) and PostgreSQL+pgvector (production/RDS).
 
-Custom MCP server for semantic search with Qdrant/pgvector backend.
+| Skill | Implementation |
+|-------|----------------|
+| **MCP Protocol** | Server implementation with stdio/SSE transport |
+| **Vector Database Architecture** | Factory pattern abstracting Qdrant vs pgvector backends |
+| **Semantic Search** | FastEmbed integration (BAAI/bge-small-en) for local embeddings |
+| **Content Deduplication** | Hash-based duplicate detection on storage |
 
-**Highlights**:
-- Dual vector backend support
-- Playbook and runbook storage
-- Claude-integrated semantic search
+**Technologies**: `MCP Protocol` `Qdrant` `PostgreSQL pgvector` `FastEmbed` `Docker`
+
+```
+rag-mcp-server/
+├── src/vectorstore/
+│   ├── base.py            # Abstract interface
+│   ├── qdrant_store.py    # Qdrant implementation
+│   ├── pgvector_store.py  # PostgreSQL implementation
+│   └── factory.py         # Backend selection
+└── k8s/                   # Kubernetes manifests
+```
 
 ---
 
-### 🎬 [YouTube MCP Server](./youtube-mcp/)
+### YouTube MCP Server ⭐
+> Transcript extraction and summarization
 
-**Architecture**: MCP Server
+**What I Built**: Simple MCP server for YouTube video analysis - fetches transcripts, extracts metadata, and persists summaries as Markdown files.
 
-MCP server for YouTube transcript extraction and summarization.
+| Skill | Implementation |
+|-------|----------------|
+| **MCP Protocol** | Basic server with 5 tools |
+| **YouTube Integration** | Transcript extraction with language support |
+| **Document Persistence** | Markdown output with YAML frontmatter |
+
+**Technologies**: `MCP Protocol` `YouTube Transcript API` `uv`
 
 ---
 
-## Architecture Comparison
+## Architecture Patterns Demonstrated
 
-| Aspect | K8s Monitor (Agent SDK) | OnCall (Direct API) |
-|--------|------------------------|---------------------|
-| **Context Management** | Automatic (persistent) | Manual (sessions) |
-| **Tool Access** | MCP Servers | Direct Python libs |
-| **Architecture** | Multi-agent | Single-agent |
-| **Memory** | Persists across cycles | Stateless per request |
-| **Best For** | Autonomous monitoring | HTTP API wrappers |
-
-## When to Use Each Pattern
-
-### Use Claude Agent SDK When:
-- Agent needs memory across multiple interactions
-- Complex workflows require specialized subagents
-- You want MCP integration for structured tool access
-- Configuration-driven behavior is preferred
-
-### Use Direct Anthropic API When:
-- Stateless analysis with external context management
-- Building HTTP APIs for integrations
-- Simple, focused tasks
-- Performance-critical applications
+| Pattern | K8s Monitor | OnCall API | RAG Server |
+|---------|:-----------:|:----------:|:----------:|
+| Multi-Agent Orchestration | ✅ | - | - |
+| Long-Context Sessions | ✅ | - | - |
+| HTTP API Design | - | ✅ | ✅ |
+| Custom Tool Development | ✅ | ✅ | ✅ |
+| MCP Protocol | - | - | ✅ |
+| Vector Search | - | - | ✅ |
+| Rate Limiting | - | ✅ | - |
+| Service Catalog | ✅ | ✅ | - |
 
 ---
 
 ## Quick Start
 
-### K8s Monitor
 ```bash
-cd k8s-monitor
-pip install -r requirements.txt
-cp .env.example .env
-./run_once.sh  # Single cycle
+# K8s Monitor - Continuous monitoring with trend detection
+cd k8s-monitor && pip install -r requirements.txt && ./start.sh
+
+# OnCall API - HTTP endpoints for n8n integration
+cd oncall && pip install -r requirements.txt && ./run_api_server.sh
+
+# RAG Server - Semantic search MCP server
+cd rag-mcp-server && docker compose up -d
 ```
-
-### OnCall API
-```bash
-cd oncall
-pip install -r requirements.txt
-cp .env.example .env
-./run_api_server.sh
-```
-
-## Prerequisites
-
-- Python 3.11+
-- Anthropic API key
-- kubectl with cluster access (for K8s agents)
-- Docker (optional, for containerized deployment)
-
-## Repository Structure
-
-```
-claude-agents/
-├── k8s-monitor/        # Multi-agent monitoring (Claude SDK)
-│   ├── .claude/        # Agent definitions
-│   └── src/            # Source code
-│
-├── oncall/             # HTTP API agent (Direct Anthropic)
-│   └── src/api/        # FastAPI server
-│
-├── rag-mcp-server/     # RAG MCP server
-├── youtube-mcp/        # YouTube MCP server
-│
-└── docs/               # Shared documentation
-    └── examples/       # Claude SDK tutorials
-```
-
-## License
-
-MIT
 
 ---
 
-**Built with Claude AI** | Demonstrating AI Agent Patterns for DevOps Automation
+## Tech Stack
+
+**AI/ML**: Claude Agent SDK, Anthropic API, FastEmbed, Vector Databases
+
+**Backend**: Python 3.11+, FastAPI, Pydantic, AsyncIO
+
+**Infrastructure**: Kubernetes, Docker, PostgreSQL, Qdrant
+
+**Integrations**: Slack, GitHub, AWS (Secrets Manager, ECR), Datadog
+
+**Protocols**: MCP (Model Context Protocol), REST, SSE
+
+---
+
+MIT License
