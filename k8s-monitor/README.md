@@ -1,100 +1,108 @@
 # K8s Monitoring Agent
 
-Multi-agent monitoring system for Kubernetes clusters using Claude Agent SDK with long-context trend detection.
+Multi-agent Kubernetes monitoring system with long-context trend detection using Claude Agent SDK.
 
-## Key Features
+---
 
-- **Multi-Agent Architecture** - 4 specialized subagents (analyzer, escalation, slack, github)
-- **Long-Context Monitoring** - Persistent conversation history with trend detection
-- **Smart Pruning** - Automatic context management at 120k token limit
-- **Cost Optimized** - All agents use Haiku 4.5 (~$0.90-$1.50/year)
-- **GitOps Ready** - Docker and Kubernetes deployment support
+## Skills Demonstrated
 
-## Quick Start
+| Skill | Implementation |
+|-------|----------------|
+| **Multi-Agent Orchestration** | 4 specialized subagents coordinating via task delegation |
+| **Claude Agent SDK** | Subagent definitions with model selection and tool restrictions |
+| **Long-Context Management** | 120k token sessions preserving conversation history across cycles |
+| **Smart Pruning** | Automatic context reduction while preserving critical findings |
+| **Session Persistence** | JSON-based state save/restore for continuous monitoring |
+| **Cost Optimization** | Haiku model selection achieving ~$0.90-$1.50/year operational cost |
+| **Service Tier Modeling** | P0/P1/P2 criticality with max downtime thresholds |
+| **Trend Detection** | Cross-cycle pattern recognition (escalation trends, recovery patterns) |
 
-```bash
-# Setup
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with: ANTHROPIC_API_KEY, KUBECONFIG, SLACK_BOT_TOKEN
-
-# Run single cycle
-./run_once.sh
-
-# Run continuous monitoring
-./start.sh
-
-# Debug mode
-./run_debug.sh
-```
+---
 
 ## Architecture
 
 ```
 .claude/
-├── CLAUDE.md                    # Cluster context (service catalog)
+├── CLAUDE.md              # Cluster context & service catalog
 └── agents/
-    ├── k8s-analyzer.md          # Health inspector
-    ├── escalation-manager.md    # Severity assessor
-    ├── slack-notifier.md        # Alert dispatcher
-    └── github-reviewer.md       # Deployment correlator
+    ├── k8s-analyzer.md    # Health inspection subagent
+    ├── escalation-manager.md  # Severity assessment
+    ├── slack-notifier.md  # Alert dispatch
+    └── github-reviewer.md # Deployment correlation
 
 src/
-├── main.py                      # Entry point
+├── main.py                # Entry point
 ├── orchestrator/
-│   ├── persistent_monitor.py    # Long-context mode
-│   └── stateless_monitor.py     # Cost-optimized mode
+│   ├── persistent_monitor.py  # Long-context session management
+│   └── monitor.py         # Subagent coordination
 ├── sessions/
-│   └── session_manager.py       # Context persistence
+│   └── session_manager.py # State persistence
 └── models/
-    └── findings.py              # Data models
+    └── findings.py        # Pydantic data models
 ```
 
-## Monitoring Workflow
+---
 
-1. **k8s-analyzer** - Check cluster health, inspect pods/deployments/events
-2. **github-reviewer** - Correlate issues with recent deployments (if issues found)
-3. **escalation-manager** - Assess severity using service criticality tiers
-4. **slack-notifier** - Send alerts for SEV-1/SEV-2 issues
+## Subagent Workflow
+
+```
+┌─────────────────┐
+│  k8s-analyzer   │  Check pods, deployments, events, nodes
+└────────┬────────┘
+         │ findings
+         ▼
+┌─────────────────┐
+│ github-reviewer │  Correlate with recent deployments (if issues)
+└────────┬────────┘
+         │ correlation
+         ▼
+┌─────────────────┐
+│escalation-mgr   │  Assess severity using P0/P1/P2 tiers
+└────────┬────────┘
+         │ severity
+         ▼
+┌─────────────────┐
+│ slack-notifier  │  Dispatch SEV-1/SEV-2 alerts
+└─────────────────┘
+```
+
+---
 
 ## Long-Context Mode
 
-Enable persistent session tracking for trend detection:
+Enable persistent sessions for trend detection across monitoring cycles:
 
 ```bash
 ENABLE_LONG_CONTEXT=true
 MAX_CONTEXT_TOKENS=120000
 ```
 
-Detects patterns across monitoring cycles:
-- Escalation trends (5 → 13 → 56 issues)
-- Recovery patterns
-- Recurring issues
+**Capabilities**:
+- Track escalation trends (5 → 13 → 56 issues)
+- Identify recovery patterns
+- Detect recurring issues
+- Correlate incidents over time
 
-## Service Criticality
+---
 
-| Tier | Services | Max Downtime |
-|------|----------|--------------|
-| P0 | Customer-facing apps, databases | 0 minutes |
-| P1 | Infrastructure (vault, cert-manager) | 5-15 minutes |
-| P2-P3 | Support services | Hours to days |
-
-## Deployment
-
-### Docker
+## Quick Start
 
 ```bash
-docker-compose up -d
-docker-compose logs -f k8s-monitor
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Set: ANTHROPIC_API_KEY, KUBECONFIG, SLACK_BOT_TOKEN
+
+# Run single cycle
+./run_once.sh
+
+# Run continuous monitoring
+./start.sh
 ```
 
-### Kubernetes
-
-```bash
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/secret.yaml
-kubectl apply -f k8s/deployment.yaml
-```
+---
 
 ## Configuration
 
@@ -105,19 +113,31 @@ KUBECONFIG=/path/to/kubeconfig
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_CHANNEL=C01234567
 
+# Long-Context Settings
+ENABLE_LONG_CONTEXT=true
+MAX_CONTEXT_TOKENS=120000
+MONITORING_INTERVAL_HOURS=1
+
 # Optional
 GITHUB_TOKEN=ghp_...
-MONITORING_INTERVAL_HOURS=1
-ENABLE_LONG_CONTEXT=true
 ```
 
-## Testing
+---
 
-```bash
-pytest tests/ -v
-pytest tests/ --cov=src --cov-report=html
-```
+## Service Criticality Tiers
 
-## License
+| Tier | Max Downtime | Examples |
+|------|--------------|----------|
+| **P0** | 0 minutes | Customer-facing apps, databases |
+| **P1** | 5-15 minutes | Infrastructure (vault, cert-manager) |
+| **P2-P3** | Hours to days | Support services, monitoring |
 
-MIT
+---
+
+## Technologies
+
+`Claude Agent SDK` `Python` `Kubernetes` `Slack API` `GitHub API` `Pydantic` `Docker`
+
+---
+
+MIT License
