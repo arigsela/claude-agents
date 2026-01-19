@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-01-19T00:00:00Z",
+  "skills": {
+    "architecture-diagrams": {
+      "name": "architecture-diagrams",
+      "version": "1.0.0",
+      "path": "./architecture-diagrams",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/architecture-diagrams"
+      }
+    },
+    "code-review": {
+      "name": "code-review",
+      "version": "1.0.0",
+      "path": "./code-review",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/code-review"
+      }
+    },
+    "feature-builder": {
+      "name": "feature-builder",
+      "version": "1.0.0",
+      "path": "./feature-builder",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/feature-builder"
+      }
+    },
+    "prompt-engineering-patterns": {
+      "name": "prompt-engineering-patterns",
+      "version": "1.0.0",
+      "path": "./prompt-engineering-patterns",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/prompt-engineering-patterns"
+      }
+    }
+  },
+  "registries": {}
+}
