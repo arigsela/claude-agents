@@ -99,18 +99,55 @@ rag-mcp-server/
 
 ---
 
+### Claude Code Skills ⭐⭐
+> Skills Marketplace with CLI and catalog system
+
+**What I Built**: Marketplace system for Claude Code skills with discovery, installation, versioning, and package management. Includes CLI tooling and local catalog tracking.
+
+| Skill | Implementation |
+|-------|----------------|
+| **CLI Development** | Bash CLI with list, search, info, add, update, remove, validate, pack commands |
+| **Package Management** | Install from local dirs, .skill bundles, or GitHub repositories |
+| **Schema Design** | Extended SKILL.md with version, author, tags, category, requirements |
+| **Catalog System** | JSON-based tracking of installed skills with source metadata |
+
+**Technologies**: `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
+
+```
+skills/
+├── skill-cli.sh           # CLI entry point
+├── lib/skill-utils.sh     # Core utilities
+├── skills-catalog.json    # Installed skills tracking
+├── architecture-diagrams/ # Mermaid, PlantUML, C4 diagrams
+├── code-review/           # Parallel agent PR review
+├── feature-builder/       # Ralph Loop development
+└── prompt-engineering-patterns/  # LLM prompt optimization
+```
+
+**Usage:**
+```bash
+./skills/skill-cli.sh list                    # List installed skills
+./skills/skill-cli.sh search "review"         # Search by name/tags
+./skills/skill-cli.sh add github:user/repo    # Install from GitHub
+./skills/skill-cli.sh pack ./my-skill         # Create .skill bundle
+```
+
+---
+
 ## Architecture Patterns Demonstrated
 
-| Pattern | K8s Monitor | OnCall API | RAG Server |
-|---------|:-----------:|:----------:|:----------:|
-| Multi-Agent Orchestration | ✅ | - | - |
-| Long-Context Sessions | ✅ | - | - |
-| HTTP API Design | - | ✅ | ✅ |
-| Custom Tool Development | ✅ | ✅ | ✅ |
-| MCP Protocol | - | - | ✅ |
-| Vector Search | - | - | ✅ |
-| Rate Limiting | - | ✅ | - |
-| Service Catalog | ✅ | ✅ | - |
+| Pattern | K8s Monitor | OnCall API | RAG Server | Skills Marketplace |
+|---------|:-----------:|:----------:|:----------:|:------------------:|
+| Multi-Agent Orchestration | ✅ | - | - | - |
+| Long-Context Sessions | ✅ | - | - | - |
+| HTTP API Design | - | ✅ | ✅ | - |
+| Custom Tool Development | ✅ | ✅ | ✅ | - |
+| MCP Protocol | - | - | ✅ | - |
+| Vector Search | - | - | ✅ | - |
+| Rate Limiting | - | ✅ | - | - |
+| Service Catalog | ✅ | ✅ | - | ✅ |
+| CLI Development | - | - | - | ✅ |
+| Package Management | - | - | - | ✅ |
 
 ---
 
@@ -125,6 +162,10 @@ cd oncall && pip install -r requirements.txt && ./run_api_server.sh
 
 # RAG Server - Semantic search MCP server
 cd rag-mcp-server && docker compose up -d
+
+# Skills Marketplace - List and manage skills
+./skills/skill-cli.sh list
+./skills/skill-cli.sh info code-review
 ```
 
 ---
