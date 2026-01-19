@@ -226,3 +226,9 @@ temp/
 # Reports and outputs
 reports/
 outputs/
+
+# Claude Code skill binaries
+*.skill
+
+# Exception: include skills/lib for skill utilities
+!skills/lib/
