@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oncall-agent-external
+  namespace: crossplane-oncall-agent
+  annotations:
+    # ALB Configuration
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+
+    # SSL/TLS Configuration
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:082902060548:certificate/3ed972d3-b43b-49a8-85e3-c83657c7213a,arn:aws:acm:us-east-1:082902060548:certificate/019e9d15-93ec-4487-8cce-c91e7f9217d3
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443},{"HTTP":80}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+    # WAF Protection (same as n8n)
+    alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:us-east-1:082902060548:regional/webacl/prod-external-alb-waf/8a762b86-0125-44ae-bc4c-f3118f4588c9
+
+    # Networking
+    alb.ingress.kubernetes.io/subnets: dev-kubernetes-vpc-public-us-east-1a, dev-kubernetes-vpc-public-us-east-1b, dev-kubernetes-vpc-public-us-east-1c
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+
+  labels:
+    app.kubernetes.io/instance: oncall-agent
+    app.kubernetes.io/name: oncall-agent
+    ballista/environment: dev
+spec:
+  ingressClassName: alb
+  rules:
+    # Only expose the Teams webhook endpoint externally
+    - host: oncall-agent-webhook.artemishealth.com
+      http:
+        paths:
+          # Teams webhook endpoint (HMAC authenticated)
+          - path: /teams/
+            pathType: Prefix
+            backend:
+              service:
+                name: oncall-agent
+                port:
+                  number: 80

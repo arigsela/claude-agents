@@ -1,0 +1,56 @@
+# On-Call Troubleshooting Agent - Python Dependencies
+# ArtemisHealth DevOps Engineering
+# Updated: 2026-02-04 - Latest stable versions with Pydantic v2
+
+# Anthropic API (Direct API integration - no Agent SDK)
+anthropic>=0.77.0
+
+# Pydantic (explicit - FastAPI uses v2)
+pydantic>=2.12.0
+
+# Kubernetes Integration
+kubernetes>=31.0.0
+pyyaml>=6.0.2
+
+# GitHub Integration
+PyGithub>=2.5.0
+
+# AWS Integration
+boto3>=1.36.0
+
+# Datadog Integration
+datadog-api-client>=2.32.0
+
+# HTTP Requests
+requests>=2.32.0
+aiohttp>=3.11.0
+
+# FastAPI and API Server
+fastapi>=0.128.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.20
+slowapi>=0.1.9
+
+# Environment Management
+python-dotenv>=1.0.1
+
+# Logging and Monitoring
+structlog>=25.0.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+pytest-mock>=3.14.0
+
+# Code Quality
+black>=24.12.0
+ruff>=0.9.0
+mypy>=1.14.0
+
+# Development Tools
+ipython>=8.31.0
+ipdb>=0.13.13
+
+# Incident Memory (Vector similarity search for past incidents)
+lancedb>=0.18.0

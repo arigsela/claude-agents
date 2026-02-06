@@ -1,0 +1,20 @@
+# IAM User for OnCall Agent (Production)
+# This user will have permissions to read CloudWatch metrics and EC2/ECR/Secrets Manager information
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: User
+metadata:
+  name: oncall-agent-nat-monitor-prod
+  labels:
+    app: oncall-agent
+    environment: prod
+spec:
+  forProvider:
+    path: "/service-accounts/"
+    tags:
+      Name: oncall-agent-nat-monitor-prod
+      Environment: prod
+      ManagedBy: crossplane
+      Service: oncall-agent
+      Purpose: NAT Gateway and AWS resource monitoring
+  providerConfigRef:
+    name: aws-provider

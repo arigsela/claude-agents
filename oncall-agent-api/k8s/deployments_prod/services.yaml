@@ -1,0 +1,19 @@
+# Service for OnCall Agent API (Production)
+apiVersion: v1
+kind: Service
+metadata:
+  name: oncall-agent
+  labels:
+    app: oncall-agent-api
+    app.kubernetes.io/instance: oncall-agent
+    app.kubernetes.io/name: oncall-agent
+    ballista/environment: prod
+spec:
+  type: ClusterIP
+  selector:
+    app: oncall-agent-api
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+    protocol: TCP
