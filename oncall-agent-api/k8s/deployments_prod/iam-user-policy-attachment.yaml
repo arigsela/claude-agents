@@ -1,0 +1,23 @@
+# IAM User Policy Attachment (Production)
+# Attaches the monitoring policy to the oncall-agent IAM user
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: UserPolicyAttachment
+metadata:
+  name: oncall-agent-nat-monitor-attachment-prod
+  labels:
+    app: oncall-agent
+    environment: prod
+spec:
+  forProvider:
+    # Reference to the IAM User
+    userSelector:
+      matchLabels:
+        app: oncall-agent
+        environment: prod
+    # Reference to the IAM Policy
+    policyArnSelector:
+      matchLabels:
+        app: oncall-agent
+        environment: prod
+  providerConfigRef:
+    name: aws-provider

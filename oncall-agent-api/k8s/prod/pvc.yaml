@@ -1,0 +1,25 @@
+# PersistentVolumeClaim for Incident Memory (LanceDB storage) - Production
+# Provides persistent storage for the oncall-agent's incident memory feature
+# which learns from past incidents to improve future recommendations.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: incident-memory-pvc
+  labels:
+    app: oncall-agent-api
+    app.kubernetes.io/instance: oncall-agent
+    app.kubernetes.io/name: oncall-agent
+    ballista/environment: prod
+    component: incident-memory
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-secure
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Note: For multi-replica deployments, consider:
+# 1. Using a shared storage class (EFS) with ReadWriteMany
+# 2. Or running a single replica with memory enabled
+# 3. Or using external vector DB (Qdrant Cloud) instead
