@@ -3,6 +3,7 @@ FastAPI Server for OnCall Troubleshooting Agent
 Provides HTTP API wrapper for n8n integration
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -32,6 +33,8 @@ from api.models import (
     SessionResponse,
 )
 from api.session_manager import SessionManager
+from api.slack_integration import init_slack_integration, post_incident_alert
+from api.slack_integration import router as slack_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -74,6 +77,10 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Agent initialized successfully")
         logger.info(f"   - Model: {agent.model}")
         logger.info(f"   - Tools: {len(agent.tools)}")
+
+        # Initialize Slack integration
+        init_slack_integration(agent, session_manager)
+        logger.info("✅ Slack integration initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize: {e}")
         raise
@@ -112,6 +119,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(images.router)
+app.include_router(slack_router)
 
 
 @app.get("/health")
@@ -153,6 +161,11 @@ async def root():
             "images": {
                 "health": "/images/health (GET)",
                 "tags": "/images/tags?service={service_name} (GET)",
+            },
+            "slack": {
+                "command": "/slack/command (POST)",
+                "health": "/slack/health (GET)",
+                "events": "/slack/events (POST)",
             },
         },
     }
@@ -364,6 +377,15 @@ async def handle_incident(
 
         logger.info(f"Incident analysis completed in {duration_ms:.2f}ms")
         logger.info(f"Severity: {severity}")
+
+        # Post proactive Slack alert as background task
+        asyncio.create_task(
+            post_incident_alert(
+                alert=alert,
+                analysis=[{"type": a.type, "content": a.content} for a in formatted_analysis],
+                severity=severity,
+            )
+        )
 
         return IncidentResponse(
             status="analyzed",

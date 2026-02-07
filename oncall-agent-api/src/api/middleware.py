@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import os
+import time
 
 from fastapi import Header, HTTPException, Request
 from fastapi.security import HTTPBearer
@@ -181,5 +182,68 @@ def validate_teams_hmac(body: bytes, auth_header: str, secret: str) -> bool:
 
     if not is_valid:
         logger.warning("Invalid HMAC signature for Teams webhook")
+
+    return is_valid
+
+
+def validate_slack_signature(
+    body: bytes, timestamp: str, signature: str, signing_secret: str
+) -> bool:
+    """
+    Validate Slack request signature using HMAC-SHA256.
+
+    Slack sends:
+    - X-Slack-Request-Timestamp header
+    - X-Slack-Signature header: "v0={hex_digest}"
+    - Signing secret from app's "Basic Information" page
+
+    The signature base string is: "v0:{timestamp}:{body}"
+
+    Args:
+        body: Raw request body bytes
+        timestamp: X-Slack-Request-Timestamp header value
+        signature: X-Slack-Signature header value (e.g., "v0=abc123...")
+        signing_secret: Slack app signing secret
+
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    if not signing_secret:
+        logger.error("SLACK_SIGNING_SECRET not configured")
+        return False
+
+    if not signature or not signature.startswith("v0="):
+        logger.warning("Missing or invalid X-Slack-Signature header")
+        return False
+
+    if not timestamp:
+        logger.warning("Missing X-Slack-Request-Timestamp header")
+        return False
+
+    # Reject requests older than 5 minutes to prevent replay attacks
+    try:
+        request_timestamp = int(timestamp)
+    except ValueError:
+        logger.warning("Invalid timestamp format in Slack request")
+        return False
+
+    if abs(time.time() - request_timestamp) > 300:
+        logger.warning("Slack request timestamp too old (possible replay attack)")
+        return False
+
+    # Compute expected signature: v0:timestamp:body
+    sig_basestring = f"v0:{timestamp}:{body.decode('utf-8')}"
+    computed_hash = hmac.new(
+        signing_secret.encode("utf-8"),
+        sig_basestring.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    computed_signature = f"v0={computed_hash}"
+
+    # Use constant-time comparison to prevent timing attacks
+    is_valid = hmac.compare_digest(computed_signature, signature)
+
+    if not is_valid:
+        logger.warning("Invalid Slack request signature")
 
     return is_valid

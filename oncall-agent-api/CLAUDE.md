@@ -16,6 +16,7 @@ This is an **Intelligent On-Call Troubleshooting Agent API** built with FastAPI 
 - GitHub deployment correlation
 - Datadog metrics integration for historical analysis
 - NAT gateway traffic analysis
+- Slack integration (`/oncall` slash commands + proactive incident alerts)
 
 ## Development Environment Setup
 
@@ -484,6 +485,68 @@ cd /Users/ari.sela/git/claude-agents/oncall-agent-api
 
 5. **OpenAPI Documentation**: Full API documentation automatically generated and available at `/docs` endpoint.
 
+## Slack Integration
+
+The API supports native Slack integration via `/oncall` slash commands and proactive incident alerts.
+
+### Architecture
+
+```
+User: /oncall check cluster health
+  -> Slack POST to /slack/command
+  -> Immediate 200 ack ("Thinking...")
+  -> Background: agent.query() -> Block Kit response -> POST to response_url
+
+Proactive alerts:
+  POST /incident -> agent analysis -> severity >= threshold -> Slack alert
+```
+
+### Environment Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `SLACK_ENABLED` | ConfigMap | Enable Slack integration (`true`/`false`) |
+| `SLACK_ALERT_CHANNEL` | ConfigMap | Channel for proactive alerts (e.g., `#oncall-alerts`) |
+| `SLACK_ALERT_MIN_SEVERITY` | ConfigMap | Minimum severity for alerts (`high`, `critical`) |
+| `SLACK_BOT_TOKEN` | Vault Secret | Bot User OAuth Token (`xoxb-...`) |
+| `SLACK_SIGNING_SECRET` | Vault Secret | App Signing Secret for request verification |
+
+### Endpoints
+
+```
+POST /slack/command  - Slash command handler (receives x-www-form-urlencoded)
+GET  /slack/health   - Integration health/config check
+POST /slack/events   - Events API (URL verification + future @mention support)
+```
+
+### Key Files
+
+- `src/api/slack_integration.py` - Router, command handler, proactive alert posting
+- `src/api/slack_models.py` - Pydantic models, Block Kit formatters
+- `src/api/middleware.py` - `validate_slack_signature()` for HMAC-SHA256 verification
+- `tests/api/test_slack_integration.py` - Test suite
+
+### Slack App Setup
+
+1. Create app at https://api.slack.com/apps
+2. Add `/oncall` slash command pointing to `https://oncall.arigsela.com/slack/command`
+3. OAuth scopes: `commands`, `chat:write`, `chat:write.public`
+4. Install to workspace, store Bot Token and Signing Secret in Vault
+
+### Testing
+
+```bash
+# Run Slack tests
+pytest tests/api/test_slack_integration.py -v
+
+# Test health check
+curl https://oncall.arigsela.com/slack/health
+
+# Simulate slash command locally
+curl -X POST http://localhost:8000/slack/command \
+  -d "token=test&command=/oncall&text=check+health&response_url=https://hooks.slack.com/...&user_id=U123&channel_id=C123"
+```
+
 ## References
 
 - FastAPI Docs: https://fastapi.tiangolo.com/
@@ -491,3 +554,4 @@ cd /Users/ari.sela/git/claude-agents/oncall-agent-api
 - PyGithub: https://pygithub.readthedocs.io/
 - Anthropic API: https://docs.anthropic.com/
 - Datadog API: https://docs.datadoghq.com/api/
+- Slack API: https://api.slack.com/

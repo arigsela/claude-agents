@@ -65,6 +65,21 @@ spec:
               name: oncall-agent-secrets
               key: api-keys
 
+        # Slack Integration secrets
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: oncall-agent-secrets
+              key: slack-bot-token
+              optional: true
+
+        - name: SLACK_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oncall-agent-secrets
+              key: slack-signing-secret
+              optional: true
+
         # Note: API_HOST, API_PORT, SESSION_TTL_MINUTES, MAX_SESSIONS_PER_USER,
         # RATE_LIMIT_*, CORS_ORIGINS are loaded from oncall-agent-config ConfigMap
         # AGENT_LOG_LEVEL, GITHUB_ORG, AWS_REGION also from ConfigMap
