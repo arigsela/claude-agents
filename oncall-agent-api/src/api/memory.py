@@ -70,7 +70,7 @@ class MemoryStatsResponse(BaseModel):
 class SimilarIncidentSearchRequest(BaseModel):
     """Request model for searching similar incidents."""
 
-    service: str = Field(..., description="Service name (e.g., 'proteus-api')")
+    service: str = Field(..., description="Service name (e.g., 'chores-tracker-backend')")
     namespace: str = Field(..., description="Kubernetes namespace")
     error_type: str = Field(..., description="Error type (e.g., 'OOMKilled')")
     error_message: str = Field(default="", description="Optional error message for better matching")
@@ -108,7 +108,7 @@ class SimilarIncidentSearchResponse(BaseModel):
 def _get_default_cluster() -> str:
     """Get default cluster from environment."""
     import os
-    return os.getenv("K8S_CONTEXT", "dev-eks")
+    return os.getenv("K8S_CONTEXT", "default")
 
 
 class StoreIncidentRequest(BaseModel):

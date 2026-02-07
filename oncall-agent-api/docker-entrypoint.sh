@@ -10,7 +10,7 @@ echo "=================================================="
 echo ""
 echo "API Mode: HTTP server for troubleshooting queries"
 echo "API will be available on port ${API_PORT:-8000}"
-echo "K8s Context: ${K8S_CONTEXT:-dev-eks}"
+echo "K8s Auth: ${K8S_CONTEXT:-in-cluster}"
 echo ""
 
 # Use exec to replace shell process with uvicorn

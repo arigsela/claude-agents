@@ -1,6 +1,6 @@
 #!/bin/bash
-# Deploy OnCall Agent to AWS ECR
-# Builds and pushes Docker image for both daemon and API modes
+# Deploy OnCall Agent to AWS ECR (k3s homelab)
+# Builds AMD64 image from M1 Mac and pushes to ECR
 
 set -e
 
@@ -11,9 +11,9 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Configuration
-ECR_REPO="082902060548.dkr.ecr.us-east-1.amazonaws.com/oncall-agent"
+ECR_REPO="852893458518.dkr.ecr.us-east-2.amazonaws.com/oncall-agent"
 VERSION="${1:-v1.0.0}"
-REGION="us-east-1"
+REGION="us-east-2"
 
 echo "=========================================="
 echo "  Deploy OnCall Agent to ECR"
@@ -26,7 +26,7 @@ echo ""
 
 # Step 1: Login to ECR
 echo -e "${BLUE}Step 1: Logging into ECR...${NC}"
-aws ecr get-login-password --region $REGION --profile admin | \
+aws ecr get-login-password --region $REGION | \
   docker login --username AWS --password-stdin \
   $(echo $ECR_REPO | cut -d'/' -f1)
 
@@ -39,14 +39,12 @@ else
 fi
 echo ""
 
-# Step 2: Build image for AMD64 (EKS)
-echo -e "${BLUE}Step 2: Building Docker image for AMD64 (EKS)...${NC}"
-echo "Platform: linux/amd64 (x86_64 for EKS instances)"
-echo "This may take 5-10 minutes for the first build..."
+# Step 2: Build image for AMD64 (k3s runs x86_64)
+echo -e "${BLUE}Step 2: Building Docker image for AMD64 (k3s)...${NC}"
+echo "Platform: linux/amd64 (x86_64 for k3s server)"
+echo "Building from M1 Mac using docker buildx cross-compilation..."
 echo ""
 
-# Use buildx for cross-platform build from M1 Mac
-echo "Using docker buildx for cross-platform AMD64 build..."
 docker buildx build \
   --platform linux/amd64 \
   -t oncall-agent:$VERSION \
@@ -93,7 +91,6 @@ echo -e "${BLUE}Step 5: Verifying in ECR...${NC}"
 aws ecr describe-images \
   --repository-name oncall-agent \
   --region $REGION \
-  --profile admin \
   --output table \
   --query 'sort_by(imageDetails,& imagePushedAt)[*].[imageTags[0],imagePushedAt,imageSizeInBytes]' || true
 
@@ -110,28 +107,15 @@ echo "  - $ECR_REPO:latest"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo ""
-echo "1. Update K8s manifests with new image URL:"
+echo "1. Deploy to k3s:"
+echo "   kubectl apply -f k8s/configmap.yaml"
+echo "   kubectl apply -f k8s/deployment.yaml"
 echo ""
-echo "   ${BLUE}k8s/deployment.yaml${NC} (daemon):"
-echo "   image: $ECR_REPO:$VERSION"
-echo "   env:"
-echo "     - name: RUN_MODE"
-echo "       value: \"daemon\""
-echo ""
-echo "   ${BLUE}k8s/api-deployment.yaml${NC} (API):"
-echo "   image: $ECR_REPO:$VERSION"
-echo "   env:"
-echo "     - name: RUN_MODE"
-echo "       value: \"api\""
-echo ""
-echo "2. Update secrets in k8s/deployment.yaml and k8s/api-deployment.yaml"
-echo ""
-echo "3. Deploy to EKS:"
-echo "   kubectl apply -f k8s/deployment.yaml      # Daemon"
-echo "   kubectl apply -f k8s/api-deployment.yaml  # API"
-echo ""
-echo "4. Verify deployment:"
+echo "2. Verify deployment:"
 echo "   kubectl get pods -n oncall-agent"
+echo "   kubectl logs -n oncall-agent -l app=oncall-agent-api -f"
 echo ""
-echo "See: docs/deploy-to-ecr.md for detailed instructions"
+echo "3. Test:"
+echo "   kubectl port-forward -n oncall-agent svc/oncall-agent-api 8000:80"
+echo "   curl http://localhost:8000/health"
 echo ""

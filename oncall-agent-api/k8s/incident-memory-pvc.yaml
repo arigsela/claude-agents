@@ -27,5 +27,5 @@ spec:
   resources:
     requests:
       storage: 1Gi  # Room for growth
-  # Use default storage class (usually gp2/gp3 on EKS)
-  # storageClassName: gp3
+  # k3s uses local-path as default storage provisioner
+  storageClassName: local-path

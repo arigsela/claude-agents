@@ -21,7 +21,7 @@ class AWSIntegrator:
     """
 
     # Default AWS region
-    DEFAULT_REGION = "us-east-1"
+    DEFAULT_REGION = "us-east-2"
 
     def __init__(self, region: str | None = None):
         """

@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api import athena_costs, cost_explorer, hermes_chartdata, images, teams_webhook
+from api import images
 from api.agent_client import OnCallAgentClient
 from api.middleware import limiter_with_key, rate_limit_exceeded_handler, verify_api_key
 from api.models import (
@@ -111,11 +111,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(hermes_chartdata.router)
-app.include_router(cost_explorer.router)
-app.include_router(athena_costs.router)
 app.include_router(images.router)
-app.include_router(teams_webhook.router)
 
 
 @app.get("/health")
@@ -152,30 +148,12 @@ async def root():
             "openapi": "/openapi.json",
             "query": "/query (POST)",
             "incident": "/incident (POST)",
-            "cost_explorer": {
-                "health": "/cost-explorer/health (GET)",
-                "anomalies": "/cost-explorer/anomalies (POST)",
-                "daily_costs": "/cost-explorer/daily-costs (POST)",
-            },
-            "athena_costs": {
-                "health": "/athena-costs/health (GET)",
-                "anomalies": "/athena-costs/anomalies (GET)",
-                "compute": "/athena-costs/compute (GET)",
-                "eks": "/athena-costs/eks (GET)",
-                "networking": "/athena-costs/networking (GET)",
-                "summary": "/athena-costs/summary (GET)",
-            },
-            "hermes_chartdata": {
-                "health": "/hermes-chartdata/health (GET)",
-                "metrics": "/hermes-chartdata/metrics (GET)",
-                "slow_queries": "/hermes-chartdata/slow-queries (GET)",
-                "analyze": "/hermes-chartdata/analyze-performance (POST)",
-            },
+            "session": "/session (POST/GET/DELETE)",
+            "sessions_stats": "/sessions/stats (GET)",
             "images": {
                 "health": "/images/health (GET)",
                 "tags": "/images/tags?service={service_name} (GET)",
             },
-            "teams": {"webhook": "/teams/webhook (POST)", "health": "/teams/health (GET)"},
         },
     }
 
@@ -190,33 +168,19 @@ async def query_agent(
 
     This endpoint allows you to ask questions or send instructions to the agent.
     The agent will analyze your query using its available tools (Kubernetes,
-    GitHub, AWS, NAT Gateway analysis, Zeus job correlation) and provide an
-    intelligent response.
+    GitHub, AWS, incident memory) and provide an intelligent response.
 
     **Capabilities**:
     - Kubernetes pod/deployment analysis
     - GitHub deployment correlation
     - AWS resource verification (Secrets Manager, ECR)
-    - **NAT gateway traffic analysis** (NEW)
-    - **Zeus refresh job correlation** (NEW)
+    - Incident memory (search past incidents, store new ones)
 
-    **Example NAT Gateway Queries**:
-    - "What caused the NAT gateway spike at 2am?"
-    - "Show me NAT traffic for the last 24 hours"
-    - "Are any Zeus refresh jobs uploading data right now?"
-    - "Which client refresh is using the most bandwidth?"
-    - "Correlate NAT traffic with Zeus jobs yesterday"
-
-    **Example Kubernetes Queries**:
-    - "Check the health of artemis-auth service"
-    - "Why is proteus pod restarting?"
-    - "Show me recent deployments for hermes"
-
-    **AWS Credentials Required**:
-    For NAT gateway analysis, the API server needs AWS credentials with:
-    - CloudWatch:GetMetricStatistics (read NAT metrics)
-    - EC2:DescribeNatGateways (get NAT gateway info)
-    - EC2:DescribeVpcs (verify VPC association)
+    **Example Queries**:
+    - "Check the health of chores-tracker-backend"
+    - "Why is n8n pod restarting?"
+    - "Show me recent deployments for chores-tracker"
+    - "Have we seen this OOMKilled error before?"
 
     Args:
         request: QueryRequest with prompt, optional namespace, and context
