@@ -215,8 +215,31 @@ class TestSlackModels:
         assert blocks[1]["type"] == "divider"
         assert blocks[2]["type"] == "section"
         assert "All pods are healthy" in blocks[2]["text"]["text"]
-        assert blocks[3]["type"] == "context"
-        assert "1234ms" in blocks[3]["elements"][0]["text"] or "1235ms" in blocks[3]["elements"][0]["text"]
+        assert blocks[-1]["type"] == "context"
+        assert "1234ms" in blocks[-1]["elements"][0]["text"] or "1235ms" in blocks[-1]["elements"][0]["text"]
+
+    def test_format_query_response_long_text(self):
+        """Test that long responses are split into multiple blocks."""
+        from src.api.slack_models import format_query_response
+
+        # Create a response over 3000 chars with paragraph breaks
+        long_text = ("Paragraph one. " * 50 + "\n\n") * 5
+        blocks = format_query_response(
+            text=long_text,
+            query="check cluster health",
+            duration_ms=42000,
+        )
+
+        # Should have more than 4 blocks (header, divider, multiple sections, context)
+        assert len(blocks) > 4
+        # First and last blocks unchanged
+        assert blocks[0]["type"] == "section"
+        assert blocks[1]["type"] == "divider"
+        assert blocks[-1]["type"] == "context"
+        # All response blocks should be under 3000 chars
+        for block in blocks[2:-1]:
+            assert block["type"] == "section"
+            assert len(block["text"]["text"]) <= 3000
 
     def test_format_incident_alert(self):
         """Test Block Kit formatting for incident alerts."""

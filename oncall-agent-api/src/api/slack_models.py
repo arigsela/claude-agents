@@ -20,6 +20,39 @@ class SlackSlashCommand(BaseModel):
     team_id: str = Field(default="", description="Slack team/workspace ID")
 
 
+def _split_text_into_blocks(text: str, max_len: int = 2900) -> list[dict]:
+    """Split long text into multiple section blocks respecting Slack's 3000 char limit.
+
+    Tries to split at paragraph boundaries (double newlines), then single newlines,
+    then hard-truncates as a last resort.
+    """
+    if len(text) <= max_len:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+    blocks = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_len:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": remaining}})
+            break
+
+        # Try to split at a paragraph boundary
+        split_at = remaining.rfind("\n\n", 0, max_len)
+        if split_at == -1 or split_at < max_len // 2:
+            # Try single newline
+            split_at = remaining.rfind("\n", 0, max_len)
+        if split_at == -1 or split_at < max_len // 2:
+            # Hard split
+            split_at = max_len
+
+        chunk = remaining[:split_at].rstrip()
+        remaining = remaining[split_at:].lstrip()
+        if chunk:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+
+    return blocks
+
+
 def format_query_response(text: str, query: str, duration_ms: float) -> list[dict]:
     """Format agent response as Slack Block Kit blocks.
 
@@ -37,10 +70,12 @@ def format_query_response(text: str, query: str, duration_ms: float) -> list[dic
             "text": {"type": "mrkdwn", "text": f"*Query:* `{query}`"},
         },
         {"type": "divider"},
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": text},
-        },
+    ]
+
+    # Split response into multiple blocks if needed (Slack 3000 char limit per block)
+    blocks.extend(_split_text_into_blocks(text))
+
+    blocks.append(
         {
             "type": "context",
             "elements": [
@@ -50,7 +85,7 @@ def format_query_response(text: str, query: str, duration_ms: float) -> list[dic
                 }
             ],
         },
-    ]
+    )
     return blocks
 
 
