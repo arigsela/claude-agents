@@ -1,6 +1,6 @@
 # On-Call Troubleshooting Agent - Python Dependencies
-# ArtemisHealth DevOps Engineering
-# Updated: 2026-02-04 - Latest stable versions with Pydantic v2
+# K3s Homelab Deployment
+# Updated: 2026-02-06 - Latest stable versions with Pydantic v2
 
 # Anthropic API (Direct API integration - no Agent SDK)
 anthropic>=0.77.0
@@ -17,9 +17,6 @@ PyGithub>=2.5.0
 
 # AWS Integration
 boto3>=1.36.0
-
-# Datadog Integration
-datadog-api-client>=2.32.0
 
 # HTTP Requests
 requests>=2.32.0
@@ -52,5 +49,6 @@ mypy>=1.14.0
 ipython>=8.31.0
 ipdb>=0.13.13
 
-# Incident Memory (Vector similarity search for past incidents)
-lancedb>=0.18.0
+# Incident Memory (disabled - lancedb requires AVX2, k3s server has Sandy Bridge CPU)
+# lancedb>=0.18.0
+# TODO: Replace with SQLite-based incident memory for older CPUs

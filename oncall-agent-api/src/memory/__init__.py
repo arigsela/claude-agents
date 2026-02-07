@@ -11,9 +11,9 @@ Usage:
 
     # Store a resolved incident
     store.store_incident(
-        service="proteus-api",
-        namespace="proteus-dev",
-        cluster="dev-eks",
+        service="chores-tracker-backend",
+        namespace="chores-tracker-backend",
+        cluster="default",
         error_type="OOMKilled",
         root_cause="Memory limit too low",
         remediation_steps=["Increase memory to 1Gi"],
@@ -22,8 +22,8 @@ Usage:
 
     # Find similar incidents
     similar = store.find_similar(
-        service="proteus-api",
-        namespace="proteus-dev",
+        service="chores-tracker-backend",
+        namespace="chores-tracker-backend",
         error_type="OOMKilled"
     )
 """

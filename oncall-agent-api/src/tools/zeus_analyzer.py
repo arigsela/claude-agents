@@ -56,7 +56,7 @@ def _get_default_zeus_namespaces() -> list[str]:
         return [ns.strip() for ns in env_namespaces.split(",") if ns.strip()]
 
     # Fall back to cluster-based defaults
-    cluster = os.getenv("K8S_CONTEXT", "dev-eks")
+    cluster = os.getenv("K8S_CONTEXT", "default")
     if cluster == "prod-eks":
         return _DEFAULT_PROD_NAMESPACES
     return _DEFAULT_DEV_NAMESPACES
@@ -137,7 +137,7 @@ class ZeusAnalyzer:
             cluster_name: Kubernetes cluster name for Datadog queries (default: from K8S_CONTEXT env var)
         """
         self.namespaces = namespaces or DEFAULT_ZEUS_NAMESPACES
-        self.cluster_name = cluster_name or os.getenv("K8S_CONTEXT", "dev-eks")
+        self.cluster_name = cluster_name or os.getenv("K8S_CONTEXT", "default")
 
         # Initialize Kubernetes clients
         try:

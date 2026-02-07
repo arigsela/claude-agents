@@ -22,9 +22,9 @@ class StoredIncident(BaseModel):
     timestamp: datetime = Field(..., description="When the incident was stored")
 
     # Identifiers (used for filtering)
-    service: str = Field(..., description="Service name (e.g., 'proteus-api')")
+    service: str = Field(..., description="Service name (e.g., 'chores-tracker-backend')")
     namespace: str = Field(..., description="Kubernetes namespace")
-    cluster: str = Field(..., description="Cluster name (e.g., 'dev-eks')")
+    cluster: str = Field(..., description="Cluster name (e.g., 'default')")
     error_type: str = Field(..., description="Error type (e.g., 'OOMKilled', 'CrashLoopBackOff')")
 
     # Content (used for embedding and display)
@@ -74,9 +74,9 @@ class SimilarIncident(BaseModel):
                 "incident": {
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "timestamp": "2024-01-15T10:30:00Z",
-                    "service": "proteus-api",
-                    "namespace": "proteus-dev",
-                    "cluster": "dev-eks",
+                    "service": "chores-tracker-backend",
+                    "namespace": "chores-tracker-backend",
+                    "cluster": "default",
                     "error_type": "OOMKilled",
                     "summary": "Pod killed due to memory limit",
                     "root_cause": "Memory limit too low for batch processing",

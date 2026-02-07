@@ -14,9 +14,9 @@ Usage:
 
     # Store an incident
     store.store_incident(
-        service="proteus-api",
-        namespace="proteus-dev",
-        cluster="dev-eks",
+        service="chores-tracker-backend",
+        namespace="chores-tracker-backend",
+        cluster="default",
         error_type="OOMKilled",
         root_cause="Memory limit too low",
         remediation_steps=["Increase memory to 1Gi"],
@@ -25,8 +25,8 @@ Usage:
 
     # Find similar incidents
     similar = store.find_similar(
-        service="proteus-api",
-        namespace="proteus-dev",
+        service="chores-tracker-backend",
+        namespace="chores-tracker-backend",
         error_type="OOMKilled"
     )
 """
@@ -214,7 +214,7 @@ class IncidentMemoryStore:
         The incident is embedded and stored with metadata for filtering.
 
         Args:
-            service: Service name (e.g., 'proteus-api')
+            service: Service name (e.g., 'chores-tracker-backend')
             namespace: Kubernetes namespace
             cluster: Cluster name (e.g., 'dev-eks')
             error_type: Error type (e.g., 'OOMKilled', 'CrashLoopBackOff')

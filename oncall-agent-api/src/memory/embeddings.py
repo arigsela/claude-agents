@@ -31,14 +31,14 @@ def create_incident_text(incident: dict[str, Any]) -> str:
 
     Example:
         >>> incident = {
-        ...     "service": "proteus-api",
-        ...     "namespace": "proteus-dev",
+        ...     "service": "chores-tracker-backend",
+        ...     "namespace": "chores-tracker-backend",
         ...     "error_type": "OOMKilled",
         ...     "root_cause": "Memory limit too low",
         ...     "remediation_steps": ["Increase memory"]
         ... }
         >>> text = create_incident_text(incident)
-        >>> "proteus-api" in text
+        >>> "chores-tracker-backend" in text
         True
     """
     parts = []

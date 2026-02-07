@@ -1,20 +1,10 @@
-# Multi-stage build for On-Call Troubleshooting Agent
+# On-Call Troubleshooting Agent - K3s Homelab
 # Using Python base (no Node.js needed - API uses Anthropic SDK directly)
 FROM python:3.11-slim AS base
 
-# Install AWS CLI
+# Install curl (needed for health check) - AWS operations use boto3, not CLI
 RUN apt-get update && apt-get install -y \
     curl \
-    unzip \
-    && ARCH=$(dpkg --print-architecture) \
-    && if [ "$ARCH" = "arm64" ]; then \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-       else \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
-       fi \
-    && unzip awscliv2.zip \
-    && ./aws/install \
-    && rm -rf aws awscliv2.zip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

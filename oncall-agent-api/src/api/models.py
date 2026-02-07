@@ -42,8 +42,8 @@ class QueryRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "prompt": "What services are currently experiencing issues?",
-                "namespace": "proteus-dev",
-                "context": {"user": "devops-team", "source": "n8n-chat"},
+                "namespace": "chores-tracker-backend",
+                "context": {"user": "ari", "source": "n8n-chat"},
             }
         }
     )
@@ -60,7 +60,7 @@ class IncidentRequest(BaseModel):
     pod: str | None = Field(default=None, max_length=253, description="Pod name")
     restart_count: int = Field(default=0, ge=0, description="Number of pod restarts")
     cluster: str = Field(
-        default_factory=lambda: os.getenv("K8S_CONTEXT", "dev-eks"),
+        default_factory=lambda: os.getenv("K8S_CONTEXT", "default"),
         description="Kubernetes cluster name",
     )
 
@@ -82,7 +82,7 @@ class IncidentRequest(BaseModel):
     @classmethod
     def validate_cluster(cls, v: str) -> str:
         """Validate cluster against ALLOWED_CLUSTERS environment variable."""
-        allowed_env = os.getenv("ALLOWED_CLUSTERS", "dev-eks")
+        allowed_env = os.getenv("ALLOWED_CLUSTERS", "default")
         allowed_clusters = [c.strip() for c in allowed_env.split(",")]
         if v not in allowed_clusters:
             raise ValueError(f"Only {allowed_clusters} cluster(s) allowed. Got: {v}")
@@ -91,12 +91,12 @@ class IncidentRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "service": "proteus",
-                "namespace": "proteus-dev",
+                "service": "chores-tracker-backend",
+                "namespace": "chores-tracker-backend",
                 "error": "CrashLoopBackOff",
-                "pod": "proteus-api-7b9c8d6f4-xyz12",
+                "pod": "chores-tracker-backend-7b9c8d6f4-xyz12",
                 "restart_count": 5,
-                "cluster": "dev-eks",
+                "cluster": "default",
             }
         }
     )
@@ -113,8 +113,8 @@ class SessionRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "user_id": "devops-user@artemishealth.com",
-                "metadata": {"source": "n8n-chat", "team": "devops"},
+                "user_id": "ari",
+                "metadata": {"source": "n8n-chat", "team": "homelab"},
             }
         }
     )
@@ -145,7 +145,7 @@ class QueryResponse(BaseModel):
                 "responses": [
                     {
                         "type": "text",
-                        "content": "Currently monitoring 5 services in proteus-dev namespace...",
+                        "content": "Currently monitoring 5 services in chores-tracker-backend namespace...",
                     }
                 ],
                 "query": "What services are you monitoring?",
@@ -173,12 +173,12 @@ class IncidentResponse(BaseModel):
             "example": {
                 "status": "analyzed",
                 "alert": {
-                    "service": "proteus",
-                    "namespace": "proteus-dev",
+                    "service": "chores-tracker-backend",
+                    "namespace": "chores-tracker-backend",
                     "error": "CrashLoopBackOff",
                 },
                 "analysis": [
-                    {"type": "text", "content": "Detected CrashLoopBackOff in proteus service..."}
+                    {"type": "text", "content": "Detected CrashLoopBackOff in chores-tracker-backend..."}
                 ],
                 "severity": "high",
                 "duration_ms": 3456.78,
@@ -227,7 +227,7 @@ class SessionResponse(BaseModel):
             "example": {
                 "status": "success",
                 "session_id": "550e8400-e29b-41d4-a716-446655440000",
-                "user_id": "devops-user@artemishealth.com",
+                "user_id": "ari",
                 "created_at": "2025-06-19T10:00:00Z",
                 "last_accessed": "2025-06-19T10:30:00Z",
                 "conversation_history": [],
@@ -278,8 +278,8 @@ class ChartdataMetricsResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "namespace": "artemis-preprod",
-                "deployment": "hermes-app-chartdata",
+                "namespace": "chores-tracker-backend",
+                "deployment": "chores-tracker-backend",
                 "cpu_usage": 0.45,
                 "memory_usage": 2147483648,
                 "pod_count": 3,
@@ -365,9 +365,9 @@ class ChartdataAnalysisResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "namespace": "artemis-preprod",
+                "namespace": "chores-tracker-backend",
                 "time_window_minutes": 60,
-                "metrics": {"namespace": "artemis-preprod", "pod_count": 3, "query_count": 142},
+                "metrics": {"namespace": "chores-tracker-backend", "pod_count": 2, "query_count": 142},
                 "slow_query_count": 5,
                 "analysis": "Performance analysis indicates normal operation with occasional slow queries...",
                 "timestamp": "2025-10-21T12:00:00Z",
@@ -565,7 +565,7 @@ class ImageTagResponse(BaseModel):
     )
     current_image_url: str = Field(
         ...,
-        description="Full image URL including registry and tag (e.g., docker.io/artemishealth/hermes:v1.2.3)",
+        description="Full image URL including registry and tag (e.g., YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/chores-tracker-backend:v1.2.3)",
     )
     pod_count: int = Field(..., ge=0, description="Number of ready pods for this deployment")
     timestamp: datetime = Field(
@@ -575,11 +575,11 @@ class ImageTagResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "service_name": "hermes",
-                "deployment_name": "hermesapp",
-                "namespace": "artemis-dev",
+                "service_name": "chores-tracker-backend",
+                "deployment_name": "chores-tracker-backend",
+                "namespace": "chores-tracker-backend",
                 "container_name": "app",
-                "current_image_url": "docker.io/artemishealth/hermes:v1.2.3",
+                "current_image_url": "YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/chores-tracker-backend:v1.2.3",
                 "pod_count": 3,
                 "timestamp": "2025-11-14T10:30:00Z",
             }

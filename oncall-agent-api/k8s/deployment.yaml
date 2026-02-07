@@ -1,4 +1,4 @@
-# Deployment for OnCall Agent API
+# Deployment for OnCall Agent API (k3s homelab)
 # Note: Namespace, ServiceAccount, RBAC, ConfigMap, and Secret are in separate files
 apiVersion: apps/v1
 kind: Deployment
@@ -9,7 +9,7 @@ metadata:
     app: oncall-agent-api
     version: v1
 spec:
-  replicas: 2  # Multiple replicas for HA
+  replicas: 1  # Single replica for homelab resource conservation
   selector:
     matchLabels:
       app: oncall-agent-api
@@ -23,7 +23,7 @@ spec:
 
       containers:
       - name: api
-        image: 082902060548.dkr.ecr.us-east-1.amazonaws.com/oncall-agent:latest
+        image: YOUR_AWS_ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/oncall-agent:latest
         imagePullPolicy: Always
 
         ports:
@@ -65,64 +65,21 @@ spec:
               name: oncall-agent-secrets
               key: api-keys
 
-        # AWS Credentials for K8s resource verification (CloudWatch + EC2)
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: aws-access-key-id
-
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: aws-secret-access-key
-
-        - name: AWS_REGION
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: aws-region
-              optional: true  # Falls back to us-east-1 default
-
-        # Datadog Credentials for historical metrics queries
-        - name: DATADOG_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: datadog-api-key
-
-        - name: DATADOG_APP_KEY
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: datadog-app-key
-
-        # Zeus HTTP Basic Authentication
-        - name: ZEUS_WEB_BASIC_AUTH_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: zeus-web-basic-auth-username
-
-        - name: ZEUS_WEB_BASIC_AUTH_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: oncall-agent-secrets
-              key: zeus-web-basic-auth-password
-
         # Note: API_HOST, API_PORT, SESSION_TTL_MINUTES, MAX_SESSIONS_PER_USER,
-        # RATE_LIMIT_*, CORS_ORIGINS, DATADOG_SITE are loaded from oncall-agent-config ConfigMap
-        # AGENT_LOG_LEVEL, K8S_CONTEXT, GITHUB_ORG, AWS_REGION also from ConfigMap
-        # ZEUS_NAMESPACE, ZEUS_SERVICE, ZEUS_PORT, ZEUS_INTEGRATION_ENABLED also from ConfigMap
+        # RATE_LIMIT_*, CORS_ORIGINS are loaded from oncall-agent-config ConfigMap
+        # AGENT_LOG_LEVEL, GITHUB_ORG, AWS_REGION also from ConfigMap
+
+        # AWS credentials removed - not needed for k3s homelab
+        # Datadog credentials removed - not used in homelab
+        # Zeus credentials removed - not applicable to homelab
 
         resources:
           requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
             memory: "512Mi"
             cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
 
         # Liveness probe - check if API is responding
         livenessProbe:
@@ -144,8 +101,18 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
 
+        # Volume mount for incident memory (LanceDB)
+        volumeMounts:
+        - name: incident-memory
+          mountPath: /app/data/incidents
+
       # Graceful shutdown
       terminationGracePeriodSeconds: 30
+
+      volumes:
+      - name: incident-memory
+        persistentVolumeClaim:
+          claimName: incident-memory-pvc
 
 ---
 # Service for OnCall Agent API
@@ -165,31 +132,3 @@ spec:
     port: 80
     targetPort: 8000
     protocol: TCP
-
----
-# Optional: Ingress for external access (if needed)
-# Uncomment and configure if you need external access to the API
-# apiVersion: networking.k8s.io/v1
-# kind: Ingress
-# metadata:
-#   name: oncall-agent-api
-#   namespace: oncall-agent
-#   annotations:
-#     kubernetes.io/ingress.class: nginx
-#     cert-manager.io/cluster-issuer: letsencrypt-prod
-# spec:
-#   tls:
-#   - hosts:
-#     - oncall-api.yourdomain.com
-#     secretName: oncall-api-tls
-#   rules:
-#   - host: oncall-api.yourdomain.com
-#     http:
-#       paths:
-#       - path: /
-#         pathType: Prefix
-#         backend:
-#           service:
-#             name: oncall-agent-api
-#             port:
-#               number: 80
