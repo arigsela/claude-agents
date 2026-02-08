@@ -3,7 +3,6 @@ FastAPI Server for OnCall Troubleshooting Agent
 Provides HTTP API wrapper for n8n integration
 """
 
-import asyncio
 import logging
 import os
 import sys
@@ -24,8 +23,6 @@ from api.agent_client import OnCallAgentClient
 from api.middleware import limiter_with_key, rate_limit_exceeded_handler, verify_api_key
 from api.models import (
     ErrorResponse,
-    IncidentRequest,
-    IncidentResponse,
     QueryRequest,
     QueryResponse,
     ResponseMessage,
@@ -33,7 +30,7 @@ from api.models import (
     SessionResponse,
 )
 from api.session_manager import SessionManager
-from api.slack_integration import init_slack_integration, post_incident_alert
+from api.slack_integration import init_slack_integration
 from api.slack_integration import router as slack_router
 
 # Configure logging
@@ -155,7 +152,6 @@ async def root():
             "docs": "/docs",
             "openapi": "/openapi.json",
             "query": "/query (POST)",
-            "incident": "/incident (POST)",
             "session": "/session (POST/GET/DELETE)",
             "sessions_stats": "/sessions/stats (GET)",
             "images": {
@@ -297,109 +293,6 @@ async def query_agent(
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
 
 
-@app.post("/incident", response_model=IncidentResponse)
-@limiter_with_key.limit("30/minute")  # Higher limit for incident reporting
-async def handle_incident(
-    incident_request: IncidentRequest, request: Request, api_key: str = Depends(verify_api_key)
-):
-    """
-    Handle a Kubernetes incident alert.
-
-    This endpoint processes incident alerts from Kubernetes monitoring systems.
-    The agent will analyze the incident, check recent events, correlate with
-    deployments, and provide actionable remediation recommendations.
-
-    Args:
-        request: IncidentRequest with service, error, pod info, etc.
-
-    Returns:
-        IncidentResponse with agent's analysis and severity assessment
-
-    Raises:
-        HTTPException: 503 if agent not initialized, 500 for processing errors
-    """
-    if agent is None:
-        raise HTTPException(status_code=503, detail="Agent not initialized")
-
-    start_time = time.time()
-
-    try:
-        # Build alert dictionary
-        alert = {
-            "service": incident_request.service,
-            "namespace": incident_request.namespace,
-            "error": incident_request.error,
-            "pod": incident_request.pod,
-            "restart_count": incident_request.restart_count,
-            "cluster": incident_request.cluster,
-        }
-
-        logger.info(
-            f"Incident received: {incident_request.service} in {incident_request.namespace}"
-        )
-        logger.info(f"Error: {incident_request.error}, Restarts: {incident_request.restart_count}")
-
-        # Process incident through agent
-        result = await agent.handle_incident(alert)
-
-        # Format analysis responses
-        formatted_analysis = []
-        for response in result.get("agent_response", []):
-            response_type = type(response).__name__
-
-            if response_type == "AssistantMessage" and hasattr(response, "content"):
-                for block in response.content:
-                    block_type = type(block).__name__
-
-                    if block_type == "TextBlock" and hasattr(block, "text"):
-                        formatted_analysis.append(ResponseMessage(type="text", content=block.text))
-
-        # If no analysis, create fallback
-        if not formatted_analysis:
-            formatted_analysis.append(
-                ResponseMessage(
-                    type="text", content="Incident processed but no detailed analysis available."
-                )
-            )
-
-        # Determine severity based on restart count and error type
-        severity = "medium"
-        if incident_request.restart_count >= 10 or "OOMKilled" in incident_request.error:
-            severity = "critical"
-        elif incident_request.restart_count >= 3 or "CrashLoopBackOff" in incident_request.error:
-            severity = "high"
-        elif incident_request.restart_count >= 1:
-            severity = "medium"
-        else:
-            severity = "low"
-
-        duration_ms = (time.time() - start_time) * 1000
-
-        logger.info(f"Incident analysis completed in {duration_ms:.2f}ms")
-        logger.info(f"Severity: {severity}")
-
-        # Post proactive Slack alert as background task
-        asyncio.create_task(
-            post_incident_alert(
-                alert=alert,
-                analysis=[{"type": a.type, "content": a.content} for a in formatted_analysis],
-                severity=severity,
-            )
-        )
-
-        return IncidentResponse(
-            status="analyzed",
-            alert=alert,
-            analysis=formatted_analysis,
-            severity=severity,
-            duration_ms=duration_ms,
-        )
-
-    except Exception as e:
-        logger.error(f"Incident processing error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Incident processing failed: {str(e)}")
-
-
 @app.post("/session", response_model=SessionResponse)
 @limiter_with_key.limit("10/minute")  # Limited session creation
 async def create_session(
@@ -446,7 +339,7 @@ async def create_session(
 
 
 @app.get("/session/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str):
+async def get_session(session_id: str, api_key: str = Depends(verify_api_key)):
     """
     Retrieve session information and conversation history.
 
@@ -478,7 +371,7 @@ async def get_session(session_id: str):
 
 
 @app.delete("/session/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, api_key: str = Depends(verify_api_key)):
     """
     Delete a session.
 
@@ -504,7 +397,7 @@ async def delete_session(session_id: str):
 
 
 @app.get("/sessions/stats")
-async def get_session_stats():
+async def get_session_stats(api_key: str = Depends(verify_api_key)):
     """
     Get session manager statistics.
 
