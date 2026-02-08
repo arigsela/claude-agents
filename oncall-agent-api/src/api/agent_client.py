@@ -68,7 +68,7 @@ class OnCallAgentClient:
                 f"Incident memory initialized: {memory_stats.get('total_incidents', 0)} incidents stored"
             )
         except ImportError as e:
-            logger.warning(f"Incident memory not available (lancedb not installed): {e}")
+            logger.warning(f"Incident memory not available (sqlite-vec not installed): {e}")
         except Exception as e:
             logger.warning(f"Failed to initialize incident memory: {e}")
 
@@ -89,8 +89,8 @@ class OnCallAgentClient:
 **Your Mission**: Diagnose Kubernetes incidents and provide actionable remediation steps.
 
 **CRITICAL SERVICES (P0 - customer-facing)**:
-- chores-tracker-backend (ns: chores-tracker-backend): FastAPI, 2 replicas, **5-6min startup is NORMAL**, depends on mysql+vault+ecr-auth
-- chores-tracker-frontend (ns: chores-tracker-frontend): HTMX UI, depends on backend+nginx-ingress
+- chores-tracker-backend (ns: chores-tracker): FastAPI, 2 replicas, **5-6min startup is NORMAL**, depends on mysql+vault+ecr-auth
+- chores-tracker-frontend (ns: chores-tracker): HTMX UI, depends on backend+nginx-ingress
 - mysql (ns: mysql): **Single replica, data loss risk**, S3 backups, needs vault for password
 - n8n (ns: n8n): **Runs THIS agent's Slack bot!**, depends on postgresql+vault
 - postgresql (ns: postgresql): **Single replica, n8n memory loss risk**
@@ -203,7 +203,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
                     "properties": {
                         "namespace": {
                             "type": "string",
-                            "description": "Kubernetes namespace (e.g., 'chores-tracker-backend', 'n8n', 'vault')",
+                            "description": "Kubernetes namespace (e.g., 'chores-tracker', 'n8n', 'vault')",
                         },
                         "label_selector": {
                             "type": "string",
@@ -632,7 +632,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
                         },
                         "namespace": {
                             "type": "string",
-                            "description": "Kubernetes namespace (e.g., 'chores-tracker-backend', 'n8n'). Required.",
+                            "description": "Kubernetes namespace (e.g., 'chores-tracker', 'n8n'). Required.",
                         },
                         "error_type": {
                             "type": "string",
@@ -827,7 +827,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
         if self.memory_store is None:
             return {
                 "status": "unavailable",
-                "message": "Incident memory is not available. The lancedb library may not be installed.",
+                "message": "Incident memory is not available. The sqlite-vec library may not be installed.",
                 "incidents_found": 0,
                 "incidents": [],
             }
@@ -952,7 +952,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
         if self.memory_store is None:
             return {
                 "status": "unavailable",
-                "message": "Incident memory is not available. The lancedb library may not be installed.",
+                "message": "Incident memory is not available. The sqlite-vec library may not be installed.",
                 "stored": False,
             }
 

@@ -16,7 +16,7 @@ Intelligent on-call troubleshooting API with **autonomous conversation handling*
 - **Datadog metrics integration** for historical performance analysis
 - **NAT Gateway traffic analysis** for cost optimization
 - **Zeus job correlation** for batch job troubleshooting
-- **Incident Memory** with semantic search for historical incident lookup (LanceDB)
+- **Incident Memory** with semantic search for historical incident lookup (sqlite-vec)
 - **Rate limiting** and API key authentication
 - **OpenAPI/Swagger** documentation
 
@@ -63,7 +63,7 @@ Intelligent on-call troubleshooting API with **autonomous conversation handling*
 │  ├── Datadog Integrator     → Metrics queries               │
 │  ├── NAT Gateway Analyzer   → Traffic analysis              │
 │  ├── Zeus Job Correlator    → Batch job tracking            │
-│  └── Incident Memory Store  → LanceDB vector similarity     │
+│  └── Incident Memory Store  → sqlite-vec vector similarity   │
 └─────────────────────────────────────────────────────────────┘
                        │
                        ↓
@@ -154,7 +154,7 @@ oncall-agent-api/
 │   │   └── zeus_analyzer.py       # Zeus job analysis
 │   ├── memory/                    # Incident memory system
 │   │   ├── __init__.py            # Memory module exports
-│   │   ├── incident_store.py      # LanceDB-based incident storage
+│   │   ├── incident_store.py      # sqlite-vec-based incident storage
 │   │   ├── embeddings.py          # Text embedding utilities
 │   │   └── models.py              # StoredIncident, SimilarIncident models
 │   └── notifications/             # Teams integration
@@ -584,7 +584,7 @@ Rate limit: 60 requests/minute | Purpose: View memory store statistics
 Response:
   {
     "status": "healthy",
-    "lancedb_available": true,
+    "sqlite_vec_available": true,
     "storage_initialized": true,
     "total_incidents": 42
   }
@@ -594,10 +594,11 @@ Rate limit: None | Purpose: Verify incident memory is operational
 ---
 
 **Configuration for Incident Memory:**
-- Requires: `lancedb>=0.10.0` (included in requirements.txt)
-- Storage: Local LanceDB database (persists to `/app/data/incidents` in Docker)
-- Vector Search: Semantic similarity using text embeddings
+- Requires: `sqlite-vec>=0.1.6` (included in requirements.txt)
+- Storage: SQLite database with sqlite-vec extension (persists to `/app/data/incidents` in Docker)
+- Vector Search: Semantic similarity using 384-dim text embeddings with L2 distance
 - Optional: Configure `INCIDENT_MEMORY_PATH` for custom storage location
+- No AVX2/SIMD requirement — runs on any CPU (including Sandy Bridge)
 
 **Teams Bot Integration:**
 The agent automatically has access to incident memory via tools:
@@ -728,7 +729,7 @@ curl http://localhost:8000/sessions/stats
 - **Datadog metrics** for historical performance analysis
 - **NAT Gateway analysis** for cost optimization insights
 - **Zeus job correlation** for batch job troubleshooting
-- **Incident Memory**: LanceDB-powered semantic search for past incidents
+- **Incident Memory**: sqlite-vec-powered semantic search for past incidents
 
 ### Session Management
 - **30-minute TTL** with automatic cleanup
@@ -794,7 +795,7 @@ curl http://localhost:8000/sessions/stats
 - **Job timing analysis** for cost optimization
 
 ### Incident Memory
-- **Semantic similarity search** via LanceDB vector database
+- **Semantic similarity search** via sqlite-vec (SQLite extension)
 - **Historical incident lookup** by service, namespace, error type
 - **Root cause retrieval** from past resolutions
 - **Remediation suggestions** based on similar incidents
@@ -804,8 +805,9 @@ curl http://localhost:8000/sessions/stats
 - Store incidents with full context (error, root cause, remediation steps)
 - Search by service name, error type, or natural language description
 - Similarity scoring to find most relevant past incidents
-- Persistent storage across restarts (LanceDB local storage)
+- Persistent storage across restarts (SQLite with PVC)
 - Graceful fallback when memory not available
+- No AVX2/SIMD requirement — runs on any CPU architecture
 
 **Example Use Cases:**
 - "Have we seen this OOMKilled error before?"
@@ -1206,7 +1208,7 @@ aws cloudwatch list-metrics --namespace AWS/NATGateway --region us-east-1
 - ✅ Datadog metrics integration
 - ✅ NAT Gateway analysis via CloudWatch
 - ✅ Zeus job correlation
-- ✅ Incident Memory with LanceDB (NEW! 🧠)
+- ✅ Incident Memory with sqlite-vec (NEW! 🧠)
 
 ### 🎓 Learning Focus
 

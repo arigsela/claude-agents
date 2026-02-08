@@ -41,7 +41,7 @@ All cluster data comes from oncall-agent-api `/query` endpoint.
 curl -s -X POST "$ONCALL_API_URL/query" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $ONCALL_API_KEY" \
-  -d '{"prompt": "Check pod health in chores-tracker-backend namespace", "namespace": "chores-tracker-backend"}'
+  -d '{"prompt": "Check pod health in chores-tracker namespace", "namespace": "chores-tracker"}'
 ```
 
 ## Service Catalog Summary
@@ -49,8 +49,8 @@ curl -s -X POST "$ONCALL_API_URL/query" \
 ### P0 — Business Critical (0 min max downtime)
 | Service | Namespace | Notes |
 |---------|-----------|-------|
-| chores-tracker-backend | chores-tracker-backend | 2 replicas, slow startup (5-6 min) |
-| chores-tracker-frontend | chores-tracker-frontend | HTMX frontend |
+| chores-tracker-backend | chores-tracker | 2 replicas, slow startup (5-6 min) |
+| chores-tracker-frontend | chores-tracker | HTMX frontend |
 | n8n | n8n | Single replica, AI workflows |
 | postgresql | postgresql | Single replica, data layer for n8n + chores-tracker |
 | nginx-ingress | ingress-nginx | All external traffic |

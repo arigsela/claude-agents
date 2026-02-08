@@ -9,7 +9,7 @@
     - ArgoCD App: base-apps/chores-tracker-backend.yaml
     - Manifests: base-apps/chores-tracker-backend/
     - Repo: https://github.com/arigsela/kubernetes
-  - Namespace: chores-tracker-backend
+  - Namespace: chores-tracker
   - Dependencies: postgresql, vault (secrets), ecr-auth (image pull)
   - Dependents: chores-tracker-frontend
   - Max Downtime: 0 minutes (customer-facing application)
@@ -28,7 +28,7 @@
     - ArgoCD App: base-apps/chores-tracker-frontend.yaml
     - Manifests: base-apps/chores-tracker-frontend/
     - Repo: https://github.com/arigsela/kubernetes
-  - Namespace: chores-tracker-frontend
+  - Namespace: chores-tracker
   - Dependencies: chores-tracker-backend, nginx-ingress
   - Max Downtime: 0 minutes (customer-facing)
   - Ingress: https://chores.arigsela.com
@@ -235,8 +235,8 @@
 
   | Service                 | ArgoCD App Name         | ArgoCD App File                          | Namespace               |
   |-------------------------|-------------------------|------------------------------------------|-------------------------|
-  | chores-tracker-backend  | chores-tracker-backend  | base-apps/chores-tracker-backend.yaml    | chores-tracker-backend  |
-  | chores-tracker-frontend | chores-tracker-frontend | base-apps/chores-tracker-frontend.yaml   | chores-tracker-frontend |
+  | chores-tracker-backend  | chores-tracker-backend  | base-apps/chores-tracker-backend.yaml    | chores-tracker          |
+  | chores-tracker-frontend | chores-tracker-frontend | base-apps/chores-tracker-frontend.yaml   | chores-tracker          |
   | mysql                   | mysql-application       | base-apps/mysql.yaml                     | mysql                   |
   | postgresql              | postgresql              | base-apps/postgresql.yaml                | postgresql              |
   | n8n                     | n8n                     | base-apps/n8n.yaml                       | n8n                     |
