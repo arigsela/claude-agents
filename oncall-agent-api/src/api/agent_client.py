@@ -13,15 +13,10 @@ from anthropic import Anthropic
 from api.custom_tools import (
     analyze_service_health,
     analyze_zeus_refreshes,
-    check_ecr_image,
     check_nat_gateway_metrics,
     check_network_traffic,
-    check_secrets_manager,
-    correlate_deployment_with_incidents,
-    correlate_nat_spike_with_zeus_jobs,
     create_remediation_pr,
     find_zeus_jobs_by_client,
-    find_zeus_jobs_during_timeframe,
     get_cost_anomalies,
     get_daily_costs,
     get_deployment_status,
@@ -29,7 +24,6 @@ from api.custom_tools import (
     get_gitops_file,
     get_pod_events,
     get_pod_logs,
-    get_recent_commits,
     get_resource_usage_trends,
     get_zeus_job_details,
     list_gitops_directory,
@@ -162,11 +156,6 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
 
 **GitHub Tools**:
 - search_recent_deployments: Find recent GitHub Actions workflow runs
-- get_recent_commits: Get recent code changes
-
-**AWS Tools**:
-- check_secrets_manager: Verify AWS secrets exist
-- check_ecr_image: Check if container images are available
 
 **Incident Memory Tools**:
 - search_past_incidents: Search for similar past incidents. Use when user asks:
@@ -191,7 +180,6 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
 
 **Composite Analysis**:
 - analyze_service_health: Comprehensive service health check
-- correlate_deployment_with_incidents: Link K8s issues to deployments
 
 **TROUBLESHOOTING WORKFLOW**:
 1. list_namespaces(pattern=service) to discover namespaces (NO {service}-{env} pattern, single prod)
@@ -365,46 +353,6 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
                         },
                     },
                     "required": [],
-                },
-            },
-            {
-                "name": "find_zeus_jobs_during_timeframe",
-                "description": "Find Zeus refresh jobs running during a specific time window. Use to discover which client data uploads were happening at a particular time. Returns job metadata and log analysis showing upload destinations.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "start_time": {
-                            "type": "string",
-                            "description": "Start of time window in ISO 8601 format (e.g., '2025-10-16T02:00:00Z')",
-                        },
-                        "end_time": {
-                            "type": "string",
-                            "description": "End of time window in ISO 8601 format (e.g., '2025-10-16T03:00:00Z')",
-                        },
-                        "namespace": {
-                            "type": "string",
-                            "description": "Optional specific namespace to search (default: searches devmatt, devzeus, devjason)",
-                        },
-                    },
-                    "required": ["start_time", "end_time"],
-                },
-            },
-            {
-                "name": "correlate_nat_spike_with_zeus_jobs",
-                "description": "PRIMARY TOOL for NAT spike investigation. Correlates a NAT gateway traffic spike with Zeus refresh jobs to identify the root cause. Automatically fetches NAT metrics, finds jobs, analyzes logs, and provides confidence-scored assessment. Use this for queries like 'What caused the NAT spike at 2am?'",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "spike_timestamp": {
-                            "type": "string",
-                            "description": "Timestamp of the spike. Accepts ISO 8601 format (e.g., '2025-10-16T02:00:00Z') or relative time (e.g., '2am' for 02:00 today)",
-                        },
-                        "time_window_minutes": {
-                            "type": "integer",
-                            "description": "Correlation window in minutes (default: 30). Jobs within ±this many minutes of spike will be analyzed.",
-                        },
-                    },
-                    "required": ["spike_timestamp"],
                 },
             },
             {
@@ -880,14 +828,8 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
             "get_deployment_status": get_deployment_status,
             "list_services": list_services,
             "search_recent_deployments": search_recent_deployments,
-            "get_recent_commits": get_recent_commits,
-            "check_secrets_manager": check_secrets_manager,
-            "check_ecr_image": check_ecr_image,
             "analyze_service_health": analyze_service_health,
-            "correlate_deployment_with_incidents": correlate_deployment_with_incidents,
             "check_nat_gateway_metrics": check_nat_gateway_metrics,
-            "find_zeus_jobs_during_timeframe": find_zeus_jobs_during_timeframe,
-            "correlate_nat_spike_with_zeus_jobs": correlate_nat_spike_with_zeus_jobs,
             "query_datadog_metrics": query_datadog_metrics,
             "get_resource_usage_trends": get_resource_usage_trends,
             "check_network_traffic": check_network_traffic,
