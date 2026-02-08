@@ -68,7 +68,7 @@ class OnCallAgentClient:
                 f"Incident memory initialized: {memory_stats.get('total_incidents', 0)} incidents stored"
             )
         except ImportError as e:
-            logger.warning(f"Incident memory not available (lancedb not installed): {e}")
+            logger.warning(f"Incident memory not available (sqlite-vec not installed): {e}")
         except Exception as e:
             logger.warning(f"Failed to initialize incident memory: {e}")
 
@@ -827,7 +827,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
         if self.memory_store is None:
             return {
                 "status": "unavailable",
-                "message": "Incident memory is not available. The lancedb library may not be installed.",
+                "message": "Incident memory is not available. The sqlite-vec library may not be installed.",
                 "incidents_found": 0,
                 "incidents": [],
             }
@@ -952,7 +952,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
         if self.memory_store is None:
             return {
                 "status": "unavailable",
-                "message": "Incident memory is not available. The lancedb library may not be installed.",
+                "message": "Incident memory is not available. The sqlite-vec library may not be installed.",
                 "stored": False,
             }
 

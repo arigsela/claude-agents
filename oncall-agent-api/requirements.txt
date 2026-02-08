@@ -52,6 +52,5 @@ mypy>=1.14.0
 ipython>=8.31.0
 ipdb>=0.13.13
 
-# Incident Memory (disabled - lancedb requires AVX2, k3s server has Sandy Bridge CPU)
-# lancedb>=0.18.0
-# TODO: Replace with SQLite-based incident memory for older CPUs
+# Incident Memory (sqlite-vec - no AVX2/SIMD requirement, pure C)
+sqlite-vec>=0.1.6

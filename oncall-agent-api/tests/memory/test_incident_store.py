@@ -1,5 +1,5 @@
 """
-Tests for IncidentMemoryStore (LanceDB-based storage)
+Tests for IncidentMemoryStore (sqlite-vec-based storage)
 """
 
 import pytest
@@ -12,8 +12,13 @@ from datetime import datetime
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.memory.incident_store import IncidentMemoryStore, simple_text_embedding, EMBEDDING_DIM
+from src.memory.incident_store import IncidentMemoryStore, simple_text_embedding, EMBEDDING_DIM, SQLITE_VEC_AVAILABLE
 from src.memory.models import StoredIncident, SimilarIncident
+
+pytestmark = pytest.mark.skipif(
+    not SQLITE_VEC_AVAILABLE,
+    reason="sqlite-vec not installed"
+)
 
 
 @pytest.fixture
@@ -81,7 +86,7 @@ class TestIncidentMemoryStore:
     def test_initialization(self, memory_store):
         """Test that store initializes correctly"""
         assert memory_store is not None
-        assert memory_store.db is not None
+        assert memory_store.conn is not None
 
     def test_store_incident(self, memory_store):
         """Test storing an incident"""
@@ -168,8 +173,8 @@ class TestIncidentMemoryStore:
         """Test deleting non-existent incident"""
         # This should not raise an error
         deleted = memory_store.delete_incident("nonexistent-uuid")
-        # LanceDB delete doesn't return False for non-existent, it just doesn't delete anything
-        # So we just verify no exception is raised
+        # sqlite-vec returns False for non-existent IDs
+        assert deleted is False
 
     def test_find_similar_exact_match(self, memory_store):
         """Test finding similar incidents with exact error type match"""

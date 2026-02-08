@@ -38,7 +38,7 @@ def get_memory_store() -> IncidentMemoryStore:
 
     if not MEMORY_AVAILABLE:
         raise HTTPException(
-            status_code=503, detail="Incident memory module not available. Install lancedb."
+            status_code=503, detail="Incident memory module not available. Install sqlite-vec."
         )
 
     if _memory_store is None:
