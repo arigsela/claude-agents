@@ -31,16 +31,38 @@ def format_query_response(text: str, query: str, duration_ms: float) -> list[dic
     Returns:
         List of Block Kit block dicts
     """
+    # Slack Block Kit section text limit is 3000 chars.
+    # Split long responses into multiple section blocks.
+    max_section_len = 2900  # Leave margin for safety
+
     blocks = [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Query:* `{query}`"},
+            "text": {"type": "mrkdwn", "text": f"*Query:* `{query[:200]}`"},
         },
         {"type": "divider"},
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": text},
-        },
+    ]
+
+    # Split text into chunks that fit within Slack's limit
+    remaining = text
+    while remaining:
+        chunk = remaining[:max_section_len]
+        remaining = remaining[max_section_len:]
+
+        # Try to break at a newline to avoid splitting mid-sentence
+        if remaining and "\n" in chunk[max_section_len // 2 :]:
+            break_at = chunk.rfind("\n", max_section_len // 2)
+            remaining = chunk[break_at + 1 :] + remaining
+            chunk = chunk[: break_at + 1]
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": chunk},
+            }
+        )
+
+    blocks.append(
         {
             "type": "context",
             "elements": [
@@ -50,7 +72,7 @@ def format_query_response(text: str, query: str, duration_ms: float) -> list[dic
                 }
             ],
         },
-    ]
+    )
     return blocks
 
 
