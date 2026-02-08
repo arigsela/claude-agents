@@ -10,6 +10,7 @@ This file provides guidance for Claude Code when working with this repository.
 
 | Project | Architecture | Key Features |
 |---------|--------------|--------------|
+| **cluster-scanner/** | Ralph Orchestrator (3 hats) | Scans via oncall-agent-api, severity analysis, Slack alerts |
 | **k8s-monitor/** | Multi-Agent + Claude SDK | Long-context monitoring, trend detection, Slack alerts |
 | **oncall/** | FastAPI + Anthropic API | HTTP API for n8n, service catalog, session management |
 | **rag-mcp-server/** | MCP Server | RAG with Qdrant/pgvector for semantic search |
@@ -18,7 +19,10 @@ This file provides guidance for Claude Code when working with this repository.
 ## Quick Commands
 
 ```bash
-# K8s Monitor
+# Cluster Scanner (replaces k8s-monitor)
+cd cluster-scanner && ./test-local.sh  # Local test (needs port-forwarded oncall-api)
+
+# K8s Monitor (legacy)
 cd k8s-monitor && ./run_once.sh       # Single monitoring cycle
 cd k8s-monitor && ./start.sh          # Continuous monitoring
 
@@ -42,7 +46,12 @@ pytest tests/ -v                      # Run tests
    - Session-based conversations (30-min TTL)
    - Service catalog embedded in system prompt
 
-3. **MCP Server Development** (rag-mcp-server, youtube-mcp)
+3. **Ralph Orchestrator** (cluster-scanner)
+   - 3-hat event flow: scanner → analyzer → notifier
+   - Queries oncall-agent-api instead of direct kubectl
+   - Ralph memories for trend detection across cycles
+
+4. **MCP Server Development** (rag-mcp-server, youtube-mcp)
    - Custom MCP server implementations
    - Vector database integration
 
