@@ -12,7 +12,11 @@ event_loop:
   max_runtime_seconds: 1800
 
 cli:
-  backend: "claude"
+  backend: "custom"
+  command: "claude"
+  args: ["--dangerously-skip-permissions", "--model", "haiku"]
+  prompt_mode: "arg"
+  prompt_flag: "-p"
 
 memories:
   enabled: true
