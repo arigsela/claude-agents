@@ -110,14 +110,19 @@ async def _process_slack_command(command: SlackSlashCommand):
         conversation_history = []
         if session and session.conversation_history:
             for entry in session.conversation_history:
+                query = entry.get("query", "")
+                if not query:
+                    continue
+                responses = entry.get("responses") or []
+                response_text_hist = responses[0].get("content", "") if responses else ""
+                if not response_text_hist:
+                    continue
                 conversation_history.append(
-                    {"role": "user", "content": entry["query"]}
+                    {"role": "user", "content": query}
                 )
-                response_text_hist = entry.get("responses", [{}])[0].get("content", "")
-                if response_text_hist:
-                    conversation_history.append(
-                        {"role": "assistant", "content": response_text_hist}
-                    )
+                conversation_history.append(
+                    {"role": "assistant", "content": response_text_hist}
+                )
 
         agent_result = await _agent.query(query_text, conversation_history=conversation_history)
         response_text = agent_result.get("response", "No response generated.")

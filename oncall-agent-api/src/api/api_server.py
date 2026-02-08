@@ -222,27 +222,20 @@ async def query_agent(
         # Format the query with context
         full_query = query_request.prompt
 
-        # Add session context if available
+        # Build structured conversation history from session
+        conversation_history = []
         if session and session.conversation_history:
-            # Build actual conversation history for context
-            history_lines = []
-            # Limit to last 5 exchanges to avoid context overflow
             recent_history = session.conversation_history[-5:]
             for entry in recent_history:
                 query = entry.get("query", "")
-                responses = entry.get("responses", [])
+                if not query:
+                    continue
+                responses = entry.get("responses") or []
                 response_text = responses[0].get("content", "") if responses else ""
-                # Truncate long responses
-                if len(response_text) > 500:
-                    response_text = response_text[:500] + "..."
-                history_lines.append(f"User: {query}")
-                history_lines.append(f"Assistant: {response_text}")
-
-            if history_lines:
-                history_context = "\n".join(history_lines)
-                full_query = (
-                    f"[Previous Conversation]\n{history_context}\n\n[Current Query]\n{full_query}"
-                )
+                if not response_text:
+                    continue
+                conversation_history.append({"role": "user", "content": query})
+                conversation_history.append({"role": "assistant", "content": response_text})
 
         if query_request.namespace and query_request.namespace != "default":
             full_query = f"[Context: namespace={query_request.namespace}]\n{full_query}"
@@ -258,7 +251,7 @@ async def query_agent(
             logger.info(f"Session history: {len(session.conversation_history)} messages")
 
         # Query the agent (using Anthropic SDK)
-        agent_result = await agent.query(full_query)
+        agent_result = await agent.query(full_query, conversation_history=conversation_history)
 
         # Format response
         formatted_responses = [
