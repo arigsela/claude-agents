@@ -53,7 +53,7 @@ hats:
 
       1. **P0 services health**:
          ```
-         "prompt": "Check health of all P0 critical services: chores-tracker-backend, chores-tracker-frontend, mysql, n8n, postgresql, nginx-ingress, oncall-agent. For each, report pod status, restart counts, and any issues. Be concise."
+         "prompt": "Check health of all P0 critical services: chores-tracker-backend, chores-tracker-frontend, n8n, postgresql, nginx-ingress, oncall-agent. For each, report pod status, restart counts, and any issues. Be concise."
          ```
 
       2. **P1 services health**:
@@ -71,6 +71,11 @@ hats:
          "prompt": "List any Kubernetes warning events from the last 30 minutes across all namespaces. Only show events with type=Warning. Be concise."
          ```
 
+      5. **chores-tracker-backend application logs**:
+         ```
+         "prompt": "Check the recent logs (last 30 minutes) for chores-tracker-backend pods. Look for any ERROR, Exception, Traceback, or 5xx HTTP responses. Summarize any application-level errors found. If logs are clean, say so. Be concise.", "namespace": "chores-tracker-backend"
+         ```
+
       ### Error Handling
 
       If a query fails (non-200 response or connection error):
@@ -85,6 +90,7 @@ hats:
       - P1 Services (with status for each)
       - Node Health
       - Warning Events
+      - Application Logs (chores-tracker-backend errors, if any)
       - API Errors (if any queries failed)
 
       Then publish the event:
@@ -128,7 +134,7 @@ hats:
       ANY of these:
       - P0 service completely unavailable (all pods down)
       - P0 service degraded for >2 minutes
-      - Data layer unavailable (mysql or postgresql down)
+      - Data layer unavailable (postgresql down)
       - Ingress controller down (nginx-ingress, all external access lost)
       - Multiple P0 services affected simultaneously
 
@@ -154,7 +160,8 @@ hats:
       ### Known Issues (DO NOT escalate)
       - chores-tracker-backend slow startup (5-6 min) — expected
       - vault requires manual unseal after restart — expected
-      - Single replica services (mysql, postgresql, n8n) — architectural choice
+      - Single replica services (postgresql, n8n) — architectural choice
+      - mysql pod missing or down — legacy service, no active dependents (P2)
       - Certificate renewal attempts when cert still valid — normal
 
       ### Step 4: Store Summary in Memory
@@ -177,7 +184,7 @@ hats:
 
   notifier:
     name: "Alert Notifier"
-    description: "Posts Slack alerts for escalations and logs all-clear for non-escalations."
+    description: "Posts Slack messages for all scan results — alerts for escalations, summaries for all-clear."
     triggers:
       - "escalate.alert"
       - "escalate.none"
@@ -186,7 +193,8 @@ hats:
     instructions: |
       ## ALERT NOTIFIER
 
-      You handle the final step: Slack alerts for escalations, logging for all-clear.
+      You handle the final step: post a Slack message for every scan result.
+      Alerts get severity-formatted messages, all-clear gets a scan summary.
       Then always publish SCAN_COMPLETE to exit.
 
       ### If triggered by `escalate.alert`
@@ -247,10 +255,22 @@ hats:
 
       ### If triggered by `escalate.none`
 
-      No Slack message needed. Log the all-clear:
+      Post an all-clear Slack message summarizing what was scanned:
+
+      #### All-Clear Block Kit Format
+      ```json
+      [
+        {"type": "header", "text": {"type": "plain_text", "text": "\u2705 Cluster Scan — All Clear"}},
+        {"type": "section", "fields": [
+          {"type": "mrkdwn", "text": "*Severity:*\nSEV-<level>"},
+          {"type": "mrkdwn", "text": "*Scanner:*\ncluster-scanner"}
+        ]},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*Scan Summary*\n\u2022 *P0 Services:* <count> healthy — <list service names>\n\u2022 *P1 Services:* <count> healthy — <list service names>\n\u2022 *Nodes:* <status>\n\u2022 *App Logs (chores-tracker):* <clean or brief error summary>\n\u2022 *Warning Events:* <count or none>"}}
+      ]
       ```
-      All-clear: SEV-<level> — No alert-worthy issues detected.
-      ```
+
+      Use the same curl pattern as the alert path. Verify `"ok": true` in response.
 
       ### Always Finish With
 

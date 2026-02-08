@@ -51,9 +51,8 @@ curl -s -X POST "$ONCALL_API_URL/query" \
 |---------|-----------|-------|
 | chores-tracker-backend | chores-tracker-backend | 2 replicas, slow startup (5-6 min) |
 | chores-tracker-frontend | chores-tracker-frontend | HTMX frontend |
-| mysql | mysql | Single replica, S3 backup |
 | n8n | n8n | Single replica, AI workflows |
-| postgresql | postgresql | Single replica, n8n data layer |
+| postgresql | postgresql | Single replica, data layer for n8n + chores-tracker |
 | nginx-ingress | ingress-nginx | All external traffic |
 | oncall-agent | oncall-agent | 2 replicas, incident response |
 
@@ -72,7 +71,7 @@ Full service catalog: `docs/reference/services.txt`
 
 1. **chores-tracker-backend slow startup** — Takes 5-6 minutes. Expected behavior.
 2. **vault manual unseal** — Required after pod restart. Expected behavior.
-3. **Single replica databases** — mysql, postgresql run single replica. Architectural choice.
+3. **Single replica databases** — postgresql runs single replica. Architectural choice. mysql is P2 (legacy, no active dependents).
 4. **Certificate renewal attempts** — cert-manager renews proactively. Only alert if cert actually expired.
 
 ## Ralph Memory Operations

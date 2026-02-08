@@ -10,7 +10,7 @@
     - Manifests: base-apps/chores-tracker-backend/
     - Repo: https://github.com/arigsela/kubernetes
   - Namespace: chores-tracker-backend
-  - Dependencies: mysql, vault (secrets), ecr-auth (image pull)
+  - Dependencies: postgresql, vault (secrets), ecr-auth (image pull)
   - Dependents: chores-tracker-frontend
   - Max Downtime: 0 minutes (customer-facing application)
   - Known Issues:
@@ -33,25 +33,7 @@
   - Max Downtime: 0 minutes (customer-facing)
   - Ingress: https://chores.arigsela.com
 
-  1.3 mysql
-
-  - Purpose: MySQL database for chores-tracker application
-  - GitOps:
-    - ArgoCD App: base-apps/mysql.yaml (app name: mysql-application)
-    - Manifests: base-apps/mysql/
-    - Repo: https://github.com/arigsela/kubernetes
-  - Namespace: mysql
-  - Dependencies: vault (root password)
-  - Dependents: chores-tracker-backend
-  - Max Downtime: 0 minutes (data layer for customer app)
-  - Known Issues:
-    - ⚠️ Single replica (no HA) - data loss risk
-    - Has automated backup CronJob to S3
-  - Health Check: TCP on port 3306
-  - Image: mysql:8.4.0-oraclelinux8
-  - Resources: 1Gi-2Gi RAM, 500m-1000m CPU
-
-  1.4 n8n
+  1.3 n8n
 
   - Purpose: Workflow automation and integration platform for AI workflows
   - GitOps:
@@ -71,16 +53,16 @@
   - Resources: 500Mi-1Gi RAM, 500m-1000m CPU
   - Quirk: Exposes webhooks for external integrations (NAT gateway traffic)
 
-  1.5 postgresql
+  1.4 postgresql
 
-  - Purpose: PostgreSQL database for n8n workflows
+  - Purpose: PostgreSQL database for n8n workflows and chores-tracker-backend
   - GitOps:
     - ArgoCD App: base-apps/postgresql.yaml
     - Manifests: base-apps/postgresql/
     - Repo: https://github.com/arigsela/kubernetes
   - Namespace: postgresql
   - Dependencies: vault (credentials)
-  - Dependents: n8n
+  - Dependents: n8n, chores-tracker-backend
   - Max Downtime: 0 minutes (data layer for AI automation)
   - Known Issues:
     - ⚠️ Single replica (no HA)
@@ -88,7 +70,7 @@
   - Image: postgres:15.3
   - Resources: 500Mi-1Gi RAM, 250m-500m CPU
 
-  1.6 nginx-ingress
+  1.5 nginx-ingress
 
   - Purpose: Ingress controller for all external HTTP/HTTPS traffic
   - GitOps:
@@ -100,7 +82,7 @@
   - Dependents: chores-tracker, n8n, oncall-agent, vault UI
   - Max Downtime: 0 minutes (all external access depends on this)
 
-  1.7 oncall-agent
+  1.6 oncall-agent
 
   - Purpose: AI-powered Kubernetes incident response and troubleshooting
   - GitOps:
@@ -196,7 +178,22 @@
   ---
   3. Support Services (P2-P3)
 
-  3.1 crossplane-aws-provider
+  3.1 mysql
+
+  - Purpose: MySQL database (legacy, no active dependents)
+  - GitOps:
+    - ArgoCD App: base-apps/mysql.yaml
+    - Manifests: base-apps/mysql/
+    - Repo: https://github.com/arigsela/kubernetes
+  - Namespace: mysql
+  - Dependencies: vault (credentials)
+  - Dependents: None (chores-tracker-backend migrated to PostgreSQL)
+  - Known Issues:
+    - Single replica (no HA)
+  - Health Check: TCP probe on port 3306
+  - Image: mysql:8.0
+
+  3.2 crossplane-aws-provider
 
   - GitOps:
     - ArgoCD App: base-apps/crossplane-aws-provider.yaml
@@ -204,7 +201,7 @@
   - Namespace: crossplane-system
   - Purpose: AWS provider configuration for Crossplane
 
-  3.2 loki-aws-infrastructure
+  3.3 loki-aws-infrastructure
 
   - GitOps:
     - ArgoCD App: base-apps/loki-aws-infrastructure.yaml
@@ -212,7 +209,7 @@
   - Namespace: crossplane-system (provisions resources)
   - Purpose: Provisions AWS S3 bucket and IAM for Loki logging
 
-  3.3 whoami-test
+  3.4 whoami-test
 
   - GitOps:
     - ArgoCD App: base-apps/whoami-test.yaml
@@ -260,7 +257,7 @@
 
   - /health - chores-tracker-backend, oncall-agent
   - /healthz - n8n
-  - TCP probes - mysql:3306, postgresql:5432
+  - TCP probes - postgresql:5432, mysql:3306 (P2)
   - Exec commands - vault (vault status), postgresql (pg_isready)
 
   4.4 Image Registry Pattern
