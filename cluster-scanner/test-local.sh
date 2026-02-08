@@ -83,7 +83,9 @@ echo "  SLACK_CHANNEL:  #test-alerts"
 echo "  MODEL:          haiku (via --model flag)"
 echo ""
 
+# Use a tmpfs mount for .ralph so non-root scanner user can write
 docker run --rm \
+    --tmpfs /app/.ralph:uid=1001,gid=1001 \
     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
     -e ONCALL_API_KEY="$ONCALL_API_KEY" \
     -e SLACK_BOT_TOKEN="$SLACK_BOT_TOKEN" \

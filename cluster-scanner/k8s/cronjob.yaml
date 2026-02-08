@@ -19,6 +19,8 @@ spec:
           labels:
             app: cluster-scanner
         spec:
+          securityContext:
+            fsGroup: 1001
           restartPolicy: Never
           containers:
             - name: cluster-scanner
