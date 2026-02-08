@@ -73,7 +73,7 @@ hats:
 
       5. **chores-tracker-backend application logs**:
          ```
-         "prompt": "Check the recent logs (last 30 minutes) for chores-tracker-backend pods. Look for any ERROR, Exception, Traceback, or 5xx HTTP responses. Summarize any application-level errors found. If logs are clean, say so. Be concise.", "namespace": "chores-tracker-backend"
+         "prompt": "Check the recent logs (last 30 minutes) for chores-tracker-backend pods. Look for any ERROR, Exception, Traceback, or 5xx HTTP responses. Summarize any application-level errors found. If logs are clean, say so. Be concise.", "namespace": "chores-tracker"
          ```
 
       ### Error Handling
