@@ -232,9 +232,9 @@ async def query_agent(
                 query = entry.get("query", "")
                 responses = entry.get("responses", [])
                 response_text = responses[0].get("content", "") if responses else ""
-                # Truncate long responses
-                if len(response_text) > 500:
-                    response_text = response_text[:500] + "..."
+                # Truncate long responses (2000 chars to preserve YAML diffs for PR workflows)
+                if len(response_text) > 2000:
+                    response_text = response_text[:2000] + "..."
                 history_lines.append(f"User: {query}")
                 history_lines.append(f"Assistant: {response_text}")
 

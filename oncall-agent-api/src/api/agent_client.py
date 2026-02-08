@@ -19,17 +19,20 @@ from api.custom_tools import (
     check_secrets_manager,
     correlate_deployment_with_incidents,
     correlate_nat_spike_with_zeus_jobs,
+    create_remediation_pr,
     find_zeus_jobs_by_client,
     find_zeus_jobs_during_timeframe,
     get_cost_anomalies,
     get_daily_costs,
     get_deployment_status,
     get_ec2_costs_by_tags,
+    get_gitops_file,
     get_pod_events,
     get_pod_logs,
     get_recent_commits,
     get_resource_usage_trends,
     get_zeus_job_details,
+    list_gitops_directory,
     list_namespaces,
     list_pods,
     list_services,
@@ -122,6 +125,30 @@ class OnCallAgentClient:
 2. PR to kubernetes repo -> update base-apps/{service}/deployment.yaml
 3. Merge -> ArgoCD auto-sync -> rolling update
 Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR push
+
+**GITOPS PR TOOLS**:
+- get_gitops_file: Read a manifest from the GitOps repo (arigsela/kubernetes)
+- list_gitops_directory: Discover manifest files for a service under base-apps/
+- create_remediation_pr: Create a PR with changes (REQUIRES user confirmation)
+
+**PR CREATION WORKFLOW** (MUST follow this order):
+1. Diagnose the issue using K8s tools
+2. list_gitops_directory to discover the service's manifest files
+3. get_gitops_file to read current manifest state
+4. Formulate changes and present a YAML diff to the user
+5. Ask: "Would you like me to create a PR with these changes?"
+6. WAIT for explicit user approval ("yes", "approve", "go ahead")
+7. ONLY THEN call create_remediation_pr
+8. NEVER call create_remediation_pr without explicit user approval
+
+**CRITICAL — FILE CONTENT RULE FOR PRs**:
+When calling create_remediation_pr with action "update", the content MUST be the EXACT file
+content returned by get_gitops_file with ONLY the minimal targeted change applied.
+- Copy the ENTIRE original file content from get_gitops_file verbatim
+- Change ONLY the specific lines needed (e.g., replicas count)
+- Do NOT reformat, restructure, add, remove, or rewrite any other lines
+- Do NOT change indentation style, comments, annotations, images, or any other fields
+- If you cannot preserve the original file exactly, STOP and tell the user
 
 **Available Tools**:
 
@@ -666,6 +693,83 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
                     ],
                 },
             },
+            {
+                "name": "get_gitops_file",
+                "description": "Read a manifest file from the GitOps repository (arigsela/kubernetes). Use to inspect current state of a service's Kubernetes manifests before proposing changes.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file in the GitOps repo (must be under base-apps/). Example: 'base-apps/chores-tracker-backend/deployment.yaml'",
+                        },
+                    },
+                    "required": ["file_path"],
+                },
+            },
+            {
+                "name": "list_gitops_directory",
+                "description": "List files and directories in the GitOps repository (arigsela/kubernetes). Use to discover what manifest files exist for a service.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "Directory path to list (must be under base-apps/). Defaults to 'base-apps/' if not specified.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "create_remediation_pr",
+                "description": "Create a Pull Request in the GitOps repository with remediation changes. ONLY call this AFTER the user has explicitly confirmed the proposed changes. NEVER call without explicit user approval ('yes', 'approve', 'go ahead').",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "service": {
+                            "type": "string",
+                            "description": "Service name being remediated (e.g., 'chores-tracker-backend')",
+                        },
+                        "action_summary": {
+                            "type": "string",
+                            "description": "Brief description of the action (e.g., 'scale-replicas', 'increase-memory-limit')",
+                        },
+                        "changes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "file_path": {
+                                        "type": "string",
+                                        "description": "Path to the file (must be under base-apps/)",
+                                    },
+                                    "content": {
+                                        "type": "string",
+                                        "description": "Full file content (not a diff)",
+                                    },
+                                    "action": {
+                                        "type": "string",
+                                        "enum": ["update", "create"],
+                                        "description": "Whether to update an existing file or create a new one",
+                                    },
+                                },
+                                "required": ["file_path", "content", "action"],
+                            },
+                            "description": "List of file changes to include in the PR",
+                        },
+                        "incident_context": {
+                            "type": "string",
+                            "description": "Description of the incident being remediated",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Why these changes are needed",
+                        },
+                    },
+                    "required": ["service", "action_summary", "changes", "incident_context", "reason"],
+                },
+            },
         ]
 
     async def query(self, prompt: str) -> dict[str, Any]:
@@ -793,6 +897,9 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
             "get_cost_anomalies": get_cost_anomalies,
             "get_daily_costs": get_daily_costs,
             "get_ec2_costs_by_tags": get_ec2_costs_by_tags,
+            "get_gitops_file": get_gitops_file,
+            "list_gitops_directory": list_gitops_directory,
+            "create_remediation_pr": create_remediation_pr,
             "search_past_incidents": self._search_past_incidents,
             "store_incident": self._store_incident,
         }
