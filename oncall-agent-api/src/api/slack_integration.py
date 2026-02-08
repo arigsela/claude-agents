@@ -83,21 +83,21 @@ async def _process_slack_command(command: SlackSlashCommand):
         # Get or create session for this Slack user
         session = None
         if _session_manager:
-            # Look for existing session by user_id pattern
             session_id = f"slack-{command.user_id}"
             session = _session_manager.get_session(session_id)
             if not session:
                 session = _session_manager.create_session(
                     user_id=command.user_id,
+                    session_id=session_id,
                     metadata={
                         "source": "slack",
                         "channel_id": command.channel_id,
                         "team_id": command.team_id,
                     },
                 )
-                # Store with predictable ID for lookup
-                # The session manager assigns its own ID, so we track the mapping
                 logger.info(f"Created Slack session for user {command.user_id}: {session.session_id}")
+            else:
+                logger.info(f"Reusing Slack session for user {command.user_id}: {session.session_id}")
 
         # Query the agent
         query_text = command.text or "help"
@@ -106,7 +106,20 @@ async def _process_slack_command(command: SlackSlashCommand):
         if _agent is None:
             raise RuntimeError("Agent not initialized")
 
-        agent_result = await _agent.query(query_text)
+        # Build conversation history from session for multi-turn context
+        conversation_history = []
+        if session and session.conversation_history:
+            for entry in session.conversation_history:
+                conversation_history.append(
+                    {"role": "user", "content": entry["query"]}
+                )
+                response_text_hist = entry.get("responses", [{}])[0].get("content", "")
+                if response_text_hist:
+                    conversation_history.append(
+                        {"role": "assistant", "content": response_text_hist}
+                    )
+
+        agent_result = await _agent.query(query_text, conversation_history=conversation_history)
         response_text = agent_result.get("response", "No response generated.")
 
         duration_ms = (time.time() - start_time) * 1000

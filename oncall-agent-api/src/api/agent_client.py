@@ -668,17 +668,26 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
             },
         ]
 
-    async def query(self, prompt: str) -> dict[str, Any]:
+    async def query(
+        self,
+        prompt: str,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """
         Send a query to Claude and handle tool calls.
 
         Args:
             prompt: User query
+            conversation_history: Optional list of prior conversation messages
+                for multi-turn context. Each entry is {"role": "user"|"assistant", "content": "..."}
 
         Returns:
             Dictionary with response text and metadata
         """
-        messages = [{"role": "user", "content": prompt}]
+        messages = []
+        if conversation_history:
+            messages.extend(conversation_history)
+        messages.append({"role": "user", "content": prompt})
 
         logger.info(f"Sending query to Anthropic API: {prompt[:100]}...")
         logger.debug(f"Tools being sent: {json.dumps(self.tools, indent=2)}")

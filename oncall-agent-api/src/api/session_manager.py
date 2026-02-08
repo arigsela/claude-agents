@@ -80,13 +80,19 @@ class SessionManager:
             f"Max per user={max_sessions_per_user}"
         )
 
-    def create_session(self, user_id: str, metadata: dict[str, Any] | None = None) -> Session:
+    def create_session(
+        self,
+        user_id: str,
+        metadata: dict[str, Any] | None = None,
+        session_id: str | None = None,
+    ) -> Session:
         """
         Create a new session for a user.
 
         Args:
             user_id: User identifier
             metadata: Optional metadata to attach to session
+            session_id: Optional custom session ID. If not provided, a UUID is generated.
 
         Returns:
             Newly created Session object
@@ -108,8 +114,8 @@ class SessionManager:
             logger.info(f"User {user_id} at session limit, removing oldest: {oldest_sid}")
             self.delete_session(oldest_sid)
 
-        # Create new session
-        session_id = str(uuid.uuid4())
+        # Create new session with custom or generated ID
+        session_id = session_id or str(uuid.uuid4())
         now = datetime.now()
 
         session = Session(
