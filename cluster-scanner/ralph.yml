@@ -1,0 +1,256 @@
+# Cluster Scanner — Ralph Hat Configuration
+#
+# Event flow:
+#   scan.start → [scanner] → scan.complete → [analyzer] → escalate.alert → [notifier] → SCAN_COMPLETE
+#                                                        → escalate.none  → [notifier] → SCAN_COMPLETE
+
+event_loop:
+  starting_event: "scan.start"
+  completion_promise: "SCAN_COMPLETE"
+  max_iterations: 20
+  max_runtime_seconds: 1800
+
+cli:
+  backend: "claude"
+
+memories:
+  enabled: true
+  inject: auto
+  budget: 2000
+
+hats:
+  scanner:
+    name: "Cluster Scanner"
+    description: "Queries oncall-agent-api for cluster health data across all service tiers."
+    triggers:
+      - "scan.start"
+    publishes:
+      - "scan.complete"
+    instructions: |
+      ## CLUSTER SCANNER
+
+      You collect cluster health data by querying the oncall-agent-api `/query` endpoint.
+      Do NOT use kubectl. All data comes through the API.
+
+      ### API Pattern
+
+      ```bash
+      curl -s -X POST "$ONCALL_API_URL/query" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: $ONCALL_API_KEY" \
+        -d '{"prompt": "<your question>", "namespace": "default"}'
+      ```
+
+      The API returns JSON: `{"status": "success", "responses": [{"type": "text", "content": "..."}], ...}`
+      Extract the `content` field from the first response for the answer.
+
+      ### Queries to Run (in order)
+
+      1. **P0 services health**:
+         ```
+         "prompt": "Check health of all P0 critical services: chores-tracker-backend, chores-tracker-frontend, mysql, n8n, postgresql, nginx-ingress, oncall-agent. For each, report pod status, restart counts, and any issues. Be concise."
+         ```
+
+      2. **P1 services health**:
+         ```
+         "prompt": "Check health of P1 infrastructure services: vault, external-secrets-operator, cert-manager, ecr-credentials-sync, crossplane. For each, report pod status and any issues. Be concise."
+         ```
+
+      3. **Node health**:
+         ```
+         "prompt": "Check node health: node status, resource pressure (CPU, memory, disk), and any NotReady conditions. Be concise."
+         ```
+
+      4. **Recent warning events**:
+         ```
+         "prompt": "List any Kubernetes warning events from the last 30 minutes across all namespaces. Only show events with type=Warning. Be concise."
+         ```
+
+      ### Error Handling
+
+      If a query fails (non-200 response or connection error):
+      - Retry up to 3 times with 5-second waits
+      - If all retries fail, include the failure in scan results as an API connectivity error
+      - Still publish scan.complete with whatever data you collected
+
+      ### Output
+
+      Write a structured scan report summarizing all findings. Organize by:
+      - P0 Services (with status for each)
+      - P1 Services (with status for each)
+      - Node Health
+      - Warning Events
+      - API Errors (if any queries failed)
+
+      Then publish the event:
+      ```bash
+      ralph emit "scan.complete" "Scan finished. P0: X healthy/Y total. P1: X healthy/Y total. Issues: <brief summary or none>"
+      ```
+
+  analyzer:
+    name: "Finding Analyzer"
+    description: "Classifies scan findings by severity using the escalation matrix and detects trends."
+    triggers:
+      - "scan.complete"
+    publishes:
+      - "escalate.alert"
+      - "escalate.none"
+    instructions: |
+      ## FINDING ANALYZER
+
+      You analyze scan results and classify severity. You also check Ralph memories
+      for trend detection (are issues new, recurring, or resolving?).
+
+      ### Step 1: Read Scan Results
+
+      Read the scanner's output from the most recent scan report.
+
+      ### Step 2: Check Historical Context
+
+      ```bash
+      ralph tools memory search "scan summary"
+      ralph tools memory search "incident"
+      ```
+
+      Compare current findings to previous scans. Note:
+      - New issues (not in previous scans)
+      - Recurring issues (same as previous scans)
+      - Resolved issues (in previous but not current)
+
+      ### Step 3: Classify Severity
+
+      #### SEV-1 (CRITICAL) — Immediate alert required
+      ANY of these:
+      - P0 service completely unavailable (all pods down)
+      - P0 service degraded for >2 minutes
+      - Data layer unavailable (mysql or postgresql down)
+      - Ingress controller down (nginx-ingress, all external access lost)
+      - Multiple P0 services affected simultaneously
+
+      #### SEV-2 (HIGH) — Alert required
+      ANY of these:
+      - P1 service unavailable for >5 minutes
+      - P0 service degraded but partially functional (e.g., 1/2 pods)
+      - Imminent risk to P0 (memory/disk pressure near limits)
+      - P0 service health flapping
+
+      #### SEV-3 (MEDIUM) — Log only
+      ANY of these:
+      - P1 service degraded but recovering
+      - P2 service unavailable
+      - P0/P1 warnings but stable
+
+      #### SEV-4 (LOW) — No action
+      - P2-P3 services affected
+      - Known issues (see below)
+      - Issues already resolving
+      - Informational warnings
+
+      ### Known Issues (DO NOT escalate)
+      - chores-tracker-backend slow startup (5-6 min) — expected
+      - vault requires manual unseal after restart — expected
+      - Single replica services (mysql, postgresql, n8n) — architectural choice
+      - Certificate renewal attempts when cert still valid — normal
+
+      ### Step 4: Store Summary in Memory
+
+      ```bash
+      ralph tools memory add "scan summary: <date> — SEV-<level>. P0: <status>. P1: <status>. Issues: <list or none>. Trend: <new/recurring/resolved>" -t context
+      ```
+
+      ### Step 5: Publish Decision
+
+      For SEV-1 or SEV-2:
+      ```bash
+      ralph emit "escalate.alert" "SEV-<level>: <summary of critical findings>"
+      ```
+
+      For SEV-3 or SEV-4:
+      ```bash
+      ralph emit "escalate.none" "SEV-<level>: <summary>. No alert needed."
+      ```
+
+  notifier:
+    name: "Alert Notifier"
+    description: "Posts Slack alerts for escalations and logs all-clear for non-escalations."
+    triggers:
+      - "escalate.alert"
+      - "escalate.none"
+    publishes:
+      - "SCAN_COMPLETE"
+    instructions: |
+      ## ALERT NOTIFIER
+
+      You handle the final step: Slack alerts for escalations, logging for all-clear.
+      Then always publish SCAN_COMPLETE to exit.
+
+      ### If triggered by `escalate.alert`
+
+      Post a Slack message using curl:
+
+      ```bash
+      curl -s -X POST "https://slack.com/api/chat.postMessage" \
+        -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "channel": "'"$SLACK_CHANNEL"'",
+          "blocks": [<block kit payload>],
+          "text": "<fallback text>"
+        }'
+      ```
+
+      #### SEV-1 Block Kit Format
+      ```json
+      [
+        {"type": "header", "text": {"type": "plain_text", "text": "\ud83d\udea8 CRITICAL INCIDENT \ud83d\udea8"}},
+        {"type": "section", "fields": [
+          {"type": "mrkdwn", "text": "*Severity:*\nSEV-1"},
+          {"type": "mrkdwn", "text": "*Scanner:*\ncluster-scanner"}
+        ]},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "<incident details>"}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*Affected Services*\n<service list with status>"}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*Recommended Actions*\n<numbered action items>"}}
+      ]
+      ```
+
+      #### SEV-2 Block Kit Format
+      ```json
+      [
+        {"type": "header", "text": {"type": "plain_text", "text": "\u26a0\ufe0f HIGH PRIORITY ALERT \u26a0\ufe0f"}},
+        {"type": "section", "fields": [
+          {"type": "mrkdwn", "text": "*Severity:*\nSEV-2"},
+          {"type": "mrkdwn", "text": "*Scanner:*\ncluster-scanner"}
+        ]},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "<alert details with affected services and recommendations>"}}
+      ]
+      ```
+
+      #### Emoji Guide
+      - \ud83d\udea8 SEV-1 header
+      - \u26a0\ufe0f SEV-2 header
+      - \ud83d\udd34 Service unavailable
+      - \ud83d\udfe1 Service degraded
+      - \ud83d\udfe2 Service healthy
+      - \u2705 All clear
+
+      After posting, verify the Slack API response contains `"ok": true`.
+      If Slack fails, log the error but still publish SCAN_COMPLETE.
+
+      ### If triggered by `escalate.none`
+
+      No Slack message needed. Log the all-clear:
+      ```
+      All-clear: SEV-<level> — No alert-worthy issues detected.
+      ```
+
+      ### Always Finish With
+
+      ```bash
+      ralph emit "SCAN_COMPLETE" "Scan cycle complete. Alert sent: <yes/no>. Severity: SEV-<level>."
+      ```
+
+      Then output: SCAN_COMPLETE
