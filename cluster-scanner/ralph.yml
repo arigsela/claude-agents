@@ -5,6 +5,7 @@
 #                                                        → escalate.none  → [notifier] → SCAN_COMPLETE
 
 event_loop:
+  prompt_file: PROMPT.md
   starting_event: "scan.start"
   completion_promise: "SCAN_COMPLETE"
   max_iterations: 20
