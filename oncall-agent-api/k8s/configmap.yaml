@@ -14,6 +14,11 @@ data:
   # GitHub configuration
   GITHUB_ORG: "arigsela"
 
+  # GitOps PR Creation
+  GITOPS_REPO: "arigsela/kubernetes"
+  GITOPS_BASE_PATH: "base-apps/"
+  GITOPS_BASE_BRANCH: "main"
+
   # AWS configuration (ECR image checks, Secrets Manager verification)
   AWS_REGION: "us-east-2"
 

@@ -83,10 +83,12 @@ async def _process_slack_command(command: SlackSlashCommand):
         # Get or create session for this Slack user
         session = None
         if _session_manager:
-            # Look for existing session by user_id pattern
-            session_id = f"slack-{command.user_id}"
-            session = _session_manager.get_session(session_id)
-            if not session:
+            # Find existing session by user_id
+            existing_sessions = _session_manager.list_user_sessions(command.user_id)
+            if existing_sessions:
+                session = existing_sessions[-1]  # Use most recent session
+                logger.info(f"Resuming Slack session for user {command.user_id}: {session.session_id}")
+            else:
                 session = _session_manager.create_session(
                     user_id=command.user_id,
                     metadata={
@@ -95,8 +97,6 @@ async def _process_slack_command(command: SlackSlashCommand):
                         "team_id": command.team_id,
                     },
                 )
-                # Store with predictable ID for lookup
-                # The session manager assigns its own ID, so we track the mapping
                 logger.info(f"Created Slack session for user {command.user_id}: {session.session_id}")
 
         # Query the agent
@@ -106,7 +106,28 @@ async def _process_slack_command(command: SlackSlashCommand):
         if _agent is None:
             raise RuntimeError("Agent not initialized")
 
-        agent_result = await _agent.query(query_text)
+        # Build full query with session history for multi-turn context
+        full_query = query_text
+        if session and session.conversation_history:
+            history_lines = []
+            recent_history = session.conversation_history[-5:]
+            for entry in recent_history:
+                query = entry.get("query", "")
+                responses = entry.get("responses", [])
+                response_text = responses[0].get("content", "") if responses else ""
+                if len(response_text) > 2000:
+                    response_text = response_text[:2000] + "..."
+                history_lines.append(f"User: {query}")
+                history_lines.append(f"Assistant: {response_text}")
+
+            if history_lines:
+                history_context = "\n".join(history_lines)
+                full_query = (
+                    f"[Previous Conversation]\n{history_context}\n\n[Current Query]\n{query_text}"
+                )
+            logger.info(f"Slack session history: {len(session.conversation_history)} messages")
+
+        agent_result = await _agent.query(full_query)
         response_text = agent_result.get("response", "No response generated.")
 
         duration_ms = (time.time() - start_time) * 1000

@@ -461,6 +461,292 @@ async def get_recent_commits(args: dict[str, Any]) -> dict[str, Any]:
 # ============================================================
 
 
+# ============================================================
+# GitOps PR Tools (using PyGithub)
+# ============================================================
+
+
+def _get_gitops_config() -> tuple[str, str, str]:
+    """Get GitOps repository configuration from environment."""
+    repo = os.getenv("GITOPS_REPO", "arigsela/kubernetes")
+    base_path = os.getenv("GITOPS_BASE_PATH", "base-apps/")
+    base_branch = os.getenv("GITOPS_BASE_BRANCH", "main")
+    return repo, base_path, base_branch
+
+
+def _validate_gitops_path(file_path: str, base_path: str) -> str | None:
+    """Validate that a file path is within the allowed GitOps base path.
+
+    Returns an error message if invalid, None if valid.
+    """
+    # Normalize paths to prevent directory traversal
+    normalized = os.path.normpath(file_path)
+    if normalized.startswith("..") or "/../" in file_path:
+        return f"Path traversal detected: {file_path}"
+    if not file_path.startswith(base_path):
+        return f"Path '{file_path}' is outside allowed base path '{base_path}'"
+    return None
+
+
+async def get_gitops_file(args: dict[str, Any]) -> dict[str, Any]:
+    """Read a file from the GitOps repository.
+
+    Args:
+        file_path: Path to the file within the repo (must be under GITOPS_BASE_PATH)
+
+    Returns:
+        Dictionary with file content, sha, and metadata
+    """
+    file_path = args.get("file_path", "")
+    gitops_repo, base_path, base_branch = _get_gitops_config()
+
+    # Validate path
+    path_error = _validate_gitops_path(file_path, base_path)
+    if path_error:
+        return {"error": path_error}
+
+    try:
+        gh = _get_github_client()
+        repo = gh.get_repo(gitops_repo)
+        contents = repo.get_contents(file_path, ref=base_branch)
+
+        # Handle directory case
+        if isinstance(contents, list):
+            return {"error": f"'{file_path}' is a directory, not a file. Use list_gitops_directory instead."}
+
+        return {
+            "repository": gitops_repo,
+            "file_path": file_path,
+            "content": contents.decoded_content.decode("utf-8"),
+            "sha": contents.sha,
+            "html_url": contents.html_url,
+        }
+
+    except Exception as e:
+        logger.error(f"Error reading GitOps file: {e}")
+        return {"error": str(e), "file_path": file_path, "repository": gitops_repo}
+
+
+async def list_gitops_directory(args: dict[str, Any]) -> dict[str, Any]:
+    """List files and directories in the GitOps repository.
+
+    Args:
+        dir_path: Path to the directory (defaults to GITOPS_BASE_PATH)
+
+    Returns:
+        Dictionary with directory entries
+    """
+    gitops_repo, base_path, base_branch = _get_gitops_config()
+    dir_path = args.get("dir_path", base_path)
+
+    # Validate path
+    path_error = _validate_gitops_path(dir_path, base_path)
+    if path_error:
+        return {"error": path_error}
+
+    try:
+        gh = _get_github_client()
+        repo = gh.get_repo(gitops_repo)
+        contents = repo.get_contents(dir_path, ref=base_branch)
+
+        if not isinstance(contents, list):
+            return {"error": f"'{dir_path}' is a file, not a directory. Use get_gitops_file instead."}
+
+        entries = []
+        for item in contents:
+            entries.append({
+                "name": item.name,
+                "path": item.path,
+                "type": item.type,  # "file" or "dir"
+                "size": item.size if item.type == "file" else None,
+            })
+
+        # Sort: directories first, then files, both alphabetical
+        entries.sort(key=lambda x: (0 if x["type"] == "dir" else 1, x["name"]))
+
+        return {
+            "repository": gitops_repo,
+            "dir_path": dir_path,
+            "entries": entries,
+            "count": len(entries),
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing GitOps directory: {e}")
+        return {"error": str(e), "dir_path": dir_path, "repository": gitops_repo}
+
+
+def _build_pr_body(
+    service: str,
+    action_summary: str,
+    reason: str,
+    incident_context: str,
+    changes: list[dict[str, str]],
+) -> str:
+    """Build the PR description body."""
+    file_list = "\n".join(
+        f"- `{c['file_path']}` ({c['action']})" for c in changes
+    )
+
+    return f"""## Automated Remediation PR
+
+**Service**: {service}
+**Action**: {action_summary}
+**Reason**: {reason}
+
+### Incident Context
+{incident_context}
+
+### Files Changed
+{file_list}
+
+### Important
+- This PR was created by the oncall-agent
+- Review carefully before merging
+- **DO NOT auto-merge** — requires human approval
+- ArgoCD will sync changes after merge
+
+---
+*Created by oncall-agent-api*
+"""
+
+
+async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
+    """Create a PR in the GitOps repository with remediation changes.
+
+    ONLY call this AFTER the user has explicitly confirmed the proposed changes.
+
+    Args:
+        service: Service name being remediated
+        action_summary: Brief description of the action (e.g., "scale-replicas")
+        changes: List of file changes, each with file_path, content, and action (update|create)
+        incident_context: Description of the incident being remediated
+        reason: Why these changes are needed
+
+    Returns:
+        Dictionary with PR number, URL, branch name, and files changed
+    """
+    service = args.get("service", "")
+    action_summary = args.get("action_summary", "")
+    changes = args.get("changes", [])
+    incident_context = args.get("incident_context", "")
+    reason = args.get("reason", "")
+
+    gitops_repo, base_path, base_branch = _get_gitops_config()
+
+    # Validate inputs
+    if not service:
+        return {"error": "service is required"}
+    if not action_summary:
+        return {"error": "action_summary is required"}
+    if not changes:
+        return {"error": "changes list cannot be empty"}
+
+    # Validate each change
+    for change in changes:
+        file_path = change.get("file_path", "")
+        action = change.get("action", "")
+        content = change.get("content", "")
+
+        if not file_path or not content:
+            return {"error": f"Each change requires file_path and content"}
+
+        # Validate path
+        path_error = _validate_gitops_path(file_path, base_path)
+        if path_error:
+            return {"error": path_error}
+
+        # Validate action
+        if action not in ("update", "create"):
+            return {"error": f"Invalid action '{action}'. Must be 'update' or 'create'."}
+
+    try:
+        gh = _get_github_client()
+        repo = gh.get_repo(gitops_repo)
+
+        # Create branch name with timestamp
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        # Sanitize action_summary for branch name
+        safe_action = re.sub(r"[^a-zA-Z0-9-]", "-", action_summary.lower())[:30]
+        safe_service = re.sub(r"[^a-zA-Z0-9-]", "-", service.lower())[:30]
+        branch_name = f"oncall-agent/{safe_service}-{safe_action}-{timestamp}"
+
+        # Get the base branch ref
+        base_ref = repo.get_git_ref(f"heads/{base_branch}")
+        base_sha = base_ref.object.sha
+
+        # Create the new branch
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base_sha)
+
+        # Commit each file change
+        files_changed = []
+        for change in changes:
+            file_path = change["file_path"]
+            content = change["content"]
+            action = change["action"]
+
+            if action == "update":
+                # Get existing file to get its SHA
+                existing = repo.get_contents(file_path, ref=branch_name)
+                repo.update_file(
+                    path=file_path,
+                    message=f"oncall-agent: {action_summary} - {file_path}",
+                    content=content,
+                    sha=existing.sha,
+                    branch=branch_name,
+                )
+            elif action == "create":
+                repo.create_file(
+                    path=file_path,
+                    message=f"oncall-agent: {action_summary} - {file_path}",
+                    content=content,
+                    branch=branch_name,
+                )
+
+            files_changed.append(file_path)
+
+        # Build PR body
+        pr_body = _build_pr_body(
+            service=service,
+            action_summary=action_summary,
+            reason=reason,
+            incident_context=incident_context,
+            changes=changes,
+        )
+
+        # Create PR
+        pr = repo.create_pull(
+            title=f"[oncall-agent] {service}: {action_summary}",
+            body=pr_body,
+            head=branch_name,
+            base=base_branch,
+        )
+
+        # Add labels
+        try:
+            pr.add_to_labels("oncall-agent", "automated")
+        except Exception as label_err:
+            logger.warning(f"Could not add labels to PR: {label_err}")
+
+        logger.info(f"Created PR #{pr.number}: {pr.html_url}")
+
+        return {
+            "pr_number": pr.number,
+            "pr_url": pr.html_url,
+            "branch": branch_name,
+            "files_changed": files_changed,
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating remediation PR: {e}")
+        return {"error": str(e), "service": service, "action_summary": action_summary}
+
+
+# ============================================================
+# AWS Tools (using boto3)
+# ============================================================
+
+
 async def check_secrets_manager(args: dict[str, Any]) -> dict[str, Any]:
     """Check if a secret exists in AWS Secrets Manager."""
     secret_name = args.get("secret_name")
