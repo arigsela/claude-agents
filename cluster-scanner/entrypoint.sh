@@ -35,7 +35,18 @@ echo "oncall-agent-api: $ONCALL_API_URL"
 echo "Slack channel: $SLACK_CHANNEL"
 echo ""
 
-# Run Ralph orchestration
+# Smoke test: verify Claude Code can authenticate
+echo "Smoke test: Claude Code CLI..."
+if claude -p "respond with ok" --print --model "$ANTHROPIC_MODEL" 2>&1 | head -5; then
+    echo "Claude Code CLI: OK"
+else
+    echo "Claude Code CLI: FAILED (exit $?)"
+    echo "Check ANTHROPIC_API_KEY is valid"
+fi
+echo ""
+
+# Run Ralph orchestration with diagnostics
+export RALPH_DIAGNOSTICS=1
 ralph run -c ralph.yml --max-iterations 20
 
 EXIT_CODE=$?
