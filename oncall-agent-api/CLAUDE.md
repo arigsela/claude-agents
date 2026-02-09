@@ -4,7 +4,7 @@
 
 **OnCall Agent API** — A FastAPI service wrapping an Anthropic SDK-powered agent for Kubernetes incident diagnosis and GitOps remediation.
 
-**Architecture**: Direct Anthropic API tool calling (not Claude Agent SDK). The agent has ~25 tools for K8s, GitHub, AWS, Datadog, and incident memory. All tools are plain async functions in `custom_tools.py` with schemas defined in `agent_client.py`.
+**Architecture**: Direct Anthropic API tool calling (not Claude Agent SDK). The agent has ~26 tools for K8s, GitHub, AWS, Datadog, web search, and incident memory. All tools are plain async functions in `custom_tools.py` with schemas defined in `agent_client.py`.
 
 **Key capabilities**:
 - Kubernetes pod/deployment diagnosis via Python kubernetes client
@@ -147,6 +147,7 @@ The agent can create PRs in `arigsela/kubernetes` under `base-apps/`:
 | `GITOPS_BASE_BRANCH` | No | Default: `main` |
 | `DATADOG_API_KEY` | No | For metrics queries |
 | `DATADOG_APP_KEY` | No | For metrics queries |
+| `BRAVE_API_KEY` | No | Brave Search API key (free tier: 2k queries/mo) |
 
 ## Testing
 

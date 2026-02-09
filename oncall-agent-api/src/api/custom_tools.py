@@ -11,6 +11,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import aiohttp
 from github import Github
 from kubernetes import client, config
 
@@ -474,7 +475,9 @@ async def get_gitops_file(args: dict[str, Any]) -> dict[str, Any]:
 
         # Handle directory case
         if isinstance(contents, list):
-            return {"error": f"'{file_path}' is a directory, not a file. Use list_gitops_directory instead."}
+            return {
+                "error": f"'{file_path}' is a directory, not a file. Use list_gitops_directory instead."
+            }
 
         return {
             "repository": gitops_repo,
@@ -512,16 +515,20 @@ async def list_gitops_directory(args: dict[str, Any]) -> dict[str, Any]:
         contents = repo.get_contents(dir_path, ref=base_branch)
 
         if not isinstance(contents, list):
-            return {"error": f"'{dir_path}' is a file, not a directory. Use get_gitops_file instead."}
+            return {
+                "error": f"'{dir_path}' is a file, not a directory. Use get_gitops_file instead."
+            }
 
         entries = []
         for item in contents:
-            entries.append({
-                "name": item.name,
-                "path": item.path,
-                "type": item.type,  # "file" or "dir"
-                "size": item.size if item.type == "file" else None,
-            })
+            entries.append(
+                {
+                    "name": item.name,
+                    "path": item.path,
+                    "type": item.type,  # "file" or "dir"
+                    "size": item.size if item.type == "file" else None,
+                }
+            )
 
         # Sort: directories first, then files, both alphabetical
         entries.sort(key=lambda x: (0 if x["type"] == "dir" else 1, x["name"]))
@@ -546,9 +553,7 @@ def _build_pr_body(
     changes: list[dict[str, str]],
 ) -> str:
     """Build the PR description body."""
-    file_list = "\n".join(
-        f"- `{c['file_path']}` ({c['action']})" for c in changes
-    )
+    file_list = "\n".join(f"- `{c['file_path']}` ({c['action']})" for c in changes)
 
     return f"""## Automated Remediation PR
 
@@ -611,7 +616,7 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
         content = change.get("content", "")
 
         if not file_path or not content:
-            return {"error": f"Each change requires file_path and content"}
+            return {"error": "Each change requires file_path and content"}
 
         # Validate path
         path_error = _validate_gitops_path(file_path, base_path)
@@ -809,7 +814,7 @@ async def check_nat_gateway_metrics(args: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Traffic metrics with spike detection and human-readable summary
     """
-    from tools.nat_gateway_analyzer import get_analyzer, DEFAULT_NAT_GATEWAY_IDS
+    from tools.nat_gateway_analyzer import DEFAULT_NAT_GATEWAY_IDS, get_analyzer
 
     time_window_hours = args.get("time_window_hours", 1)
     specific_gateway = args.get("nat_gateway_id")
@@ -820,7 +825,9 @@ async def check_nat_gateway_metrics(args: dict[str, Any]) -> dict[str, Any]:
 
         # If specific gateway requested or only one configured, use single-gateway mode
         if specific_gateway or (not query_all and len(DEFAULT_NAT_GATEWAY_IDS) == 1):
-            gateway_id = specific_gateway or DEFAULT_NAT_GATEWAY_IDS[0] if DEFAULT_NAT_GATEWAY_IDS else ""
+            gateway_id = (
+                specific_gateway or DEFAULT_NAT_GATEWAY_IDS[0] if DEFAULT_NAT_GATEWAY_IDS else ""
+            )
             if not gateway_id:
                 return {
                     "error": "No NAT gateway ID configured. Set NAT_GATEWAY_IDS environment variable.",
@@ -1459,3 +1466,85 @@ async def get_ec2_costs_by_tags(args: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting EC2 costs by tags: {e}", exc_info=True)
         return {"error": str(e), "days_back": days_back, "tag_keys": tag_keys}
+
+
+# ============================================================
+# Web Search Tools (using Brave Search API)
+# ============================================================
+
+
+async def web_search(args: dict[str, Any]) -> dict[str, Any]:
+    """
+    Search the web using Brave Search API.
+
+    Args:
+        query: Search query string (required)
+        count: Number of results to return (1-20, default: 5)
+
+    Returns:
+        Dictionary with search results including title, url, and description
+    """
+    query = args.get("query", "").strip()
+    count = args.get("count", 5)
+
+    if not query:
+        return {"error": "query is required and cannot be empty"}
+
+    # Cap count at 20
+    count = min(max(1, count), 20)
+
+    api_key = os.getenv("BRAVE_API_KEY")
+    if not api_key:
+        return {
+            "error": "BRAVE_API_KEY environment variable not set. Web search is not available.",
+            "query": query,
+        }
+
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": count},
+                headers={
+                    "Accept": "application/json",
+                    "X-Subscription-Token": api_key,
+                },
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp,
+        ):
+            if resp.status != 200:
+                body = await resp.text()
+                logger.error(f"Brave Search API error {resp.status}: {body[:200]}")
+                return {
+                    "error": f"Brave Search API returned status {resp.status}",
+                    "query": query,
+                }
+
+            data = await resp.json()
+
+        # Extract web results
+        web_results = data.get("web", {}).get("results", [])
+
+        results = []
+        for item in web_results:
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "description": item.get("description", ""),
+                }
+            )
+
+        return {
+            "query": query,
+            "result_count": len(results),
+            "results": results,
+        }
+
+    except aiohttp.ClientError as e:
+        logger.error(f"Network error during web search: {e}")
+        return {"error": f"Network error: {str(e)}", "query": query}
+    except Exception as e:
+        logger.error(f"Error performing web search: {e}", exc_info=True)
+        return {"error": str(e), "query": query}

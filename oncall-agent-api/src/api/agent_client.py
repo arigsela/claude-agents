@@ -32,6 +32,7 @@ from api.custom_tools import (
     list_services,
     query_datadog_metrics,
     search_recent_deployments,
+    web_search,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,9 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
 - Store incidents when user explicitly asks to remember them
 - When storing, include: service, namespace, error_type, root_cause, and remediation_steps
 
+**Web Search Tools**:
+- web_search: Search the web for Docker Hub tags, release notes, CVE details, error solutions, Helm chart versions, or official docs
+
 **Composite Analysis**:
 - analyze_service_health: Comprehensive service health check
 
@@ -189,6 +193,7 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
 5. Check service catalog for known issues FIRST
 6. search_recent_deployments for GitOps correlation
 7. Provide remediation with priority (P0/P1/P2), exact commands, GitOps context
+8. web_search for external info (Docker Hub tags, CVEs, release notes) when internal tools aren't enough
 
 **KEY**: Check known issues BEFORE alerting. Vault unsealing is frequent. chores-tracker slow startup is normal. Single replicas have risks. All escalations -> Slack to Ari.
 """
@@ -715,7 +720,31 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
                             "description": "Why these changes are needed",
                         },
                     },
-                    "required": ["service", "action_summary", "changes", "incident_context", "reason"],
+                    "required": [
+                        "service",
+                        "action_summary",
+                        "changes",
+                        "incident_context",
+                        "reason",
+                    ],
+                },
+            },
+            {
+                "name": "web_search",
+                "description": "Search the web using Brave Search API. Use when you need to look up external information such as Docker Hub image tags, release notes, CVE details, error message solutions, Helm chart versions, or official documentation. Do NOT use for internal cluster data — use Kubernetes tools for that.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query (e.g., 'nginx ingress controller latest release', 'CVE-2024-1234 severity')",
+                        },
+                        "count": {
+                            "type": "integer",
+                            "description": "Number of results to return (1-20, default: 5)",
+                        },
+                    },
+                    "required": ["query"],
                 },
             },
         ]
@@ -842,6 +871,7 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
             "get_gitops_file": get_gitops_file,
             "list_gitops_directory": list_gitops_directory,
             "create_remediation_pr": create_remediation_pr,
+            "web_search": web_search,
             "search_past_incidents": self._search_past_incidents,
             "store_incident": self._store_incident,
         }
