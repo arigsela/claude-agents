@@ -1,0 +1,6 @@
+{
+  "name": "code-review",
+  "version": "1.0.0",
+  "description": "AI-powered code review for pull requests using parallel specialized agents with confidence-based scoring.",
+  "author": { "name": "Arisela" }
+}

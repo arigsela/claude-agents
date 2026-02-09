@@ -1,0 +1,63 @@
+{
+  "name": "claude-agents-marketplace",
+  "owner": {
+    "name": "Arisela"
+  },
+  "plugins": [
+    {
+      "name": "architecture-diagrams",
+      "source": "../skills/architecture-diagrams",
+      "description": "Create system architecture diagrams using Mermaid, PlantUML, C4 model, flowcharts, and sequence diagrams."
+    },
+    {
+      "name": "code-review",
+      "source": "../skills/code-review",
+      "description": "AI-powered code review for pull requests using parallel specialized agents with confidence-based scoring."
+    },
+    {
+      "name": "feature-builder",
+      "source": "../skills/feature-builder",
+      "description": "Automated end-to-end feature development using Ralph Loop for iterative implementation and AI code review. Requires code-review plugin."
+    },
+    {
+      "name": "prompt-engineering-patterns",
+      "source": "../skills/prompt-engineering-patterns",
+      "description": "Master advanced prompt engineering techniques to maximize LLM performance, reliability, and controllability in production."
+    },
+    {
+      "name": "aws-well-architected",
+      "source": "../skills/aws-well-architected",
+      "description": "AWS Well-Architected Framework expert for architecture reviews, design guidance, and best practices across all six pillars."
+    },
+    {
+      "name": "devops-architect",
+      "source": "../skills/devops-architect",
+      "description": "DevOps and infrastructure best practices architect using 12-Factor App methodology and DevOps Best Practices Checklist."
+    },
+    {
+      "name": "cloud-design-patterns",
+      "source": "../skills/cloud-design-patterns",
+      "description": "AWS Cloud Design Patterns expert for microservices architecture and distributed systems based on AWS Prescriptive Guidance."
+    },
+    {
+      "name": "platform-engineering-architect",
+      "source": "../skills/platform-engineering-architect",
+      "description": "Platform Engineering architecture decision support using industry frameworks (CNPA, Microsoft, Team Topologies, DORA, SRE)."
+    },
+    {
+      "name": "git-commit-pr",
+      "source": "../skills/git-commit-pr",
+      "description": "Automatically handles the full git workflow — branch, commit, push, and PR creation via gh CLI."
+    },
+    {
+      "name": "creating-implementation-plans",
+      "source": "../skills/creating-implementation-plans",
+      "description": "Create detailed implementation plans for features or tasks with codebase research and phased task breakdown."
+    },
+    {
+      "name": "executing-implementation-plans",
+      "source": "../skills/executing-implementation-plans",
+      "description": "Execute approved implementation plans with phase-based checkpoints, testing, and progress tracking."
+    }
+  ]
+}
