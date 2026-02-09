@@ -41,6 +41,56 @@
         "type": "local",
         "ref": "skills/prompt-engineering-patterns"
       }
+    },
+    "aws-well-architected": {
+      "name": "aws-well-architected",
+      "version": "1.0.0",
+      "path": "./aws-well-architected",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/aws-well-architected"
+      }
+    },
+    "devops-architect": {
+      "name": "devops-architect",
+      "version": "1.0.0",
+      "path": "./devops-architect",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/devops-architect"
+      }
+    },
+    "cloud-design-patterns": {
+      "name": "cloud-design-patterns",
+      "version": "1.0.0",
+      "path": "./cloud-design-patterns",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/cloud-design-patterns"
+      }
+    },
+    "platform-engineering-architect": {
+      "name": "platform-engineering-architect",
+      "version": "1.0.0",
+      "path": "./platform-engineering-architect",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/platform-engineering-architect"
+      }
+    },
+    "git-commit-pr": {
+      "name": "git-commit-pr",
+      "version": "1.0.0",
+      "path": "./git-commit-pr",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/git-commit-pr"
+      }
     }
   },
   "registries": {}

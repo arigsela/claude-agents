@@ -10,6 +10,11 @@ Reusable Claude Code skills for AI-assisted development workflows.
 | [code-review](./code-review/) | 1.0.0 | development | Parallel agent PR review with confidence scoring |
 | [feature-builder](./feature-builder/) | 1.0.0 | development | Ralph Loop automated feature development |
 | [prompt-engineering-patterns](./prompt-engineering-patterns/) | 1.0.0 | learning | LLM prompt optimization techniques |
+| [aws-well-architected](./aws-well-architected/) | 1.0.0 | architecture | AWS Well-Architected Framework reviews across all six pillars |
+| [devops-architect](./devops-architect/) | 1.0.0 | architecture | DevOps best practices using 12-Factor App and maturity scoring |
+| [cloud-design-patterns](./cloud-design-patterns/) | 1.0.0 | architecture | AWS cloud design patterns for microservices and distributed systems |
+| [platform-engineering-architect](./platform-engineering-architect/) | 1.0.0 | architecture | Platform Engineering IDP design using CNPA, Team Topologies, DORA |
+| [git-commit-pr](./git-commit-pr/) | 1.0.0 | development | Automated git workflow: branch, commit, push, and PR creation |
 
 ## Skills Marketplace
 
@@ -101,7 +106,7 @@ The marketplace tracks installed skills in `skills-catalog.json`:
 
 ```bash
 # Install all skills from this repo
-for skill in architecture-diagrams code-review feature-builder prompt-engineering-patterns; do
+for skill in architecture-diagrams code-review feature-builder prompt-engineering-patterns aws-well-architected devops-architect cloud-design-patterns platform-engineering-architect git-commit-pr; do
   ./skill-cli.sh add ./skills/$skill
 done
 
