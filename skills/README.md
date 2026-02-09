@@ -8,7 +8,7 @@ Each skill is a standalone Claude Code plugin. Add the marketplace, then install
 
 ```bash
 # Add the marketplace
-/plugin marketplace add github:arigsela/claude-agents
+/plugin marketplace add arigsela/claude-agents
 
 # Install individual skills
 /plugin install aws-well-architected@claude-agents-marketplace
