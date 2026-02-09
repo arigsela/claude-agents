@@ -1,0 +1,6 @@
+{
+  "name": "devops-architect",
+  "version": "1.0.0",
+  "description": "DevOps and infrastructure best practices architect using 12-Factor App methodology and DevOps Best Practices Checklist.",
+  "author": { "name": "Arisela" }
+}

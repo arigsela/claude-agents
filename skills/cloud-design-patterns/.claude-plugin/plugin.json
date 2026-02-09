@@ -1,0 +1,6 @@
+{
+  "name": "cloud-design-patterns",
+  "version": "1.0.0",
+  "description": "AWS Cloud Design Patterns expert for microservices architecture and distributed systems based on AWS Prescriptive Guidance.",
+  "author": { "name": "Arisela" }
+}

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-01-19T00:00:00Z",
+  "lastUpdated": "2026-02-09T00:00:00Z",
   "skills": {
     "architecture-diagrams": {
       "name": "architecture-diagrams",
@@ -90,6 +90,26 @@
       "source": {
         "type": "local",
         "ref": "skills/git-commit-pr"
+      }
+    },
+    "creating-implementation-plans": {
+      "name": "creating-implementation-plans",
+      "version": "1.0.0",
+      "path": "./creating-implementation-plans",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/creating-implementation-plans"
+      }
+    },
+    "executing-implementation-plans": {
+      "name": "executing-implementation-plans",
+      "version": "1.0.0",
+      "path": "./executing-implementation-plans",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/executing-implementation-plans"
       }
     }
   },

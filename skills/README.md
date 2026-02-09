@@ -2,6 +2,20 @@
 
 Reusable Claude Code skills for AI-assisted development workflows.
 
+## Installation (Claude Code Plugin System)
+
+Each skill is a standalone Claude Code plugin. Add the marketplace, then install individual skills:
+
+```bash
+# Add the marketplace
+/plugin marketplace add github:arigsela/claude-agents
+
+# Install individual skills
+/plugin install aws-well-architected@claude-agents-marketplace
+/plugin install code-review@claude-agents-marketplace
+/plugin install feature-builder@claude-agents-marketplace
+```
+
 ## Available Skills
 
 | Skill | Version | Category | Description |
@@ -15,8 +29,10 @@ Reusable Claude Code skills for AI-assisted development workflows.
 | [cloud-design-patterns](./cloud-design-patterns/) | 1.0.0 | architecture | AWS cloud design patterns for microservices and distributed systems |
 | [platform-engineering-architect](./platform-engineering-architect/) | 1.0.0 | architecture | Platform Engineering IDP design using CNPA, Team Topologies, DORA |
 | [git-commit-pr](./git-commit-pr/) | 1.0.0 | development | Automated git workflow: branch, commit, push, and PR creation |
+| [creating-implementation-plans](./creating-implementation-plans/) | 1.0.0 | development | Create detailed implementation plans with phased task breakdown |
+| [executing-implementation-plans](./executing-implementation-plans/) | 1.0.0 | development | Execute approved plans with phase-based checkpoints and testing |
 
-## Skills Marketplace
+## Legacy CLI
 
 The Skills CLI provides marketplace functionality for discovering, installing, and managing skills.
 
@@ -75,11 +91,16 @@ requires:
 
 ```
 skill-name/
-├── SKILL.md         # Skill definition (YAML frontmatter + instructions)
-├── README.md        # GitHub/marketplace documentation
-├── references/      # Extended documentation
-├── assets/          # Templates, examples, data files
-└── scripts/         # Automation utilities
+├── .claude-plugin/
+│   └── plugin.json    # Claude Code plugin manifest
+├── skills/
+│   └── skill-name/
+│       ├── SKILL.md       # Full skill definition (YAML frontmatter + instructions)
+│       ├── references/    # Extended documentation
+│       ├── assets/        # Templates, examples, data files
+│       └── scripts/       # Automation utilities
+├── SKILL.md           # Stub for legacy skill-cli.sh compatibility
+└── README.md          # GitHub/marketplace documentation
 ```
 
 ### Local Catalog
@@ -106,7 +127,7 @@ The marketplace tracks installed skills in `skills-catalog.json`:
 
 ```bash
 # Install all skills from this repo
-for skill in architecture-diagrams code-review feature-builder prompt-engineering-patterns aws-well-architected devops-architect cloud-design-patterns platform-engineering-architect git-commit-pr; do
+for skill in architecture-diagrams code-review feature-builder prompt-engineering-patterns aws-well-architected devops-architect cloud-design-patterns platform-engineering-architect git-commit-pr creating-implementation-plans executing-implementation-plans; do
   ./skill-cli.sh add ./skills/$skill
 done
 

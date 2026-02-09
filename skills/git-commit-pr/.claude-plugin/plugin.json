@@ -1,0 +1,6 @@
+{
+  "name": "git-commit-pr",
+  "version": "1.0.0",
+  "description": "Automatically handles the full git workflow — branch, commit, push, and PR creation via gh CLI.",
+  "author": { "name": "Arisela" }
+}

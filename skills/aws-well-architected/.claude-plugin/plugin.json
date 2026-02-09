@@ -1,0 +1,6 @@
+{
+  "name": "aws-well-architected",
+  "version": "1.0.0",
+  "description": "AWS Well-Architected Framework expert for architecture reviews, design guidance, and best practices across all six pillars.",
+  "author": { "name": "Arisela" }
+}
