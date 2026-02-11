@@ -135,14 +135,15 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
 7. ONLY THEN call create_remediation_pr
 8. NEVER call create_remediation_pr without explicit user approval
 
-**CRITICAL — FILE CONTENT RULE FOR PRs**:
-When calling create_remediation_pr with action "update", the content MUST be the EXACT file
-content returned by get_gitops_file with ONLY the minimal targeted change applied.
-- Copy the ENTIRE original file content from get_gitops_file verbatim
-- Change ONLY the specific lines needed (e.g., replicas count)
-- Do NOT reformat, restructure, add, remove, or rewrite any other lines
-- Do NOT change indentation style, comments, annotations, images, or any other fields
-- If you cannot preserve the original file exactly, STOP and tell the user
+**CRITICAL — PATCH-BASED UPDATES FOR PRs**:
+When calling create_remediation_pr with action "update", use the patches field with targeted
+find/replace pairs. Do NOT pass full file content for updates.
+- Each patch has old_string (exact text to find) and new_string (replacement)
+- old_string must EXACTLY match the file content (including whitespace and indentation)
+- old_string must be unique in the file — include enough surrounding context to ensure uniqueness
+- Only include the minimal lines needed for the change — do NOT rewrite unrelated sections
+- The tool reads the file and applies patches server-side, so you cannot accidentally alter other content
+- Example: to change an image tag, use old_string: "image: nginx:latest" new_string: "image: nginx:1.25"
 
 **Available Tools**:
 
@@ -692,17 +693,35 @@ content returned by get_gitops_file with ONLY the minimal targeted change applie
                                         "type": "string",
                                         "description": "Path to the file (must be under base-apps/)",
                                     },
-                                    "content": {
-                                        "type": "string",
-                                        "description": "Full file content (not a diff)",
-                                    },
                                     "action": {
                                         "type": "string",
                                         "enum": ["update", "create"],
                                         "description": "Whether to update an existing file or create a new one",
                                     },
+                                    "patches": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "old_string": {
+                                                    "type": "string",
+                                                    "description": "Exact string to find in the file (must match exactly, including whitespace)",
+                                                },
+                                                "new_string": {
+                                                    "type": "string",
+                                                    "description": "Replacement string",
+                                                },
+                                            },
+                                            "required": ["old_string", "new_string"],
+                                        },
+                                        "description": "For action 'update': list of find/replace patches. Each old_string must be unique in the file.",
+                                    },
+                                    "content": {
+                                        "type": "string",
+                                        "description": "For action 'create' only: full file content for new files",
+                                    },
                                 },
-                                "required": ["file_path", "content", "action"],
+                                "required": ["file_path", "action"],
                             },
                             "description": "List of file changes to include in the PR",
                         },

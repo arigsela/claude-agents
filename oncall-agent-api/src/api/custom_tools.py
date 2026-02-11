@@ -573,15 +573,55 @@ def _build_pr_body(
 """
 
 
+def _apply_patches(original_content: str, patches: list[dict[str, str]]) -> tuple[str, str | None]:
+    """Apply find/replace patches to file content.
+
+    Args:
+        original_content: The original file content
+        patches: List of {old_string, new_string} pairs
+
+    Returns:
+        Tuple of (patched_content, error_message_or_none)
+    """
+    content = original_content
+    for i, patch in enumerate(patches):
+        old_string = patch.get("old_string", "")
+        new_string = patch.get("new_string", "")
+
+        if not old_string:
+            return content, f"Patch {i}: old_string cannot be empty"
+
+        occurrences = content.count(old_string)
+        if occurrences == 0:
+            return content, (
+                f"Patch {i}: old_string not found in file. "
+                f"Make sure it exactly matches the file content (including whitespace and indentation). "
+                f"old_string was: {repr(old_string[:200])}"
+            )
+        if occurrences > 1:
+            return content, (
+                f"Patch {i}: old_string matched {occurrences} times — must be unique. "
+                f"Include more surrounding context to make it unique."
+            )
+
+        content = content.replace(old_string, new_string, 1)
+
+    return content, None
+
+
 async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
     """Create a PR in the GitOps repository with remediation changes.
 
     ONLY call this AFTER the user has explicitly confirmed the proposed changes.
 
+    For updates, uses patch-based find/replace to make surgical edits to existing files.
+    This prevents accidental rewrites of unrelated content.
+
     Args:
         service: Service name being remediated
         action_summary: Brief description of the action (e.g., "scale-replicas")
-        changes: List of file changes, each with file_path, content, and action (update|create)
+        changes: List of file changes. For updates: file_path, patches [{old_string, new_string}].
+                 For creates: file_path, content.
         incident_context: Description of the incident being remediated
         reason: Why these changes are needed
 
@@ -608,10 +648,9 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
     for change in changes:
         file_path = change.get("file_path", "")
         action = change.get("action", "")
-        content = change.get("content", "")
 
-        if not file_path or not content:
-            return {"error": f"Each change requires file_path and content"}
+        if not file_path:
+            return {"error": "Each change requires file_path"}
 
         # Validate path
         path_error = _validate_gitops_path(file_path, base_path)
@@ -621,6 +660,20 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
         # Validate action
         if action not in ("update", "create"):
             return {"error": f"Invalid action '{action}'. Must be 'update' or 'create'."}
+
+        # Validate action-specific fields
+        if action == "update":
+            patches = change.get("patches", [])
+            if not patches:
+                return {"error": "Update action requires a non-empty patches list"}
+            for i, patch in enumerate(patches):
+                if not patch.get("old_string"):
+                    return {"error": f"Patch {i} requires old_string"}
+                if "new_string" not in patch:
+                    return {"error": f"Patch {i} requires new_string"}
+        elif action == "create":
+            if not change.get("content"):
+                return {"error": "Create action requires content"}
 
     try:
         gh = _get_github_client()
@@ -644,16 +697,28 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
         files_changed = []
         for change in changes:
             file_path = change["file_path"]
-            content = change["content"]
             action = change["action"]
 
             if action == "update":
-                # Get existing file to get its SHA
+                # Read the current file from the branch
                 existing = repo.get_contents(file_path, ref=branch_name)
+                original_content = existing.decoded_content.decode("utf-8")
+
+                # Apply patches
+                patched_content, patch_error = _apply_patches(
+                    original_content, change["patches"]
+                )
+                if patch_error:
+                    return {
+                        "error": f"Patch failed for {file_path}: {patch_error}",
+                        "service": service,
+                        "action_summary": action_summary,
+                    }
+
                 repo.update_file(
                     path=file_path,
                     message=f"oncall-agent: {action_summary} - {file_path}",
-                    content=content,
+                    content=patched_content,
                     sha=existing.sha,
                     branch=branch_name,
                 )
@@ -661,7 +726,7 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
                 repo.create_file(
                     path=file_path,
                     message=f"oncall-agent: {action_summary} - {file_path}",
-                    content=content,
+                    content=change["content"],
                     branch=branch_name,
                 )
 

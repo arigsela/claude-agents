@@ -15,6 +15,7 @@ from src.api.custom_tools import (
     get_gitops_file,
     list_gitops_directory,
     create_remediation_pr,
+    _apply_patches,
 )
 
 
@@ -131,9 +132,67 @@ async def test_list_gitops_directory_blocked_path(gitops_env):
 # ============================================================
 
 
+# ============================================================
+# _apply_patches unit tests
+# ============================================================
+
+
+def test_apply_patches_single_patch():
+    """Test applying a single find/replace patch."""
+    original = "image: nginx:latest\nreplicas: 1\n"
+    patches = [{"old_string": "image: nginx:latest", "new_string": "image: nginx:1.25"}]
+    result, error = _apply_patches(original, patches)
+    assert error is None
+    assert result == "image: nginx:1.25\nreplicas: 1\n"
+
+
+def test_apply_patches_multiple_patches():
+    """Test applying multiple patches to the same file."""
+    original = "image: nginx:latest\nreplicas: 1\n"
+    patches = [
+        {"old_string": "image: nginx:latest", "new_string": "image: nginx:1.25"},
+        {"old_string": "replicas: 1", "new_string": "replicas: 3"},
+    ]
+    result, error = _apply_patches(original, patches)
+    assert error is None
+    assert result == "image: nginx:1.25\nreplicas: 3\n"
+
+
+def test_apply_patches_not_found():
+    """Test that a patch with no match returns an error."""
+    original = "image: nginx:latest\n"
+    patches = [{"old_string": "image: nginx:1.24", "new_string": "image: nginx:1.25"}]
+    result, error = _apply_patches(original, patches)
+    assert error is not None
+    assert "not found" in error
+
+
+def test_apply_patches_duplicate_match():
+    """Test that a patch matching multiple locations returns an error."""
+    original = "replicas: 1\n---\nreplicas: 1\n"
+    patches = [{"old_string": "replicas: 1", "new_string": "replicas: 2"}]
+    result, error = _apply_patches(original, patches)
+    assert error is not None
+    assert "matched 2 times" in error
+
+
+def test_apply_patches_empty_old_string():
+    """Test that empty old_string is rejected."""
+    original = "some content\n"
+    patches = [{"old_string": "", "new_string": "replacement"}]
+    result, error = _apply_patches(original, patches)
+    assert error is not None
+    assert "cannot be empty" in error
+
+
+# ============================================================
+# create_remediation_pr tests
+# ============================================================
+
+
 @pytest.mark.asyncio
 async def test_create_pr_success(mock_github, gitops_env):
-    """Test successful PR creation."""
+    """Test successful PR creation with patch-based update."""
     mock_gh, mock_repo = mock_github
 
     # Mock branch ref
@@ -142,9 +201,10 @@ async def test_create_pr_success(mock_github, gitops_env):
     mock_repo.get_git_ref.return_value = mock_ref
     mock_repo.create_git_ref.return_value = Mock()
 
-    # Mock existing file for update
+    # Mock existing file for update (must have decoded_content for patch reading)
     mock_existing = Mock()
     mock_existing.sha = "file-sha-456"
+    mock_existing.decoded_content = b"apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 1\n"
     mock_repo.get_contents.return_value = mock_existing
     mock_repo.update_file.return_value = Mock()
 
@@ -161,7 +221,9 @@ async def test_create_pr_success(mock_github, gitops_env):
             "changes": [
                 {
                     "file_path": "base-apps/chores-tracker-backend/deployment.yaml",
-                    "content": "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 2\n",
+                    "patches": [
+                        {"old_string": "replicas: 1", "new_string": "replicas: 2"},
+                    ],
                     "action": "update",
                 },
             ],
@@ -174,6 +236,10 @@ async def test_create_pr_success(mock_github, gitops_env):
     assert "pull/42" in result["pr_url"]
     assert "oncall-agent/" in result["branch"]
     assert len(result["files_changed"]) == 1
+
+    # Verify the patched content was committed (not a full rewrite)
+    update_call = mock_repo.update_file.call_args[1]
+    assert update_call["content"] == "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 2\n"
 
     # Verify branch was created
     mock_repo.create_git_ref.assert_called_once()
@@ -188,6 +254,44 @@ async def test_create_pr_success(mock_github, gitops_env):
 
 
 @pytest.mark.asyncio
+async def test_create_pr_patch_not_found(mock_github, gitops_env):
+    """Test that a failed patch returns an error and does not create a PR."""
+    mock_gh, mock_repo = mock_github
+
+    mock_ref = Mock()
+    mock_ref.object.sha = "base-sha-123"
+    mock_repo.get_git_ref.return_value = mock_ref
+    mock_repo.create_git_ref.return_value = Mock()
+
+    mock_existing = Mock()
+    mock_existing.sha = "file-sha-456"
+    mock_existing.decoded_content = b"image: nginx:latest\n"
+    mock_repo.get_contents.return_value = mock_existing
+
+    with patch("src.api.custom_tools._get_github_client", return_value=mock_gh):
+        result = await create_remediation_pr({
+            "service": "myservice",
+            "action_summary": "update-image",
+            "changes": [
+                {
+                    "file_path": "base-apps/myservice/deployment.yaml",
+                    "patches": [
+                        {"old_string": "image: nginx:1.24", "new_string": "image: nginx:1.25"},
+                    ],
+                    "action": "update",
+                },
+            ],
+            "incident_context": "test",
+            "reason": "test",
+        })
+
+    assert "error" in result
+    assert "not found" in result["error"]
+    # PR should NOT have been created
+    mock_repo.create_pull.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_create_pr_blocked_path(gitops_env):
     """Test that file paths outside base-apps/ are rejected."""
     result = await create_remediation_pr({
@@ -196,7 +300,9 @@ async def test_create_pr_blocked_path(gitops_env):
         "changes": [
             {
                 "file_path": "some-other-dir/config.yaml",
-                "content": "key: value",
+                "patches": [
+                    {"old_string": "old", "new_string": "new"},
+                ],
                 "action": "update",
             },
         ],
@@ -217,7 +323,7 @@ async def test_create_pr_invalid_action(gitops_env):
         "changes": [
             {
                 "file_path": "base-apps/myservice/config.yaml",
-                "content": "some content",
+                "patches": [],
                 "action": "delete",
             },
         ],
@@ -245,6 +351,27 @@ async def test_create_pr_empty_changes(gitops_env):
 
 
 @pytest.mark.asyncio
+async def test_create_pr_update_missing_patches(gitops_env):
+    """Test that update action without patches is rejected."""
+    result = await create_remediation_pr({
+        "service": "myservice",
+        "action_summary": "update-image",
+        "changes": [
+            {
+                "file_path": "base-apps/myservice/deployment.yaml",
+                "patches": [],
+                "action": "update",
+            },
+        ],
+        "incident_context": "test",
+        "reason": "test",
+    })
+
+    assert "error" in result
+    assert "non-empty patches" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_create_pr_branch_naming(mock_github, gitops_env):
     """Test that branch names follow the expected pattern."""
     mock_gh, mock_repo = mock_github
@@ -255,6 +382,7 @@ async def test_create_pr_branch_naming(mock_github, gitops_env):
 
     mock_existing = Mock()
     mock_existing.sha = "file-sha"
+    mock_existing.decoded_content = b"memory: 512Mi\n"
     mock_repo.get_contents.return_value = mock_existing
 
     mock_pr = Mock()
@@ -269,7 +397,9 @@ async def test_create_pr_branch_naming(mock_github, gitops_env):
             "changes": [
                 {
                     "file_path": "base-apps/chores-tracker-backend/deployment.yaml",
-                    "content": "content",
+                    "patches": [
+                        {"old_string": "memory: 512Mi", "new_string": "memory: 1Gi"},
+                    ],
                     "action": "update",
                 },
             ],
