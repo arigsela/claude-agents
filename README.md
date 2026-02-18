@@ -6,162 +6,168 @@ Production-ready AI agents demonstrating **Claude AI integration patterns** for 
 
 ## Projects & Skills Demonstrated
 
-### K8s Monitoring Agent ⭐⭐⭐
-> Multi-agent system with long-context trend detection
+### Cluster Scanner ⭐⭐⭐
+> Autonomous K3s health scanner with Ralph Orchestrator
 
-**What I Built**: Autonomous Kubernetes monitoring system using 4 specialized AI agents that coordinate to analyze cluster health, correlate issues with deployments, assess severity, and dispatch alerts.
+**What I Built**: Autonomous cluster health scanner using Ralph Orchestrator with 3 specialized hats. Queries the oncall-agent-api for cluster data, classifies severity (SEV-1 to SEV-4), detects trends via persistent memories, and dispatches Slack alerts when warranted. No Python, no kubectl, no RBAC required.
 
 | Skill | Implementation |
 |-------|----------------|
-| **Multi-Agent Orchestration** | 4 subagents (analyzer, escalation, slack, github) with task delegation |
-| **Long-Context Management** | 120k token sessions with smart pruning to preserve critical findings |
-| **Session Persistence** | JSON-based state management across monitoring cycles |
-| **Cost Optimization** | Haiku model selection achieving ~$0.90-$1.50/year operational cost |
-| **Service Tier Modeling** | P0/P1/P2 criticality classification with max downtime thresholds |
+| **Ralph Orchestration** | 3-hat event flow: scanner → analyzer → notifier with event-driven state machine |
+| **Severity Classification** | SEV-1 to SEV-4 with service priority awareness (P0/P1/P2) |
+| **Trend Detection** | Ralph memories persisted via PVC, detecting new/recurring/resolved issues |
+| **Cost Optimization** | Haiku model achieving ~$0.90-$1.50/year (~15K tokens/cycle, 48 cycles/day) |
+| **Service Catalog Integration** | Queries oncall-agent-api instead of direct kubectl access |
 
-**Technologies**: `Claude Agent SDK` `Python` `Kubernetes` `Slack API` `GitHub API`
+**Technologies**: `Ralph Orchestrator` `Claude API` `Slack API` `Kubernetes` `Docker`
 
 ```
-k8s-monitor/
-├── .claude/agents/      # 4 subagent definitions
-├── src/orchestrator/    # Long-context session management
-└── src/models/          # Structured findings with Pydantic
+cluster-scanner/
+├── ralph.yml          # Orchestration config (3 hats, events, memories)
+├── PROMPT.md          # Shared agent prompt
+├── entrypoint.sh      # Container entry point
+├── k8s/               # Kubernetes CronJob manifests
+└── Dockerfile
 ```
 
 ---
 
 ### OnCall Troubleshooting API ⭐⭐⭐
-> HTTP API with 18 custom tools for incident response
+> REST API with ~25 custom tools for incident response
 
-**What I Built**: FastAPI server exposing Claude-powered troubleshooting via RESTful endpoints. Integrates with n8n workflows for interactive incident response with service catalog awareness.
+**What I Built**: FastAPI server exposing Claude-powered troubleshooting via RESTful endpoints. Features autonomous conversation handling, Microsoft Teams integration via Power Automate, incident memory with semantic search, and GitOps PR creation for remediation.
 
 | Skill | Implementation |
 |-------|----------------|
-| **FastAPI Development** | 8 endpoints with Swagger UI, Pydantic validation |
-| **Custom Tool Development** | 18 tools: Kubernetes, GitHub, AWS, Datadog integrations |
+| **FastAPI Development** | REST API with Swagger UI, Pydantic validation, OpenAPI spec |
+| **Custom Tool Development** | ~25 tools: Kubernetes, GitHub, GitOps, AWS, Datadog, incident memory |
 | **API Security** | Key authentication, rate limiting (60/30/10 req/min tiers), CORS |
 | **Session Management** | Multi-turn conversations with 30-min TTL, automatic cleanup |
-| **Service Catalog Design** | Priority classification, dependency mapping, known issues database |
+| **Teams Integration** | Power Automate webhooks with Adaptive Card responses |
+| **Incident Memory** | sqlite-vec semantic search for historical incident lookup |
+| **GitOps Remediation** | Automated PR creation against ArgoCD-synced repository |
 
-**Technologies**: `Anthropic API` `FastAPI` `Kubernetes Python Client` `PyGithub` `Boto3` `Datadog API`
-
-```
-oncall/
-├── src/api/
-│   ├── api_server.py      # 8 RESTful endpoints
-│   ├── custom_tools.py    # 18 tool implementations
-│   ├── session_manager.py # Conversation state management
-│   └── middleware.py      # Auth & rate limiting
-└── config/
-    └── service_mapping.yaml  # Service catalog
-```
-
----
-
-### RAG MCP Server ⭐⭐
-> Vector search with dual backend support
-
-**What I Built**: Custom MCP server providing semantic search capabilities with abstracted vector storage. Supports both Qdrant (local dev) and PostgreSQL+pgvector (production/RDS).
-
-| Skill | Implementation |
-|-------|----------------|
-| **MCP Protocol** | Server implementation with stdio/SSE transport |
-| **Vector Database Architecture** | Factory pattern abstracting Qdrant vs pgvector backends |
-| **Semantic Search** | FastEmbed integration (BAAI/bge-small-en) for local embeddings |
-| **Content Deduplication** | Hash-based duplicate detection on storage |
-
-**Technologies**: `MCP Protocol` `Qdrant` `PostgreSQL pgvector` `FastEmbed` `Docker`
+**Technologies**: `Anthropic API` `FastAPI` `Kubernetes Python Client` `PyGithub` `Boto3` `Datadog API` `sqlite-vec`
 
 ```
-rag-mcp-server/
-├── src/vectorstore/
-│   ├── base.py            # Abstract interface
-│   ├── qdrant_store.py    # Qdrant implementation
-│   ├── pgvector_store.py  # PostgreSQL implementation
-│   └── factory.py         # Backend selection
-└── k8s/                   # Kubernetes manifests
+oncall-agent-api/
+├── src/
+│   ├── api/
+│   │   ├── api_server.py      # FastAPI application (main entry point)
+│   │   ├── agent_client.py    # Anthropic SDK wrapper, tool schemas
+│   │   ├── custom_tools.py    # ~25 tool implementations
+│   │   ├── session_manager.py # Conversation state management
+│   │   ├── middleware.py      # Auth & rate limiting
+│   │   └── slack_integration.py # Slack slash commands
+│   ├── memory/                # sqlite-vec incident memory
+│   └── tools/                 # K8s, GitHub, AWS, Datadog integrations
+├── config/
+│   └── service_mapping.yaml   # Service catalog
+└── k8s/                       # Kubernetes deployment manifests
 ```
-
----
-
-### YouTube MCP Server ⭐
-> Transcript extraction and summarization
-
-**What I Built**: Simple MCP server for YouTube video analysis - fetches transcripts, extracts metadata, and persists summaries as Markdown files.
-
-| Skill | Implementation |
-|-------|----------------|
-| **MCP Protocol** | Basic server with 5 tools |
-| **YouTube Integration** | Transcript extraction with language support |
-| **Document Persistence** | Markdown output with YAML frontmatter |
-
-**Technologies**: `MCP Protocol` `YouTube Transcript API` `uv`
 
 ---
 
 ### Claude Code Skills ⭐⭐
-> Skills Marketplace with CLI and catalog system
+> Plugin marketplace with 11 reusable skills
 
-**What I Built**: Marketplace system for Claude Code skills with discovery, installation, versioning, and package management. Includes CLI tooling and local catalog tracking.
+**What I Built**: Marketplace of 11 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
 
 | Skill | Implementation |
 |-------|----------------|
+| **Plugin System** | Claude Code plugin manifests with YAML frontmatter |
 | **CLI Development** | Bash CLI with list, search, info, add, update, remove, validate, pack commands |
 | **Package Management** | Install from local dirs, .skill bundles, or GitHub repositories |
-| **Schema Design** | Extended SKILL.md with version, author, tags, category, requirements |
 | **Catalog System** | JSON-based tracking of installed skills with source metadata |
 
-**Technologies**: `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
+**Technologies**: `Claude Code Plugins` `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
 
-```
-skills/
-├── skill-cli.sh           # CLI entry point
-├── lib/skill-utils.sh     # Core utilities
-├── skills-catalog.json    # Installed skills tracking
-├── architecture-diagrams/ # Mermaid, PlantUML, C4 diagrams
-├── code-review/           # Parallel agent PR review
-├── feature-builder/       # Ralph Loop development
-└── prompt-engineering-patterns/  # LLM prompt optimization
+**Available Skills (11)**:
+| Skill | Category | Description |
+|-------|----------|-------------|
+| architecture-diagrams | documentation | Mermaid, PlantUML, C4 system diagrams |
+| code-review | development | Parallel agent PR review with confidence scoring |
+| feature-builder | development | Ralph Loop automated feature development |
+| prompt-engineering-patterns | learning | LLM prompt optimization techniques |
+| aws-well-architected | architecture | AWS Well-Architected Framework reviews |
+| devops-architect | architecture | DevOps best practices with maturity scoring |
+| cloud-design-patterns | architecture | AWS cloud patterns for microservices |
+| platform-engineering-architect | architecture | IDP design (CNPA, Team Topologies, DORA) |
+| git-commit-pr | development | Automated git workflow: branch, commit, push, PR |
+| creating-implementation-plans | development | Phase-based implementation planning |
+| executing-implementation-plans | development | Phase-based execution with checkpoints |
+
+#### Install Skills from the Marketplace
+
+Each skill is a standalone Claude Code plugin. Install individual skills directly from GitHub:
+
+```bash
+# Install a single skill
+claude plugin add --from-github arigsela/claude-agents/skills/code-review
+
+# Install any skill using the pattern:
+claude plugin add --from-github arigsela/claude-agents/skills/<skill-name>
 ```
 
-**Usage:**
+**Available skill names for installation:**
+```
+architecture-diagrams        aws-well-architected       cloud-design-patterns
+code-review                  creating-implementation-plans  devops-architect
+executing-implementation-plans  feature-builder          git-commit-pr
+platform-engineering-architect  prompt-engineering-patterns
+```
+
+#### Legacy CLI (local use)
+
 ```bash
 ./skills/skill-cli.sh list                    # List installed skills
 ./skills/skill-cli.sh search "review"         # Search by name/tags
-./skills/skill-cli.sh add github:user/repo    # Install from GitHub
-./skills/skill-cli.sh pack ./my-skill         # Create .skill bundle
+./skills/skill-cli.sh info code-review        # Show skill details
+./skills/skill-cli.sh add ./skills/code-review # Install from local directory
+```
+
+```
+skills/
+├── skill-cli.sh           # Legacy CLI entry point
+├── lib/skill-utils.sh     # Core utilities
+├── skills-catalog.json    # Installed skills tracking
+├── architecture-diagrams/ # System diagrams
+├── code-review/           # Parallel agent PR review
+├── feature-builder/       # Ralph Loop development
+├── devops-architect/      # DevOps best practices
+└── ...                    # 7 more skills
 ```
 
 ---
 
 ## Architecture Patterns Demonstrated
 
-| Pattern | K8s Monitor | OnCall API | RAG Server | Skills Marketplace |
-|---------|:-----------:|:----------:|:----------:|:------------------:|
-| Multi-Agent Orchestration | ✅ | - | - | - |
-| Long-Context Sessions | ✅ | - | - | - |
-| HTTP API Design | - | ✅ | ✅ | - |
-| Custom Tool Development | ✅ | ✅ | ✅ | - |
-| MCP Protocol | - | - | ✅ | - |
-| Vector Search | - | - | ✅ | - |
-| Rate Limiting | - | ✅ | - | - |
-| Service Catalog | ✅ | ✅ | - | ✅ |
-| CLI Development | - | - | - | ✅ |
-| Package Management | - | - | - | ✅ |
+| Pattern | Cluster Scanner | OnCall API | Skills Marketplace |
+|---------|:--------------:|:----------:|:------------------:|
+| Ralph Orchestration | ✅ | - | - |
+| REST API Design | - | ✅ | - |
+| Custom Tool Development | - | ✅ | - |
+| Semantic Vector Search | - | ✅ | - |
+| Session Management | - | ✅ | - |
+| Rate Limiting & Auth | - | ✅ | - |
+| Teams Integration | - | ✅ | - |
+| GitOps Remediation | - | ✅ | - |
+| Severity Classification | ✅ | ✅ | - |
+| Trend Detection | ✅ | - | - |
+| CLI Development | - | - | ✅ |
+| Plugin System | - | - | ✅ |
 
 ---
 
 ## Quick Start
 
 ```bash
-# K8s Monitor - Continuous monitoring with trend detection
-cd k8s-monitor && pip install -r requirements.txt && ./start.sh
+# Cluster Scanner - Autonomous K3s monitoring
+cd cluster-scanner && ./test-local.sh  # Needs port-forwarded oncall-api
 
-# OnCall API - HTTP endpoints for n8n integration
-cd oncall && pip install -r requirements.txt && ./run_api_server.sh
-
-# RAG Server - Semantic search MCP server
-cd rag-mcp-server && docker compose up -d
+# OnCall API - HTTP endpoints with Teams integration
+cd oncall-agent-api && pip install -r requirements.txt && ./run_api_server.sh
+open http://localhost:8000/docs        # Interactive Swagger UI
 
 # Skills Marketplace - List and manage skills
 ./skills/skill-cli.sh list
@@ -172,15 +178,15 @@ cd rag-mcp-server && docker compose up -d
 
 ## Tech Stack
 
-**AI/ML**: Claude Agent SDK, Anthropic API, FastEmbed, Vector Databases
+**AI/ML**: Anthropic API, Claude Haiku/Sonnet, sqlite-vec, Semantic Search
 
 **Backend**: Python 3.11+, FastAPI, Pydantic, AsyncIO
 
-**Infrastructure**: Kubernetes, Docker, PostgreSQL, Qdrant
+**Orchestration**: Ralph Orchestrator, Event-driven State Machine
 
-**Integrations**: Slack, GitHub, AWS (Secrets Manager, ECR), Datadog
+**Infrastructure**: Kubernetes, Docker, AWS (ECR, Secrets Manager, Cost Explorer)
 
-**Protocols**: MCP (Model Context Protocol), REST, SSE
+**Integrations**: Microsoft Teams, Slack, GitHub, Datadog
 
 ---
 
