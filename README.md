@@ -69,9 +69,9 @@ oncall-agent-api/
 ---
 
 ### Claude Code Skills ⭐⭐
-> Plugin marketplace with 11 reusable skills
+> Plugin marketplace with 12 reusable skills
 
-**What I Built**: Marketplace of 11 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
+**What I Built**: Marketplace of 12 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
 
 | Skill | Implementation |
 |-------|----------------|
@@ -96,6 +96,7 @@ oncall-agent-api/
 | git-commit-pr | development | Automated git workflow: branch, commit, push, PR |
 | creating-implementation-plans | development | Phase-based implementation planning |
 | executing-implementation-plans | development | Phase-based execution with checkpoints |
+| olympus-customer-deletion | automation | Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction |
 
 #### Install Skills from the Marketplace
 
@@ -114,7 +115,7 @@ claude plugin add --from-github arigsela/claude-agents/skills/<skill-name>
 architecture-diagrams        aws-well-architected       cloud-design-patterns
 code-review                  creating-implementation-plans  devops-architect
 executing-implementation-plans  feature-builder          git-commit-pr
-platform-engineering-architect  prompt-engineering-patterns
+olympus-customer-deletion    platform-engineering-architect  prompt-engineering-patterns
 ```
 
 #### Legacy CLI (local use)
