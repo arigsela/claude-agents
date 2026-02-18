@@ -58,6 +58,11 @@
       "name": "executing-implementation-plans",
       "source": "./skills/executing-implementation-plans",
       "description": "Execute approved implementation plans with phase-based checkpoints, testing, and progress tracking."
+    },
+    {
+      "name": "olympus-customer-deletion",
+      "source": "./skills/olympus-customer-deletion",
+      "description": "Standardized workflow for Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction."
     }
   ]
 }
