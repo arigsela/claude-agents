@@ -1,0 +1,8 @@
+{
+  "name": "olympus-customer-deletion",
+  "version": "1.0.0",
+  "description": "Standardized workflow for Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction",
+  "author": {
+    "name": "Ari Sela"
+  }
+}
