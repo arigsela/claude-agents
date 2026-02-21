@@ -16,8 +16,10 @@ from api.custom_tools import (
     check_nat_gateway_metrics,
     check_network_traffic,
     create_remediation_pr,
+    fetch_webpage,
     find_zeus_jobs_by_client,
     get_cost_anomalies,
+    get_current_datetime,
     get_daily_costs,
     get_deployment_status,
     get_ec2_costs_by_tags,
@@ -32,6 +34,7 @@ from api.custom_tools import (
     list_services,
     query_datadog_metrics,
     search_recent_deployments,
+    web_search,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,13 +74,15 @@ class OnCallAgentClient:
 
         # Define available tools for Anthropic API
         self.tools = self._define_tools()
+        self.web_tools = self._define_web_tools()
 
-        # System prompt
+        # System prompts
         self.system_prompt = self._get_system_prompt()
+        self.general_system_prompt = self._get_general_system_prompt()
 
         logger.info("OnCallAgentClient initialized with Anthropic SDK")
         logger.info(f"Model: {self.model}")
-        logger.info(f"Tools available: {len(self.tools)}")
+        logger.info(f"Tools available: {len(self.tools)} DevOps + {len(self.web_tools)} web")
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for the agent."""
@@ -192,6 +197,26 @@ find/replace pairs. Do NOT pass full file content for updates.
 7. Provide remediation with priority (P0/P1/P2), exact commands, GitOps context
 
 **KEY**: Check known issues BEFORE alerting. Vault unsealing is frequent. chores-tracker slow startup is normal. Single replicas have risks. All escalations -> Slack to Ari.
+"""
+
+    def _get_general_system_prompt(self) -> str:
+        """Get general-purpose assistant system prompt for Quake Copilot desk assistant."""
+        return """You are a helpful AI assistant on Ari's desktop device (Quake Copilot). You can answer any question — general knowledge, coding help, math, writing, research, and more.
+
+**Web Tools Available**:
+- web_search: Search the internet for current information, news, documentation, etc.
+- fetch_webpage: Fetch and read the content of a specific URL
+- get_current_datetime: Get the current date, time, and timezone info
+
+**DevOps/Infrastructure Tools Also Available**:
+You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastructure questions. If asked about service health, deployments, costs, or incidents, use those tools.
+
+**Response Guidelines**:
+- Keep responses concise — the desk display has limited space
+- Use bullet points and short paragraphs for readability
+- For factual questions, use web_search to get current information
+- Cite sources when using web search results
+- If you don't know something, say so and offer to search
 """
 
     def _define_tools(self) -> list[dict[str, Any]]:
@@ -739,33 +764,105 @@ find/replace pairs. Do NOT pass full file content for updates.
             },
         ]
 
-    async def query(self, prompt: str) -> dict[str, Any]:
+    def _define_web_tools(self) -> list[dict[str, Any]]:
+        """Define web search and data retrieval tool schemas."""
+        return [
+            {
+                "name": "web_search",
+                "description": "Search the internet for current information, news, documentation, tutorials, and more. Returns relevant results with snippets and an AI-generated answer.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query (e.g., 'Python 3.13 new features', 'FastAPI best practices 2025')",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of results (default: 5, max: 10)",
+                        },
+                        "search_depth": {
+                            "type": "string",
+                            "enum": ["basic", "advanced"],
+                            "description": "Search depth: 'basic' for quick results, 'advanced' for more thorough search (default: basic)",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "fetch_webpage",
+                "description": "Fetch and extract text content from a URL. Use this to read articles, documentation pages, or any web content.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "URL to fetch (e.g., 'https://docs.python.org/3/whatsnew/3.13.html')",
+                        },
+                        "max_length": {
+                            "type": "integer",
+                            "description": "Maximum content length in characters (default: 5000)",
+                        },
+                    },
+                    "required": ["url"],
+                },
+            },
+            {
+                "name": "get_current_datetime",
+                "description": "Get the current date, time, day of week, and timezone information. Useful for time-sensitive questions.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "timezone": {
+                            "type": "string",
+                            "description": "IANA timezone name (default: 'UTC'). Examples: 'US/Eastern', 'US/Pacific', 'Europe/London'",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        ]
+
+    async def query(self, prompt: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Send a query to Claude and handle tool calls.
 
         Args:
             prompt: User query
+            context: Optional context dict (e.g., {"source": "quake-copilot"})
 
         Returns:
             Dictionary with response text and metadata
         """
+        # Select system prompt and tools based on context
+        is_general_mode = (context or {}).get("source") == "quake-copilot"
+
+        if is_general_mode:
+            system_prompt = self.general_system_prompt
+            tools = self.tools + self.web_tools  # DevOps + web tools
+            logger.info("Using general-purpose mode (quake-copilot)")
+        else:
+            system_prompt = self.system_prompt
+            tools = self.tools  # DevOps tools only
+            logger.info("Using DevOps mode")
+
         messages = [{"role": "user", "content": prompt}]
 
         logger.info(f"Sending query to Anthropic API: {prompt[:100]}...")
-        logger.debug(f"Tools being sent: {json.dumps(self.tools, indent=2)}")
+        logger.debug(f"Tools being sent: {len(tools)} tools")
 
         # Initial API call
         try:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=self.system_prompt,
+                system=system_prompt,
                 messages=messages,
-                tools=self.tools,
+                tools=tools,
             )
         except Exception as e:
             logger.error(f"Anthropic API error: {e}")
-            logger.error(f"Tool definitions: {json.dumps(self.tools, indent=2)}")
             raise
 
         # Handle tool calls in a loop
@@ -805,9 +902,9 @@ find/replace pairs. Do NOT pass full file content for updates.
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=self.system_prompt,
+                system=system_prompt,
                 messages=messages,
-                tools=self.tools,
+                tools=tools,
             )
 
         # Extract final text response
@@ -863,6 +960,9 @@ find/replace pairs. Do NOT pass full file content for updates.
             "create_remediation_pr": create_remediation_pr,
             "search_past_incidents": self._search_past_incidents,
             "store_incident": self._store_incident,
+            "web_search": web_search,
+            "fetch_webpage": fetch_webpage,
+            "get_current_datetime": get_current_datetime,
         }
 
         if tool_name not in tool_map:
