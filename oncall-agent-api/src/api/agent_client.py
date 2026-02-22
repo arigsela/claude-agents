@@ -824,13 +824,19 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
             },
         ]
 
-    async def query(self, prompt: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def query(
+        self,
+        prompt: str,
+        context: dict[str, Any] | None = None,
+        system_prompt: str | None = None,
+    ) -> dict[str, Any]:
         """
         Send a query to Claude and handle tool calls.
 
         Args:
             prompt: User query
             context: Optional context dict (e.g., {"source": "quake-copilot"})
+            system_prompt: Optional custom system prompt to prepend to the built-in prompt
 
         Returns:
             Dictionary with response text and metadata
@@ -839,13 +845,18 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
         is_general_mode = (context or {}).get("source") == "quake-copilot"
 
         if is_general_mode:
-            system_prompt = self.general_system_prompt
+            selected_prompt = self.general_system_prompt
             tools = self.tools + self.web_tools  # DevOps + web tools
             logger.info("Using general-purpose mode (quake-copilot)")
         else:
-            system_prompt = self.system_prompt
+            selected_prompt = self.system_prompt
             tools = self.tools  # DevOps tools only
             logger.info("Using DevOps mode")
+
+        # Prepend custom system prompt if provided
+        if system_prompt:
+            selected_prompt = f"{system_prompt}\n\n{selected_prompt}"
+            logger.info("Custom system prompt prepended to built-in prompt")
 
         messages = [{"role": "user", "content": prompt}]
 
@@ -857,7 +868,7 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=system_prompt,
+                system=selected_prompt,
                 messages=messages,
                 tools=tools,
             )
@@ -902,7 +913,7 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=system_prompt,
+                system=selected_prompt,
                 messages=messages,
                 tools=tools,
             )
