@@ -5,7 +5,10 @@ Manages stateful sessions for multi-turn conversations
 
 import asyncio
 import contextlib
+import json
 import logging
+import os
+import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -55,6 +58,7 @@ class SessionManager:
         ttl_minutes: int = 30,
         max_sessions_per_user: int = 5,
         cleanup_interval_minutes: int = 5,
+        persist_directory: str | None = None,
     ):
         """
         Initialize session manager.
@@ -63,11 +67,13 @@ class SessionManager:
             ttl_minutes: Session time-to-live in minutes
             max_sessions_per_user: Maximum concurrent sessions per user
             cleanup_interval_minutes: How often to run cleanup task
+            persist_directory: Directory for SQLite persistence. None = in-memory only.
         """
         self.sessions: dict[str, Session] = {}
         self.ttl = timedelta(minutes=ttl_minutes)
         self.max_sessions_per_user = max_sessions_per_user
         self.cleanup_interval = timedelta(minutes=cleanup_interval_minutes)
+        self.persist_directory = persist_directory
 
         # Track sessions by user for limit enforcement
         self.user_sessions: dict[str, list[str]] = {}
@@ -75,9 +81,116 @@ class SessionManager:
         # Cleanup task
         self._cleanup_task: asyncio.Task | None = None
 
+        # SQLite persistence
+        self.conn: sqlite3.Connection | None = None
+        if persist_directory:
+            self._init_db()
+            self._load_sessions_from_db()
+
         logger.info(
             f"SessionManager initialized: TTL={ttl_minutes}min, "
-            f"Max per user={max_sessions_per_user}"
+            f"Max per user={max_sessions_per_user}, "
+            f"Persist={'SQLite @ ' + persist_directory if persist_directory else 'in-memory'}"
+        )
+
+    def _init_db(self) -> None:
+        """Initialize SQLite database for session persistence."""
+        os.makedirs(self.persist_directory, exist_ok=True)
+        db_path = os.path.join(self.persist_directory, "sessions.db")
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_accessed TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}',
+                conversation_history TEXT DEFAULT '[]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_last_accessed ON sessions(last_accessed);
+        """)
+        self.conn.commit()
+        logger.info(f"Session DB initialized at {db_path}")
+
+    def _load_sessions_from_db(self) -> None:
+        """Load non-expired sessions from SQLite into memory on startup."""
+        if not self.conn:
+            return
+        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
+        loaded = 0
+        for row in rows:
+            last_accessed = datetime.fromisoformat(row["last_accessed"])
+            if datetime.now() - last_accessed > self.ttl:
+                # Delete expired row
+                self.conn.execute(
+                    "DELETE FROM sessions WHERE session_id = ?", (row["session_id"],)
+                )
+                continue
+            session = Session(
+                session_id=row["session_id"],
+                user_id=row["user_id"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                last_accessed=last_accessed,
+                metadata=json.loads(row["metadata"]),
+                conversation_history=json.loads(row["conversation_history"]),
+            )
+            self.sessions[session.session_id] = session
+            if session.user_id not in self.user_sessions:
+                self.user_sessions[session.user_id] = []
+            self.user_sessions[session.user_id].append(session.session_id)
+            loaded += 1
+        self.conn.commit()
+        logger.info(f"Loaded {loaded} sessions from DB ({len(rows) - loaded} expired, purged)")
+
+    def _save_session_to_db(self, session: Session) -> None:
+        """Write a session to SQLite (insert or replace)."""
+        if not self.conn:
+            return
+        self.conn.execute(
+            """INSERT OR REPLACE INTO sessions
+               (session_id, user_id, created_at, last_accessed, metadata, conversation_history)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                session.session_id,
+                session.user_id,
+                session.created_at.isoformat(),
+                session.last_accessed.isoformat(),
+                json.dumps(session.metadata),
+                json.dumps(session.conversation_history),
+            ),
+        )
+        self.conn.commit()
+
+    def _delete_session_from_db(self, session_id: str) -> None:
+        """Delete a session from SQLite."""
+        if not self.conn:
+            return
+        self.conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        self.conn.commit()
+
+    def _load_session_from_db(self, session_id: str) -> Session | None:
+        """Try to load a single session from SQLite (fallback on cache miss)."""
+        if not self.conn:
+            return None
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        if not row:
+            return None
+        last_accessed = datetime.fromisoformat(row["last_accessed"])
+        if datetime.now() - last_accessed > self.ttl:
+            self._delete_session_from_db(session_id)
+            return None
+        return Session(
+            session_id=row["session_id"],
+            user_id=row["user_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            last_accessed=last_accessed,
+            metadata=json.loads(row["metadata"]),
+            conversation_history=json.loads(row["conversation_history"]),
         )
 
     def create_session(self, user_id: str, metadata: dict[str, Any] | None = None) -> Session:
@@ -128,6 +241,8 @@ class SessionManager:
             self.user_sessions[user_id] = []
         self.user_sessions[user_id].append(session_id)
 
+        self._save_session_to_db(session)
+
         logger.info(f"Session created: {session_id} for user {user_id}")
         return session
 
@@ -143,6 +258,18 @@ class SessionManager:
         """
         session = self.sessions.get(session_id)
 
+        # Fallback: try loading from SQLite on cache miss
+        if session is None:
+            session = self._load_session_from_db(session_id)
+            if session:
+                # Re-populate memory cache and user tracking
+                self.sessions[session.session_id] = session
+                if session.user_id not in self.user_sessions:
+                    self.user_sessions[session.user_id] = []
+                if session.session_id not in self.user_sessions[session.user_id]:
+                    self.user_sessions[session.user_id].append(session.session_id)
+                logger.info(f"Session loaded from DB fallback: {session_id}")
+
         if session is None:
             logger.debug(f"Session not found: {session_id}")
             return None
@@ -154,6 +281,7 @@ class SessionManager:
 
         # Update last accessed time
         session.last_accessed = datetime.now()
+        self._save_session_to_db(session)
         return session
 
     def update_session(
@@ -184,6 +312,7 @@ class SessionManager:
             session.metadata.update(metadata_update)
 
         session.last_accessed = datetime.now()
+        self._save_session_to_db(session)
         logger.debug(f"Session updated: {session_id}")
         return True
 
@@ -205,6 +334,7 @@ class SessionManager:
                 with contextlib.suppress(ValueError):
                     self.user_sessions[session.user_id].remove(session_id)
 
+            self._delete_session_from_db(session_id)
             logger.info(f"Session deleted: {session_id}")
             return True
 
@@ -283,6 +413,14 @@ class SessionManager:
 
                 for session_id in expired:
                     self.delete_session(session_id)
+
+                # Also purge expired rows that may only exist in SQLite
+                if self.conn:
+                    cutoff = (datetime.now() - self.ttl).isoformat()
+                    self.conn.execute(
+                        "DELETE FROM sessions WHERE last_accessed < ?", (cutoff,)
+                    )
+                    self.conn.commit()
 
                 if expired:
                     logger.info(f"Cleaned up {len(expired)} expired sessions")
