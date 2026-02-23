@@ -770,6 +770,104 @@ async def create_remediation_pr(args: dict[str, Any]) -> dict[str, Any]:
 
 
 # ============================================================
+# Document PR Tools (using PyGithub)
+# ============================================================
+
+
+async def create_document_pr(args: dict[str, Any]) -> dict[str, Any]:
+    """Create a PR in the docs repo to save a markdown document.
+
+    Use this to persist any document, guide, runbook, or reference material
+    the agent generates. Files are saved under docs/ in the claude-agents repo.
+
+    Args:
+        filename: Markdown filename (e.g., 'kubernetes-interview-questions.md')
+        content: Full markdown content to save
+        description: Brief description for PR title and commit message
+
+    Returns:
+        Dictionary with pr_number, pr_url, branch, and file_path
+    """
+    filename = args.get("filename", "")
+    content = args.get("content", "")
+    description = args.get("description", "")
+
+    # Validate required fields
+    if not filename:
+        return {"error": "filename is required"}
+    if not content:
+        return {"error": "content is required"}
+    if not description:
+        return {"error": "description is required"}
+
+    # Reject path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return {"error": f"Invalid filename '{filename}': must be a plain filename without path separators or '..'"}
+
+    # Ensure .md extension
+    if not filename.endswith(".md"):
+        filename = f"{filename}.md"
+
+    # Build file path under docs/
+    file_path = f"docs/{filename}"
+
+    # Get repo configuration
+    docs_repo = os.getenv("DOCS_REPO", "arigsela/claude-agents")
+
+    try:
+        gh = _get_github_client()
+        repo = gh.get_repo(docs_repo)
+
+        # Create branch name with timestamp
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        safe_name = re.sub(r"[^a-zA-Z0-9-]", "-", filename.replace(".md", "").lower())[:40]
+        branch_name = f"oncall-agent/docs-{safe_name}-{timestamp}"
+
+        # Get the base branch ref
+        default_branch = repo.default_branch
+        base_ref = repo.get_git_ref(f"heads/{default_branch}")
+        base_sha = base_ref.object.sha
+
+        # Create the new branch
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base_sha)
+
+        # Create the file on the new branch
+        repo.create_file(
+            path=file_path,
+            message=f"oncall-agent: add {filename} - {description}",
+            content=content,
+            branch=branch_name,
+        )
+
+        # Create PR
+        pr = repo.create_pull(
+            title=f"[oncall-agent] docs: {description}",
+            body=f"## Document PR\n\n**File**: `{file_path}`\n**Description**: {description}\n\n---\n*Created by oncall-agent-api*",
+            head=branch_name,
+            base=default_branch,
+        )
+
+        # Add labels
+        try:
+            pr.add_to_labels("oncall-agent", "docs")
+        except Exception as label_err:
+            logger.warning(f"Could not add labels to PR: {label_err}")
+
+        logger.info(f"Created document PR #{pr.number}: {pr.html_url}")
+
+        return {
+            "pr_number": pr.number,
+            "pr_url": pr.html_url,
+            "branch": branch_name,
+            "file_path": file_path,
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating document PR: {e}")
+        return {"error": str(e), "filename": filename}
+
+
+# ============================================================
 # Analysis Tools (combining multiple data sources)
 # ============================================================
 

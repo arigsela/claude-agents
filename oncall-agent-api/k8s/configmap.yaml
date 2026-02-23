@@ -19,6 +19,9 @@ data:
   GITOPS_BASE_PATH: "base-apps/"
   GITOPS_BASE_BRANCH: "main"
 
+  # Document PR Creation
+  DOCS_REPO: "arigsela/claude-agents"
+
   # AWS configuration (ECR image checks, Secrets Manager verification)
   AWS_REGION: "us-east-2"
 
