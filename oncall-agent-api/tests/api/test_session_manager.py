@@ -166,51 +166,41 @@ def test_get_stats(session_manager):
     stats = session_manager.get_stats()
 
     assert stats["total_sessions"] == 3
-    assert stats["active_sessions"] >= 0
     assert stats["total_users"] == 2
     assert stats["max_sessions_per_user"] == 3
 
 
 @pytest.mark.asyncio
-async def test_session_expiration():
-    """Test session expiration"""
-    # Create manager with very short TTL
-    manager = SessionManager(ttl_minutes=0.01)  # ~0.6 seconds
+async def test_sessions_never_expire():
+    """Test that sessions persist indefinitely (no TTL expiration)."""
+    manager = SessionManager(ttl_minutes=0.01)  # TTL ignored
 
-    # Create session
     session = manager.create_session("test-user")
 
-    # Wait for expiration
     await asyncio.sleep(1)
 
-    # Session should be expired
+    # Session should still be accessible
     retrieved = manager.get_session(session.session_id)
-    assert retrieved is None
+    assert retrieved is not None
+    assert retrieved.session_id == session.session_id
 
 
 @pytest.mark.asyncio
-async def test_cleanup_task():
-    """Test automatic cleanup task"""
-    # Create manager with short TTL and cleanup interval
+async def test_cleanup_task_preserves_sessions():
+    """Test that cleanup task does not delete sessions."""
     manager = SessionManager(ttl_minutes=0.01, cleanup_interval_minutes=0.01)
 
-    # Create sessions
     session1 = manager.create_session("user1")
     session2 = manager.create_session("user2")
 
-    # Start cleanup task
     cleanup_task = manager.start_cleanup_task()
-
-    # Wait for sessions to expire and cleanup to run
     await asyncio.sleep(2)
-
-    # Stop cleanup task
     manager.stop_cleanup_task()
     await cleanup_task
 
-    # Sessions should be cleaned up
+    # Sessions should still exist
     stats = manager.get_stats()
-    assert stats["active_sessions"] == 0
+    assert stats["total_sessions"] == 2
 
 
 def test_session_to_dict(session_manager):
@@ -265,26 +255,25 @@ class TestSessionPersistence:
         assert len(restored.conversation_history) == 1
         assert restored.conversation_history[0]["query"] == "hello"
 
-    def test_expired_sessions_not_loaded_on_restart(self, tmp_path):
-        """Expired sessions are purged during startup load, not restored."""
+    def test_old_sessions_loaded_on_restart(self, tmp_path):
+        """All sessions are loaded on restart regardless of age."""
         persist_dir = str(tmp_path)
 
-        # Create a session with a very short TTL
         mgr1 = SessionManager(ttl_minutes=0.001, persist_directory=persist_dir)
         session = mgr1.create_session("user-1")
         sid = session.session_id
 
         import time
-        time.sleep(0.2)  # Let it expire
+        time.sleep(0.2)
 
-        # Re-init: expired session should not be loaded
+        # Re-init: session should still be loaded (no expiration)
         mgr2 = SessionManager(ttl_minutes=0.001, persist_directory=persist_dir)
-        assert mgr2.get_session(sid) is None
-        assert len(mgr2.sessions) == 0
+        assert mgr2.get_session(sid) is not None
+        assert len(mgr2.sessions) == 1
 
     @pytest.mark.asyncio
-    async def test_cleanup_removes_from_both_stores(self, tmp_path):
-        """Cleanup task removes expired sessions from memory AND SQLite."""
+    async def test_cleanup_preserves_persistent_sessions(self, tmp_path):
+        """Cleanup task does not remove sessions from memory or SQLite."""
         persist_dir = str(tmp_path)
         mgr = SessionManager(
             ttl_minutes=0.01, cleanup_interval_minutes=0.01, persist_directory=persist_dir
@@ -296,17 +285,17 @@ class TestSessionPersistence:
         row = mgr.conn.execute("SELECT * FROM sessions WHERE session_id = ?", (sid,)).fetchone()
         assert row is not None
 
-        # Start cleanup and wait for expiration + cleanup cycle
+        # Start cleanup and wait
         task = mgr.start_cleanup_task()
         await asyncio.sleep(2)
         mgr.stop_cleanup_task()
         await task
 
-        # Memory cleared
-        assert sid not in mgr.sessions
-        # SQLite cleared
+        # Session should still exist in memory
+        assert sid in mgr.sessions
+        # Session should still exist in SQLite
         row = mgr.conn.execute("SELECT * FROM sessions WHERE session_id = ?", (sid,)).fetchone()
-        assert row is None
+        assert row is not None
 
     def test_fallback_read_from_sqlite(self, tmp_path):
         """If session is missing from memory but exists in SQLite, it's loaded on get."""

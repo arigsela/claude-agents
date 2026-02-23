@@ -116,24 +116,16 @@ class SessionManager:
         logger.info(f"Session DB initialized at {db_path}")
 
     def _load_sessions_from_db(self) -> None:
-        """Load non-expired sessions from SQLite into memory on startup."""
+        """Load all sessions from SQLite into memory on startup."""
         if not self.conn:
             return
         rows = self.conn.execute("SELECT * FROM sessions").fetchall()
-        loaded = 0
         for row in rows:
-            last_accessed = datetime.fromisoformat(row["last_accessed"])
-            if datetime.now() - last_accessed > self.ttl:
-                # Delete expired row
-                self.conn.execute(
-                    "DELETE FROM sessions WHERE session_id = ?", (row["session_id"],)
-                )
-                continue
             session = Session(
                 session_id=row["session_id"],
                 user_id=row["user_id"],
                 created_at=datetime.fromisoformat(row["created_at"]),
-                last_accessed=last_accessed,
+                last_accessed=datetime.fromisoformat(row["last_accessed"]),
                 metadata=json.loads(row["metadata"]),
                 conversation_history=json.loads(row["conversation_history"]),
             )
@@ -141,9 +133,7 @@ class SessionManager:
             if session.user_id not in self.user_sessions:
                 self.user_sessions[session.user_id] = []
             self.user_sessions[session.user_id].append(session.session_id)
-            loaded += 1
-        self.conn.commit()
-        logger.info(f"Loaded {loaded} sessions from DB ({len(rows) - loaded} expired, purged)")
+        logger.info(f"Loaded {len(rows)} sessions from DB")
 
     def _save_session_to_db(self, session: Session) -> None:
         """Write a session to SQLite (insert or replace)."""
@@ -180,15 +170,11 @@ class SessionManager:
         ).fetchone()
         if not row:
             return None
-        last_accessed = datetime.fromisoformat(row["last_accessed"])
-        if datetime.now() - last_accessed > self.ttl:
-            self._delete_session_from_db(session_id)
-            return None
         return Session(
             session_id=row["session_id"],
             user_id=row["user_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
-            last_accessed=last_accessed,
+            last_accessed=datetime.fromisoformat(row["last_accessed"]),
             metadata=json.loads(row["metadata"]),
             conversation_history=json.loads(row["conversation_history"]),
         )
@@ -209,11 +195,7 @@ class SessionManager:
         """
         # Check user's session count
         user_session_ids = self.user_sessions.get(user_id, [])
-        active_sessions = [
-            sid
-            for sid in user_session_ids
-            if sid in self.sessions and not self._is_expired(self.sessions[sid])
-        ]
+        active_sessions = [sid for sid in user_session_ids if sid in self.sessions]
 
         if len(active_sessions) >= self.max_sessions_per_user:
             # Clean up oldest session to make room
@@ -272,11 +254,6 @@ class SessionManager:
 
         if session is None:
             logger.debug(f"Session not found: {session_id}")
-            return None
-
-        if self._is_expired(session):
-            logger.info(f"Session expired: {session_id}")
-            self.delete_session(session_id)
             return None
 
         # Update last accessed time
@@ -368,65 +345,27 @@ class SessionManager:
             Dictionary with session counts and metrics
         """
         total_sessions = len(self.sessions)
-        active_sessions = sum(1 for s in self.sessions.values() if not self._is_expired(s))
-        expired_sessions = total_sessions - active_sessions
         total_users = len(self.user_sessions)
 
         return {
             "total_sessions": total_sessions,
-            "active_sessions": active_sessions,
-            "expired_sessions": expired_sessions,
             "total_users": total_users,
-            "ttl_minutes": self.ttl.total_seconds() / 60,
             "max_sessions_per_user": self.max_sessions_per_user,
         }
 
-    def _is_expired(self, session: Session) -> bool:
-        """
-        Check if a session has expired.
-
-        Args:
-            session: Session to check
-
-        Returns:
-            True if expired, False otherwise
-        """
-        age = datetime.now() - session.last_accessed
-        return age > self.ttl
-
     async def cleanup_expired_sessions(self):
         """
-        Background task to cleanup expired sessions.
+        Background task placeholder (sessions no longer expire).
 
-        Runs periodically based on cleanup_interval.
+        Sessions persist indefinitely. The max_sessions_per_user limit
+        handles natural eviction when new sessions are created.
         """
-        logger.info("Session cleanup task started")
+        logger.info("Session cleanup task started (no-op: sessions persist indefinitely)")
 
         while True:
             try:
                 await asyncio.sleep(self.cleanup_interval.total_seconds())
-
-                expired = []
-                for session_id, session in list(self.sessions.items()):
-                    if self._is_expired(session):
-                        expired.append(session_id)
-
-                for session_id in expired:
-                    self.delete_session(session_id)
-
-                # Also purge expired rows that may only exist in SQLite
-                if self.conn:
-                    cutoff = (datetime.now() - self.ttl).isoformat()
-                    self.conn.execute(
-                        "DELETE FROM sessions WHERE last_accessed < ?", (cutoff,)
-                    )
-                    self.conn.commit()
-
-                if expired:
-                    logger.info(f"Cleaned up {len(expired)} expired sessions")
-                else:
-                    logger.debug("No expired sessions to clean up")
-
+                logger.debug(f"Active sessions: {len(self.sessions)}")
             except asyncio.CancelledError:
                 logger.info("Session cleanup task cancelled")
                 break
