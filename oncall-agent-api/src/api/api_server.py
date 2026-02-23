@@ -60,10 +60,14 @@ async def lifespan(app: FastAPI):
         # Initialize session manager
         ttl_minutes = int(os.getenv("SESSION_TTL_MINUTES", "30"))
         max_sessions = int(os.getenv("MAX_SESSIONS_PER_USER", "5"))
+        session_persist_path = os.getenv("SESSION_PERSIST_PATH")
 
         logger.info("Initializing SessionManager...")
         session_manager = SessionManager(
-            ttl_minutes=ttl_minutes, max_sessions_per_user=max_sessions, cleanup_interval_minutes=5
+            ttl_minutes=ttl_minutes,
+            max_sessions_per_user=max_sessions,
+            cleanup_interval_minutes=5,
+            persist_directory=session_persist_path,
         )
         session_manager.start_cleanup_task()
         logger.info("✅ SessionManager initialized")

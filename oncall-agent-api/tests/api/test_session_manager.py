@@ -4,6 +4,7 @@ Tests for SessionManager
 
 import pytest
 import asyncio
+import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -16,8 +17,14 @@ from src.api.session_manager import SessionManager, Session
 
 @pytest.fixture
 def session_manager():
-    """Create a SessionManager instance for testing"""
+    """Create a SessionManager instance for testing (in-memory only)"""
     return SessionManager(ttl_minutes=1, max_sessions_per_user=3)
+
+
+@pytest.fixture
+def persistent_manager(tmp_path):
+    """Create a SessionManager with SQLite persistence for testing"""
+    return SessionManager(ttl_minutes=1, max_sessions_per_user=3, persist_directory=str(tmp_path))
 
 
 def test_create_session(session_manager):
@@ -231,3 +238,119 @@ def test_session_to_dict(session_manager):
     assert "conversation_history" in session_dict
     assert "message_count" in session_dict
     assert session_dict["message_count"] == 1
+
+
+# ─── Persistence Tests ───
+
+
+class TestSessionPersistence:
+    """Tests for SQLite-backed session persistence."""
+
+    def test_sessions_survive_restart(self, tmp_path):
+        """Sessions created in one manager instance are available after re-init (simulates pod restart)."""
+        persist_dir = str(tmp_path)
+
+        # First instance: create a session with conversation history
+        mgr1 = SessionManager(ttl_minutes=30, persist_directory=persist_dir)
+        session = mgr1.create_session("user-1", metadata={"team": "devops"})
+        mgr1.update_session(session.session_id, conversation_entry={"query": "hello", "response": "hi"})
+
+        # Second instance: should load the session from DB
+        mgr2 = SessionManager(ttl_minutes=30, persist_directory=persist_dir)
+        restored = mgr2.get_session(session.session_id)
+
+        assert restored is not None
+        assert restored.user_id == "user-1"
+        assert restored.metadata == {"team": "devops"}
+        assert len(restored.conversation_history) == 1
+        assert restored.conversation_history[0]["query"] == "hello"
+
+    def test_expired_sessions_not_loaded_on_restart(self, tmp_path):
+        """Expired sessions are purged during startup load, not restored."""
+        persist_dir = str(tmp_path)
+
+        # Create a session with a very short TTL
+        mgr1 = SessionManager(ttl_minutes=0.001, persist_directory=persist_dir)
+        session = mgr1.create_session("user-1")
+        sid = session.session_id
+
+        import time
+        time.sleep(0.2)  # Let it expire
+
+        # Re-init: expired session should not be loaded
+        mgr2 = SessionManager(ttl_minutes=0.001, persist_directory=persist_dir)
+        assert mgr2.get_session(sid) is None
+        assert len(mgr2.sessions) == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_from_both_stores(self, tmp_path):
+        """Cleanup task removes expired sessions from memory AND SQLite."""
+        persist_dir = str(tmp_path)
+        mgr = SessionManager(
+            ttl_minutes=0.01, cleanup_interval_minutes=0.01, persist_directory=persist_dir
+        )
+        session = mgr.create_session("user-1")
+        sid = session.session_id
+
+        # Verify row exists in DB
+        row = mgr.conn.execute("SELECT * FROM sessions WHERE session_id = ?", (sid,)).fetchone()
+        assert row is not None
+
+        # Start cleanup and wait for expiration + cleanup cycle
+        task = mgr.start_cleanup_task()
+        await asyncio.sleep(2)
+        mgr.stop_cleanup_task()
+        await task
+
+        # Memory cleared
+        assert sid not in mgr.sessions
+        # SQLite cleared
+        row = mgr.conn.execute("SELECT * FROM sessions WHERE session_id = ?", (sid,)).fetchone()
+        assert row is None
+
+    def test_fallback_read_from_sqlite(self, tmp_path):
+        """If session is missing from memory but exists in SQLite, it's loaded on get."""
+        persist_dir = str(tmp_path)
+        mgr = SessionManager(ttl_minutes=30, persist_directory=persist_dir)
+        session = mgr.create_session("user-1")
+        sid = session.session_id
+
+        # Manually evict from memory (simulate partial cache loss)
+        del mgr.sessions[sid]
+        mgr.user_sessions["user-1"].remove(sid)
+
+        # get_session should fallback to SQLite
+        restored = mgr.get_session(sid)
+        assert restored is not None
+        assert restored.session_id == sid
+        assert restored.user_id == "user-1"
+        # Should be back in memory cache
+        assert sid in mgr.sessions
+
+    def test_no_persist_directory_is_pure_in_memory(self):
+        """Without persist_directory, SessionManager behaves exactly as before (backward compat)."""
+        mgr = SessionManager(ttl_minutes=30)
+        assert mgr.conn is None
+        assert mgr.persist_directory is None
+
+        session = mgr.create_session("user-1")
+        assert mgr.get_session(session.session_id) is not None
+        mgr.delete_session(session.session_id)
+        assert mgr.get_session(session.session_id) is None
+
+    def test_delete_removes_from_sqlite(self, tmp_path):
+        """Deleting a session removes it from SQLite too."""
+        persist_dir = str(tmp_path)
+        mgr = SessionManager(ttl_minutes=30, persist_directory=persist_dir)
+        session = mgr.create_session("user-1")
+        sid = session.session_id
+
+        mgr.delete_session(sid)
+
+        # Verify gone from SQLite
+        row = mgr.conn.execute("SELECT * FROM sessions WHERE session_id = ?", (sid,)).fetchone()
+        assert row is None
+
+        # New manager should not find it
+        mgr2 = SessionManager(ttl_minutes=30, persist_directory=persist_dir)
+        assert mgr2.get_session(sid) is None
