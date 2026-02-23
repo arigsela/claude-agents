@@ -15,6 +15,7 @@ from api.custom_tools import (
     analyze_zeus_refreshes,
     check_nat_gateway_metrics,
     check_network_traffic,
+    create_document_pr,
     create_remediation_pr,
     fetch_webpage,
     find_zeus_jobs_by_client,
@@ -129,6 +130,7 @@ Correlation: Pod restart loops (5+) -> Check recent ArgoCD sync, GitHub PR, ECR 
 - get_gitops_file: Read a manifest from the GitOps repo (arigsela/kubernetes)
 - list_gitops_directory: Discover manifest files for a service under base-apps/
 - create_remediation_pr: Create a PR with changes (REQUIRES user confirmation)
+- create_document_pr: Save a markdown document to docs/ as a PR in the claude-agents repo. Use when asked to create, write, or save any document, guide, runbook, or reference material.
 
 **PR CREATION WORKFLOW** (MUST follow this order):
 1. Diagnose the issue using K8s tools
@@ -762,6 +764,28 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
                     "required": ["service", "action_summary", "changes", "incident_context", "reason"],
                 },
             },
+            {
+                "name": "create_document_pr",
+                "description": "Save a markdown document (guide, runbook, interview questions, reference material, etc.) as a PR in the claude-agents docs/ folder. Use when asked to create, write, save, or generate any document, guide, or reference material.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "Markdown filename (e.g., 'kubernetes-interview-questions.md'). Will have .md appended if missing.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Full markdown content of the document",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Brief description for the PR title and commit message",
+                        },
+                    },
+                    "required": ["filename", "content", "description"],
+                },
+            },
         ]
 
     def _define_web_tools(self) -> list[dict[str, Any]]:
@@ -969,6 +993,7 @@ You also have access to Kubernetes, GitHub, AWS, and Datadog tools for infrastru
             "get_gitops_file": get_gitops_file,
             "list_gitops_directory": list_gitops_directory,
             "create_remediation_pr": create_remediation_pr,
+            "create_document_pr": create_document_pr,
             "search_past_incidents": self._search_past_incidents,
             "store_incident": self._store_incident,
             "web_search": web_search,
