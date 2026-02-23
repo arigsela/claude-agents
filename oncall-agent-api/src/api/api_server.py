@@ -254,7 +254,9 @@ async def query_agent(
             logger.info(f"Session history: {len(session.conversation_history)} messages")
 
         # Query the agent (using Anthropic SDK)
-        agent_result = await agent.query(full_query)
+        agent_result = await agent.query(
+            full_query, context=query_request.context, system_prompt=query_request.system_prompt
+        )
 
         # Format response
         formatted_responses = [

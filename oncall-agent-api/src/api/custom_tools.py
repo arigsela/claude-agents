@@ -10,6 +10,7 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from github import Github
 from kubernetes import client, config
@@ -1524,3 +1525,154 @@ async def get_ec2_costs_by_tags(args: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting EC2 costs by tags: {e}", exc_info=True)
         return {"error": str(e), "days_back": days_back, "tag_keys": tag_keys}
+
+
+# ============================================================
+# Web Search & Data Retrieval Tools (Tavily + httpx)
+# ============================================================
+
+
+async def web_search(args: dict[str, Any]) -> dict[str, Any]:
+    """Search the web using Tavily API.
+
+    Args:
+        query: Search query string (required)
+        max_results: Maximum results to return (default 5)
+        search_depth: "basic" or "advanced" (default "basic")
+
+    Returns:
+        Dictionary with search results, query, and AI-generated answer
+    """
+    query = args.get("query", "")
+    max_results = args.get("max_results", 5)
+    search_depth = args.get("search_depth", "basic")
+
+    if not query:
+        return {"error": "query is required"}
+
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return {
+            "error": "TAVILY_API_KEY not configured. Web search is unavailable.",
+            "query": query,
+            "results": [],
+        }
+
+    try:
+        from tavily import AsyncTavilyClient
+
+        client = AsyncTavilyClient(api_key=api_key)
+        response = await client.search(
+            query=query,
+            max_results=max_results,
+            search_depth=search_depth,
+        )
+
+        # Truncate individual result content to avoid token bloat
+        results = []
+        for r in response.get("results", []):
+            content = r.get("content", "")
+            if len(content) > 1000:
+                content = content[:1000] + "..."
+            results.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": content,
+                "score": r.get("score", 0),
+            })
+
+        return {
+            "query": query,
+            "answer": response.get("answer", ""),
+            "results": results,
+            "result_count": len(results),
+        }
+
+    except Exception as e:
+        logger.error(f"Error in web search: {e}")
+        return {"error": str(e), "query": query, "results": []}
+
+
+async def fetch_webpage(args: dict[str, Any]) -> dict[str, Any]:
+    """Fetch and extract text content from a webpage.
+
+    Args:
+        url: URL to fetch (required)
+        max_length: Maximum content length in characters (default 5000)
+
+    Returns:
+        Dictionary with URL, title, extracted text content, and content length
+    """
+    import httpx
+    from bs4 import BeautifulSoup
+
+    url = args.get("url", "")
+    max_length = args.get("max_length", 5000)
+
+    if not url:
+        return {"error": "url is required"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Remove script and style elements
+        for element in soup(["script", "style", "nav", "footer", "header"]):
+            element.decompose()
+
+        # Extract title
+        title = soup.title.string.strip() if soup.title and soup.title.string else ""
+
+        # Extract body text
+        body = soup.find("body")
+        text = body.get_text(separator="\n", strip=True) if body else soup.get_text(separator="\n", strip=True)
+
+        # Truncate to max_length
+        if len(text) > max_length:
+            text = text[:max_length] + "..."
+
+        return {
+            "url": url,
+            "title": title,
+            "content": text,
+            "content_length": len(text),
+        }
+
+    except httpx.TimeoutException:
+        return {"error": f"Timeout fetching {url}", "url": url}
+    except httpx.HTTPStatusError as e:
+        return {"error": f"HTTP {e.response.status_code} for {url}", "url": url}
+    except Exception as e:
+        logger.error(f"Error fetching webpage: {e}")
+        return {"error": str(e), "url": url}
+
+
+async def get_current_datetime(args: dict[str, Any]) -> dict[str, Any]:
+    """Get the current date, time, and timezone information.
+
+    Args:
+        timezone: Timezone name (default "UTC"), e.g., "US/Eastern", "Europe/London"
+
+    Returns:
+        Dictionary with current date, time, day of week, and unix timestamp
+    """
+    tz_name = args.get("timezone", "UTC")
+
+    try:
+        tz = ZoneInfo(tz_name)
+    except (KeyError, Exception):
+        return {"error": f"Unknown timezone: {tz_name}. Use IANA timezone names like 'US/Eastern', 'Europe/London', 'UTC'."}
+
+    now = datetime.now(tz)
+
+    return {
+        "timezone": tz_name,
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "day_of_week": now.strftime("%A"),
+        "iso": now.isoformat(),
+        "unix_timestamp": int(now.timestamp()),
+    }

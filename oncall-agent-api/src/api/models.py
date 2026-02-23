@@ -29,6 +29,11 @@ class QueryRequest(BaseModel):
     session_id: str | None = Field(
         default=None, description="Session ID for multi-turn conversations"
     )
+    system_prompt: str | None = Field(
+        default=None,
+        max_length=10000,
+        description="Optional system prompt to prepend to the agent's built-in prompt",
+    )
 
     @field_validator("namespace")
     @classmethod
@@ -44,6 +49,7 @@ class QueryRequest(BaseModel):
                 "prompt": "What services are currently experiencing issues?",
                 "namespace": "chores-tracker-backend",
                 "context": {"user": "ari", "source": "n8n-chat"},
+                "system_prompt": "Focus on memory-related issues and provide metrics.",
             }
         }
     )
