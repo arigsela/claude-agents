@@ -13,10 +13,11 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from github_agent.executor import GitHubAgentExecutor
+from shared.config import API_KEYS
 from shared.logging_config import setup_logging
 
 logger = setup_logging("github-server")
@@ -78,6 +79,23 @@ def create_app() -> FastAPI:
         title="GitHub GitOps A2A Agent",
         version="0.1.0",
     )
+
+    # Auth middleware — enforce API key on all routes except health/discovery
+    @fastapi_app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        if request.url.path == "/health" or request.url.path.startswith("/.well-known/"):
+            return await call_next(request)
+        if API_KEYS:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+            else:
+                token = request.headers.get("X-API-Key", "")
+            if token not in API_KEYS:
+                return JSONResponse(
+                    {"detail": "Invalid API key"}, status_code=401
+                )
+        return await call_next(request)
 
     @fastapi_app.get("/health")
     async def health():

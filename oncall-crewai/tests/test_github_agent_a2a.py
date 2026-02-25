@@ -88,6 +88,74 @@ class TestAgentCard:
 
 
 # ============================================================
+# Auth middleware
+# ============================================================
+
+
+class TestAuthMiddleware:
+    @pytest.fixture
+    def auth_app(self, mock_env, monkeypatch):
+        """Create app with API_KEYS enforced."""
+        import github_agent.server as server_module
+
+        monkeypatch.setattr(
+            server_module, "API_KEYS", ["test-api-key-1", "test-api-key-2"]
+        )
+        return server_module.create_app()
+
+    @pytest.fixture
+    async def auth_client(self, auth_app):
+        transport = ASGITransport(app=auth_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+    @pytest.mark.asyncio
+    async def test_health_no_auth_required(self, auth_client):
+        response = await auth_client.get("/health")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_agent_card_no_auth_required(self, auth_client):
+        response = await auth_client.get("/.well-known/agent.json")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_post_without_key_returns_401(self, auth_client):
+        response = await auth_client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "message/send", "id": "1"},
+        )
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_post_with_valid_x_api_key(self, auth_client):
+        response = await auth_client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "message/send", "id": "1"},
+            headers={"X-API-Key": "test-api-key-1"},
+        )
+        assert response.status_code != 401
+
+    @pytest.mark.asyncio
+    async def test_post_with_valid_bearer_token(self, auth_client):
+        response = await auth_client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "message/send", "id": "1"},
+            headers={"Authorization": "Bearer test-api-key-2"},
+        )
+        assert response.status_code != 401
+
+    @pytest.mark.asyncio
+    async def test_post_with_invalid_key_returns_401(self, auth_client):
+        response = await auth_client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "message/send", "id": "1"},
+            headers={"X-API-Key": "wrong-key"},
+        )
+        assert response.status_code == 401
+
+
+# ============================================================
 # Executor unit tests
 # ============================================================
 
