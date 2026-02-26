@@ -8,10 +8,11 @@ Includes @persist for crash recovery and enriched delegate tasks.
 """
 
 import concurrent.futures
+import uuid
 
 from crewai import Crew, Task
 from crewai.flow.flow import Flow, listen, router, start
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from orchestrator.agents import create_github_delegate, create_k8s_delegate
 from orchestrator.prompts import GITHUB_KEYWORDS, K8S_KEYWORDS
@@ -33,6 +34,7 @@ except ImportError:
 class OncallFlowState(BaseModel):
     """State tracked across the flow."""
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str = ""
     route: str = ""
     k8s_result: str = ""
