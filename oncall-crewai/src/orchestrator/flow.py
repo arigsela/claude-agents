@@ -148,7 +148,7 @@ def _build_flow_class():
                     agents=[agent],
                     tasks=[task],
                     verbose=CREWAI_VERBOSE,
-                    output_log_file=True,
+                    output_log_file="/tmp/crewai-logs.txt",
                     task_callback=task_completion_callback,
                 )
                 # Run in a separate thread -- flow.kickoff() already owns the event
@@ -186,7 +186,7 @@ def _build_flow_class():
                     agents=[agent],
                     tasks=[task],
                     verbose=CREWAI_VERBOSE,
-                    output_log_file=True,
+                    output_log_file="/tmp/crewai-logs.txt",
                     task_callback=task_completion_callback,
                 )
                 with concurrent.futures.ThreadPoolExecutor() as pool:

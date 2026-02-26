@@ -106,7 +106,7 @@ def invoke(query: str, context_id: str = "") -> str:
         cache=False,
         planning=True,
         planning_llm=ANTHROPIC_MODEL,
-        output_log_file=True,
+        output_log_file="/tmp/crewai-logs.txt",
         task_callback=task_completion_callback,
     )
 
