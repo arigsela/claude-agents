@@ -1,0 +1,6 @@
+{
+  "name": "crewai-agent-design",
+  "version": "1.0.0",
+  "description": "Master the art of designing effective CrewAI agents with the Role-Goal-Backstory framework, context window management, reasoning mode, and best practices.",
+  "author": { "name": "Arisela" }
+}

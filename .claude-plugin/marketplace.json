@@ -63,6 +63,31 @@
       "name": "olympus-customer-deletion",
       "source": "./skills/olympus-customer-deletion",
       "description": "Standardized workflow for Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction."
+    },
+    {
+      "name": "crewai-agent-design",
+      "source": "./skills/crewai-agent-design",
+      "description": "Master the art of designing effective CrewAI agents with the Role-Goal-Backstory framework, context window management, reasoning mode, and best practices."
+    },
+    {
+      "name": "crewai-crew-orchestration",
+      "source": "./skills/crewai-crew-orchestration",
+      "description": "Build and orchestrate multi-agent CrewAI systems with crews, tasks, flows, processes, and production architecture patterns."
+    },
+    {
+      "name": "crewai-tool-development",
+      "source": "./skills/crewai-tool-development",
+      "description": "Extend CrewAI agent capabilities with custom tools (BaseTool, @tool decorator), async tools, MCP server integration, and the built-in tools catalog."
+    },
+    {
+      "name": "crewai-testing-observability",
+      "source": "./skills/crewai-testing-observability",
+      "description": "Test, monitor, and customize CrewAI applications with CLI testing, event listeners, fingerprinting, prompt customization, and multimodal file handling."
+    },
+    {
+      "name": "crewai-memory-knowledge",
+      "source": "./skills/crewai-memory-knowledge",
+      "description": "Give CrewAI agents persistent context with unified memory (scopes, slices, composite scoring) and domain knowledge (RAG sources, embedders, custom sources)."
     }
   ]
 }
