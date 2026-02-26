@@ -132,8 +132,19 @@ for entry in "${SERVICES[@]}"; do
     echo ""
 done
 
-# Step 4: Verify in ECR
-echo -e "${BLUE}Step 4: Verifying in ECR...${NC}"
+# Service name -> K8s deployment name mapping
+declare -A DEPLOY_NAMES=(
+  ["orchestrator"]="crewai-orchestrator"
+  ["k8s-agent"]="k8s-agent-a2a"
+  ["github-agent"]="github-agent-a2a"
+  ["frontend"]="crewai-frontend"
+)
+
+NAMESPACE="oncall-crewai"
+
+# Step 4: Rolling restart deployments
+echo -e "${BLUE}Step 4: Rolling out deployments in $NAMESPACE...${NC}"
+ROLLOUT_OK=true
 for entry in "${SERVICES[@]}"; do
     IFS='|' read -r name repo dockerfile <<< "$entry"
 
@@ -141,16 +152,37 @@ for entry in "${SERVICES[@]}"; do
         continue
     fi
 
-    echo ""
-    echo "  $name ($repo):"
-    aws ecr describe-images \
-      --repository-name "$repo" \
-      --region $REGION \
-      --output table \
-      --query 'sort_by(imageDetails,& imagePushedAt)[-1].[imageTags[0],imagePushedAt]' 2>/dev/null || \
-      echo "    (could not verify)"
+    deploy_name="${DEPLOY_NAMES[$name]}"
+    echo -e "  ${YELLOW}Restarting: $deploy_name${NC}"
+    if kubectl rollout restart deployment/"$deploy_name" -n "$NAMESPACE" 2>/dev/null; then
+        echo -e "  ${GREEN}Rollout triggered: $deploy_name${NC}"
+    else
+        echo -e "  ${RED}Rollout failed: $deploy_name (is kubectl configured?)${NC}"
+        ROLLOUT_OK=false
+    fi
 done
 echo ""
+
+# Step 5: Wait for rollouts to complete
+if $ROLLOUT_OK; then
+    echo -e "${BLUE}Step 5: Waiting for rollouts to complete...${NC}"
+    for entry in "${SERVICES[@]}"; do
+        IFS='|' read -r name repo dockerfile <<< "$entry"
+
+        if [[ "$SERVICE_FILTER" != "all" && "$SERVICE_FILTER" != "$name" ]]; then
+            continue
+        fi
+
+        deploy_name="${DEPLOY_NAMES[$name]}"
+        echo -n "  Waiting for $deploy_name... "
+        if kubectl rollout status deployment/"$deploy_name" -n "$NAMESPACE" --timeout=120s 2>/dev/null; then
+            echo -e "${GREEN}ready${NC}"
+        else
+            echo -e "${RED}timed out${NC}"
+        fi
+    done
+    echo ""
+fi
 
 # Summary
 echo "=========================================="
@@ -162,21 +194,6 @@ for img in "${BUILT[@]}"; do
     echo "  - $img"
 done
 echo ""
-echo -e "${YELLOW}Next steps:${NC}"
-echo ""
-echo "1. Deploy to k3s:"
-echo "   kubectl apply -f k8s/namespace.yaml"
-echo "   kubectl apply -f k8s/secret-store.yaml"
-echo "   kubectl apply -f k8s/external-secret.yaml"
-echo "   kubectl apply -f k8s/k8s-agent/"
-echo "   kubectl apply -f k8s/github-agent/"
-echo "   kubectl apply -f k8s/orchestrator/"
-echo ""
-echo "2. Verify deployment:"
-echo "   kubectl get pods -n oncall-crewai"
-echo "   kubectl logs -n oncall-crewai -l app=crewai-orchestrator -f"
-echo ""
-echo "3. Test:"
-echo "   kubectl port-forward -n oncall-crewai svc/crewai-orchestrator 8000:80"
-echo "   curl http://localhost:8000/health"
+echo "Pod status:"
+kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || echo "  (kubectl not available)"
 echo ""
