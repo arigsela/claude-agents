@@ -132,13 +132,16 @@ for entry in "${SERVICES[@]}"; do
     echo ""
 done
 
-# Service name -> K8s deployment name mapping
-declare -A DEPLOY_NAMES=(
-  ["orchestrator"]="crewai-orchestrator"
-  ["k8s-agent"]="k8s-agent-a2a"
-  ["github-agent"]="github-agent-a2a"
-  ["frontend"]="crewai-frontend"
-)
+# Service definitions with K8s deployment names: name|k8s-deployment
+# (must match SERVICES order above)
+get_deploy_name() {
+    case "$1" in
+        orchestrator) echo "crewai-orchestrator" ;;
+        k8s-agent)    echo "k8s-agent-a2a" ;;
+        github-agent) echo "github-agent-a2a" ;;
+        frontend)     echo "crewai-frontend" ;;
+    esac
+}
 
 NAMESPACE="oncall-crewai"
 
@@ -152,7 +155,7 @@ for entry in "${SERVICES[@]}"; do
         continue
     fi
 
-    deploy_name="${DEPLOY_NAMES[$name]}"
+    deploy_name="$(get_deploy_name "$name")"
     echo -e "  ${YELLOW}Restarting: $deploy_name${NC}"
     if kubectl rollout restart deployment/"$deploy_name" -n "$NAMESPACE" 2>/dev/null; then
         echo -e "  ${GREEN}Rollout triggered: $deploy_name${NC}"
@@ -173,7 +176,7 @@ if $ROLLOUT_OK; then
             continue
         fi
 
-        deploy_name="${DEPLOY_NAMES[$name]}"
+        deploy_name="$(get_deploy_name "$name")"
         echo -n "  Waiting for $deploy_name... "
         if kubectl rollout status deployment/"$deploy_name" -n "$NAMESPACE" --timeout=120s 2>/dev/null; then
             echo -e "${GREEN}ready${NC}"
