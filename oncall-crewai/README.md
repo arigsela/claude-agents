@@ -21,14 +21,15 @@ All images are pushed to ECR (`852893458518.dkr.ecr.us-east-2.amazonaws.com`) an
   Browser (oncall-crewai.arigsela.com)
        │
        ▼
-┌─────────────────┐    AG-UI SSE     ┌──────────────────────────────────┐
-│  Frontend       │ ──────────────►  │  Orchestrator (port 8000)        │
-│  Next.js 16     │  /copilotkit     │  CrewAI Flow: classify → route   │
-│  CopilotKit     │                  │  POST /query (REST)              │
-│  Session Sidebar│  /api/sessions   │  GET/DELETE /sessions (REST)     │
-│  port 3000      │ ◄──────────────  │  A2A server at /                 │
-└─────────────────┘                  │  SQLite session DB (/data/)      │
-                                     └──────────┬──────────────┬────────┘
+┌─────────────────┐                  ┌──────────────────────────────────┐
+│  Frontend       │  POST /auth/login│  Orchestrator (port 8000)        │
+│  Next.js 16     │ ──────────────►  │  JWT auth + API key auth         │
+│  CopilotKit     │  ◄── JWT token   │  CrewAI Flow: classify → route   │
+│  Login Page     │                  │  POST /query (REST)              │
+│  Session Sidebar│  AG-UI SSE       │  GET/DELETE /sessions (REST)     │
+│  AuthContext    │  /copilotkit     │  A2A server at /                 │
+│  port 3000      │ ──────────────►  │  SQLite session + user DB (/data)│
+└─────────────────┘                  └──────────┬──────────────┬────────┘
                                           A2A   │              │  A2A
                                        delegate │              │ delegate
                                      ┌──────────▼────────┐  ┌─▼──────────────────┐
@@ -41,20 +42,21 @@ All images are pushed to ECR (`852893458518.dkr.ecr.us-east-2.amazonaws.com`) an
 
 ### How a Query Flows
 
-1. User types in the CopilotKit chat UI (or selects an existing session from the sidebar)
-2. Frontend sends the message to its Next.js API route (`/api/copilotkit`) with a `thread_id`
-3. The API route forwards it to the orchestrator's `/copilotkit` endpoint via AG-UI `HttpAgent`
-4. Orchestrator loads conversation history from the session DB (last 5 exchanges) and prepends it as context
-5. Orchestrator classifies the query using keyword matching:
+1. User logs in via the login page (username/password). The orchestrator returns a JWT stored in localStorage.
+2. User types in the CopilotKit chat UI (or selects an existing session from the sidebar)
+3. Frontend sends the message to its Next.js API route (`/api/copilotkit`) with a `thread_id`
+4. The API route forwards it to the orchestrator's `/copilotkit` endpoint via AG-UI `HttpAgent` (with `X-API-Key` for service auth and `X-User-JWT` for user identity)
+5. Orchestrator loads conversation history from the session DB (last 5 exchanges) and prepends it as context
+6. Orchestrator classifies the query using keyword matching:
    - **K8s keywords** (pod, crash, logs, deployment, etc.) → routes to K8s agent
    - **GitHub keywords** (PR, manifest, gitops, yaml, commit, etc.) → routes to GitHub agent
    - **Both present** → runs K8s agent first, then passes results to GitHub agent for context
    - **No match** → defaults to K8s agent (most oncall queries are K8s)
-6. Orchestrator delegates to agents via CrewAI's A2A protocol (JSON-RPC `message/send`)
-7. Each agent runs its CrewAI crew with specialized tools, returns results
-8. Orchestrator persists the user message + agent response to the session DB
-9. Orchestrator streams the response back as AG-UI SSE events
-10. CopilotKit renders the response in the chat UI; sidebar refreshes to show updated session
+7. Orchestrator delegates to agents via CrewAI's A2A protocol (JSON-RPC `message/send`)
+8. Each agent runs its CrewAI crew with specialized tools, returns results
+9. Orchestrator persists the user message + agent response to the session DB (scoped to user_id)
+10. Orchestrator streams the response back as AG-UI SSE events
+11. CopilotKit renders the response in the chat UI; sidebar refreshes to show updated session
 
 ### Query Routing Examples
 
@@ -77,12 +79,13 @@ Conversations persist across browser refreshes and pod restarts via a custom ses
 - **Auto-title**: Sessions are titled from the first user message (truncated to 60 chars)
 - **Cleanup**: Background task runs every 10 minutes, deleting sessions older than 24 hours. Max 50 sessions total.
 
-**Session REST API** (orchestrator, protected by API key):
+**Session REST API** (orchestrator, protected by JWT or API key):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/sessions` | GET | List all sessions (id, title, timestamps, message count) |
+| `/sessions` | GET | List sessions for authenticated user |
 | `/sessions/{id}` | GET | Full session with message history |
+| `/sessions/{id}` | POST | Pre-register a session with user identity |
 | `/sessions/{id}` | DELETE | Delete a session |
 
 **Frontend session flow:**
@@ -115,7 +118,13 @@ Conversations persist across browser refreshes and pod restarts via a custom ses
 |-----------|-------|--------------|
 | **Orchestrator Flow** | `src/orchestrator/flow.py` | CrewAI Flow with `@start`/`@router`/`@listen` for deterministic keyword-based query routing |
 | **CopilotKit Endpoint** | `src/orchestrator/copilotkit_endpoint.py` | Custom AG-UI SSE endpoint with conversation context injection. Manual event generation since `ag-ui-crewai` is incompatible with crewai 1.6.1 |
-| **Session Manager** | `src/orchestrator/session_manager.py` | SQLite + in-memory cache for conversation persistence. WAL mode, TTL expiration, background cleanup, auto-titling |
+| **Session Manager** | `src/orchestrator/session_manager.py` | SQLite + in-memory cache for conversation persistence. WAL mode, TTL expiration, background cleanup, auto-titling. User-scoped sessions with orphan adoption. |
+| **Auth Module** | `src/orchestrator/auth.py` | JWT creation/verification (HS256), unified `verify_auth` FastAPI dependency accepting JWT or API key |
+| **User Manager** | `src/orchestrator/user_manager.py` | SQLite user storage with bcrypt password hashing. Create, authenticate, list users. |
+| **Create User Script** | `scripts/create-user.py` | CLI utility for bootstrapping user accounts (local or via kubectl exec) |
+| **Login Page** | `frontend/app/login/page.tsx` | Username/password login form with error handling |
+| **Auth Context** | `frontend/app/contexts/AuthContext.tsx` | React context providing login/logout, token validation on mount, auth-gated routing |
+| **Auth Utilities** | `frontend/app/lib/auth.ts` | JWT token storage (localStorage), login API call, `authHeaders()` helper for authenticated requests |
 | **K8s Diagnostic Tools** | `src/k8s_agent/tools.py` | 7 tools: `list_namespaces`, `list_pods`, `get_pod_logs`, `get_pod_events`, `get_deployment_status`, `list_services`, `analyze_service_health` |
 | **GitHub/GitOps Tools** | `src/github_agent/tools.py` | 5 tools: `search_recent_deployments`, `get_gitops_file`, `list_gitops_directory`, `create_remediation_pr`, `create_document_pr` |
 | **A2A Executors** | `src/*/executor.py` | Bridges between A2A JSON-RPC protocol and CrewAI agent invocation |
@@ -139,6 +148,9 @@ Conversations persist across browser refreshes and pod restarts via a custom ses
 - **Path-validated PR creation** — All GitHub changes must be under `base-apps/`. Patch-based updates require exact string matching. No auto-merge — all PRs require human review.
 - **Backend session persistence instead of localStorage** — SQLite on a PersistentVolume survives pod restarts and works across devices. Reuses the proven SessionManager pattern from oncall-agent-api.
 - **Conversation context injection** — Last 5 exchanges prepended to agent queries. Assistant responses truncated to 500 chars to keep context manageable. Classification still uses raw user message to avoid keyword confusion.
+- **JWT + API key dual auth** — JWT tokens scope sessions to individual users. API keys handle service-to-service calls (frontend proxy → orchestrator, orchestrator → sub-agents). Both flow through a single `verify_auth` dependency.
+- **Session pre-registration** — CopilotKit runtime strips custom headers from HttpAgent, so JWT can't reach the orchestrator through the CopilotKit pipeline. The frontend pre-registers sessions via `POST /sessions/{id}` (which forwards JWT) before CopilotKit sends messages, binding user identity to the session.
+- **No self-registration** — Users are created via CLI script only. Prevents unauthorized account creation on the oncall system.
 
 ## Tools Reference
 
@@ -164,6 +176,75 @@ Conversations persist across browser refreshes and pod restarts via a custom ses
 | `create_remediation_pr` | `service`, `action_summary`, `changes_json`, `incident_context?` | Create PR with manifest patches (requires explicit user approval) |
 | `create_document_pr` | `filename`, `content`, `description` | Create PR to add docs to the docs repo |
 
+## Authentication
+
+The system uses a dual authentication model: **JWT tokens** for user identity and **API keys** for service-to-service communication.
+
+### User Authentication (JWT)
+
+Users log in via the frontend login page with username/password. The orchestrator validates credentials against a SQLite user database (bcrypt-hashed passwords) and returns a signed JWT token (HS256, configurable expiry).
+
+```
+Browser → /login → POST /auth/login → JWT token → localStorage
+                                         │
+                         ┌───────────────┘
+                         ▼
+          All subsequent requests include:
+          Authorization: Bearer <jwt-token>
+```
+
+**Auth endpoints** (orchestrator):
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/auth/login` | POST | None | Authenticate with username/password, returns JWT |
+| `/auth/me` | GET | JWT | Get current user info (validates token) |
+
+**Frontend auth flow:**
+- `AuthProvider` context wraps the app and validates the stored JWT on mount via `GET /auth/me`
+- Unauthenticated users are redirected to `/login`
+- JWT is stored in `localStorage` and included in all API requests via `Authorization: Bearer` header
+- Logout clears the token and redirects to `/login`
+
+### Service-to-Service Authentication (API Keys)
+
+Internal communication between the frontend proxy and orchestrator, and between the orchestrator and sub-agents, uses API keys via the `X-API-Key` header.
+
+```
+Frontend API routes → X-API-Key → Orchestrator → X-API-Key → Sub-agents
+```
+
+### Unified Auth Dependency
+
+The orchestrator's `verify_auth` FastAPI dependency accepts either method:
+
+1. **JWT Bearer token** — returns `AuthInfo` with `user_id` and `username` (user-scoped)
+2. **API key** (via `X-API-Key` or `Bearer`) — returns `AuthInfo` with `user_id=None` (service call)
+3. **No auth configured** (dev mode, `API_KEYS` empty) — allows all requests
+
+### User Management
+
+Users are created via the `create-user.py` utility script. There is no self-registration.
+
+```bash
+# Locally
+python scripts/create-user.py --username admin --password changeme
+
+# Inside the orchestrator pod
+kubectl exec -it -n oncall-crewai deploy/crewai-orchestrator -- \
+    python /app/scripts/create-user.py --username admin --password changeme
+
+# List existing users
+kubectl exec -it -n oncall-crewai deploy/crewai-orchestrator -- \
+    python /app/scripts/create-user.py --list
+```
+
+User data is stored in SQLite at `/data/users.db` (on the same PVC as sessions).
+
+### Session Scoping
+
+Sessions are scoped to the authenticated user. The session sidebar only shows sessions owned by the logged-in user, and session API responses are filtered by `user_id`.
+
 ## Security Model
 
 ```
@@ -180,8 +261,9 @@ Orchestrator (no cluster access)
         └── No auto-merge — human review required
 ```
 
-- **API Authentication**: Optional `X-API-Key` header or `Bearer` token. Configurable via `API_KEYS` env var (comma-separated).
-- **Secrets**: Managed via Vault + External Secrets Operator. Secrets synced to K8s secrets at 15-second intervals.
+- **User Authentication**: JWT tokens (HS256) with bcrypt password hashing. Configurable expiry via `JWT_EXPIRY_HOURS`.
+- **Service Authentication**: API keys via `X-API-Key` header. Configurable via `API_KEYS` env var (comma-separated).
+- **Secrets**: Managed via Vault + External Secrets Operator. JWT secret and API keys synced from Vault.
 - **Ingress**: IP-whitelisted nginx ingress with TLS (cert-manager + Let's Encrypt).
 
 ## Environment Variables
@@ -190,8 +272,11 @@ Orchestrator (no cluster access)
 |----------|----------|---------|---------|
 | `ANTHROPIC_API_KEY` | Yes | — | All agents |
 | `ANTHROPIC_MODEL` | No | `claude-haiku-4-5-20251001` | All agents |
-| `API_KEYS` | No | — (no auth) | Orchestrator |
-| `GITHUB_TOKEN` | Yes* | — | GitHub agent |
+| `API_KEYS` | No | — (no auth) | Orchestrator, sub-agents |
+| `JWT_SECRET` | Yes* | — | Orchestrator |
+| `JWT_EXPIRY_HOURS` | No | `24` | Orchestrator |
+| `USERS_DB_PATH` | No | `/data/users.db` | Orchestrator |
+| `GITHUB_TOKEN` | Yes** | — | GitHub agent |
 | `GITHUB_ORG` | No | `arigsela` | GitHub agent |
 | `GITOPS_REPO` | No | `arigsela/kubernetes` | GitHub agent |
 | `GITOPS_BASE_PATH` | No | `base-apps/` | GitHub agent |
@@ -206,7 +291,8 @@ Orchestrator (no cluster access)
 | `ORCHESTRATOR_URL` | No | `http://localhost:8000` | Frontend |
 | `ORCHESTRATOR_API_KEY` | No | — | Frontend |
 
-*Required only for the GitHub agent.
+*Required for user authentication. Generate a strong random string (e.g., `openssl rand -hex 32`).
+**Required only for the GitHub agent.
 
 ## Development
 
@@ -263,7 +349,7 @@ After pushing, ArgoCD auto-syncs from the `arigsela/kubernetes` repo. Pods will 
 ### Testing
 
 ```bash
-pytest tests/ -v                           # All 99 tests
+pytest tests/ -v                           # All tests
 
 # By component
 pytest tests/test_k8s_tools.py -v          # 19 K8s tool unit tests
@@ -272,6 +358,10 @@ pytest tests/test_github_tools.py -v       # 26 GitHub tool unit tests
 pytest tests/test_github_agent_a2a.py -v   # 9 GitHub A2A protocol tests
 pytest tests/test_orchestrator_routing.py -v  # 18 routing + auth tests
 pytest tests/test_e2e.py -v                # 18 end-to-end integration tests
+pytest tests/test_auth.py -v              # JWT + verify_auth unit tests
+pytest tests/test_auth_endpoints.py -v    # Login/me endpoint integration tests
+pytest tests/test_user_manager.py -v      # User CRUD + bcrypt tests
+pytest tests/test_session_scoping.py -v   # User-scoped session tests
 ```
 
 ## Project Structure
@@ -283,9 +373,11 @@ oncall-crewai/
 │   │   ├── config.py            #   Environment variables, service catalog loader
 │   │   └── logging_config.py    #   Structured logging setup
 │   ├── orchestrator/            # Query router service
-│   │   ├── main.py              #   FastAPI app, /query, /copilotkit, /sessions, A2A mount
+│   │   ├── main.py              #   FastAPI app, /query, /copilotkit, /sessions, /auth, A2A mount
 │   │   ├── flow.py              #   CrewAI Flow with @start/@router/@listen
 │   │   ├── agents.py            #   A2A delegate agent definitions
+│   │   ├── auth.py              #   JWT creation/verification, unified verify_auth dependency
+│   │   ├── user_manager.py      #   SQLite user storage with bcrypt password hashing
 │   │   ├── prompts.py           #   Keywords and system prompts
 │   │   ├── session_manager.py   #   SQLite session persistence + in-memory cache
 │   │   └── copilotkit_endpoint.py  # AG-UI SSE streaming with conversation context
@@ -304,18 +396,26 @@ oncall-crewai/
 ├── frontend/                    # CopilotKit chat UI (Next.js)
 │   ├── app/
 │   │   ├── api/
+│   │   │   ├── auth/            #   Auth proxy routes to orchestrator
+│   │   │   │   ├── login/route.ts  #  POST /api/auth/login
+│   │   │   │   └── me/route.ts  #     GET /api/auth/me
 │   │   │   ├── copilotkit/route.ts  # HttpAgent bridge to orchestrator
 │   │   │   └── sessions/        #   Proxy routes to orchestrator session API
 │   │   │       ├── route.ts     #     GET /api/sessions
-│   │   │       └── [id]/route.ts #    GET/DELETE /api/sessions/:id
+│   │   │       └── [id]/route.ts #    GET/POST/DELETE /api/sessions/:id
 │   │   ├── components/
 │   │   │   └── SessionSidebar.tsx #  Session list sidebar with new/delete/switch
+│   │   ├── contexts/
+│   │   │   └── AuthContext.tsx   #   JWT auth provider with login/logout/token validation
 │   │   ├── hooks/
 │   │   │   └── useSessionManager.ts # Session state management hook
 │   │   ├── lib/
+│   │   │   ├── auth.ts          #   JWT token storage, login API, authHeaders helper
 │   │   │   └── sessions.ts      #   TypeScript API client for sessions
-│   │   ├── layout.tsx           #   Root layout with Providers wrapper
-│   │   ├── page.tsx             #   Sidebar + chat layout
+│   │   ├── login/
+│   │   │   └── page.tsx         #   Login page (username/password form)
+│   │   ├── layout.tsx           #   Root layout with Providers + AuthProvider wrapper
+│   │   ├── page.tsx             #   Sidebar + chat layout (auth-gated)
 │   │   └── providers.tsx        #   CopilotKit + ThreadContext provider
 │   ├── package.json
 │   └── next.config.ts           #   Standalone output for Docker
@@ -334,7 +434,9 @@ oncall-crewai/
 │   ├── k8s-agent/               # Deployment + Service + RBAC (ClusterRole)
 │   ├── github-agent/            # Deployment + Service + ConfigMap
 │   └── frontend/                # Deployment + Service + ConfigMap
-├── tests/                       # 99 tests (unit, A2A, routing, E2E)
+├── scripts/
+│   └── create-user.py           # CLI utility for user management
+├── tests/                       # 103 tests (unit, A2A, routing, auth, E2E)
 ├── docker-compose.yml           # Local 4-service development
 ├── deploy-to-ecr.sh             # Build + push all images to ECR
 ├── pyproject.toml               # Python dependencies and tool config
