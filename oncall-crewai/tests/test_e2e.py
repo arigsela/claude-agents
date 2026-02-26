@@ -55,36 +55,52 @@ def mock_k8s_config():
 
 
 @pytest.fixture
-async def k8s_client(mock_k8s_env, mock_k8s_config):
-    """Async client for K8s agent."""
-    from k8s_agent.server import create_app
+async def k8s_client(mock_k8s_env, mock_k8s_config, monkeypatch):
+    """Async client for K8s agent with auth configured."""
+    import k8s_agent.server as server_module
 
-    app = create_app()
+    monkeypatch.setattr(server_module, "API_KEYS", ["test-k8s-key"])
+    app = server_module.create_app()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer test-k8s-key"},
+    ) as c:
         yield c
 
 
 @pytest.fixture
-async def github_client(mock_github_env):
-    """Async client for GitHub agent."""
-    from github_agent.server import create_app
+async def github_client(mock_github_env, monkeypatch):
+    """Async client for GitHub agent with auth configured."""
+    import github_agent.server as server_module
 
-    app = create_app()
+    monkeypatch.setattr(server_module, "API_KEYS", ["test-github-key"])
+    app = server_module.create_app()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer test-github-key"},
+    ) as c:
         yield c
 
 
 @pytest.fixture
 async def orchestrator_client(mock_orchestrator_env, monkeypatch):
-    """Async client for orchestrator."""
-    from orchestrator.main import create_app
+    """Async client for orchestrator with auth configured."""
+    import orchestrator.auth as auth_module
+    import orchestrator.main as main_module
 
-    monkeypatch.setattr("orchestrator.main.API_KEYS", ["e2e-test-key"])
-    app = create_app()
+    monkeypatch.setattr(auth_module, "API_KEYS", ["e2e-test-key"])
+    monkeypatch.setattr(main_module, "API_KEYS", ["e2e-test-key"])
+    app = main_module.create_app()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer e2e-test-key"},
+    ) as c:
         yield c
 
 
@@ -288,6 +304,7 @@ class TestOrchestratorRouting:
         response = await orchestrator_client.post(
             "/query",
             json={"prompt": "check pods"},
+            headers={"Authorization": "Bearer invalid-key"},
         )
         assert response.status_code == 401
 

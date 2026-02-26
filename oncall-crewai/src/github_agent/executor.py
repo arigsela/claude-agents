@@ -21,6 +21,7 @@ from a2a.types import (
 )
 
 from github_agent.agent import invoke
+from shared.a2a_utils import extract_user_input
 from shared.logging_config import setup_logging
 
 logger = setup_logging("github-executor")
@@ -120,14 +121,7 @@ class GitHubAgentExecutor(AgentExecutor):
 
     def _extract_user_input(self, context: RequestContext) -> str:
         """Extract the user's text input from the A2A request context."""
-        message = context.message
-        if message and message.parts:
-            text_parts = []
-            for part in message.parts:
-                if isinstance(part, TextPart):
-                    text_parts.append(part.text)
-                elif hasattr(part, "root") and isinstance(part.root, TextPart):
-                    text_parts.append(part.root.text)
-            if text_parts:
-                return " ".join(text_parts)
-        return "List the contents of the GitOps base-apps directory"
+        return extract_user_input(
+            context.message,
+            default="List the contents of the GitOps base-apps directory",
+        )

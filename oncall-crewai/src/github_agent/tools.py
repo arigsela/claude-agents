@@ -29,12 +29,23 @@ logger = setup_logging("github-tools")
 # ============================================================
 
 
+_github_client: Github | None = None
+
+
 def _get_github_client() -> Github:
-    """Get initialized GitHub client."""
+    """Get initialized GitHub client (cached singleton).
+
+    The client is created once and reused across tool calls.
+    """
+    global _github_client
+    if _github_client is not None:
+        return _github_client
+
     token = GITHUB_TOKEN or os.getenv("GITHUB_TOKEN")
     if not token:
         raise ValueError("GITHUB_TOKEN not set")
-    return Github(token)
+    _github_client = Github(token)
+    return _github_client
 
 
 def _get_gitops_config() -> tuple[str, str, str]:
@@ -151,7 +162,7 @@ def search_recent_deployments(
         gh = _get_github_client()
         repo = gh.get_repo(repo_name)
 
-        since = datetime.now() - timedelta(hours=hours_back)
+        since = datetime.now(UTC) - timedelta(hours=hours_back)
         runs = repo.get_workflow_runs(created=f">={since.isoformat()}")
 
         deployments = []

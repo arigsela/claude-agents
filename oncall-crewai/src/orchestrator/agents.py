@@ -10,7 +10,7 @@ from crewai.a2a import A2AConfig
 from crewai.a2a.auth import APIKeyAuth
 from crewai.llm import LLM
 
-from shared.config import API_KEYS, ANTHROPIC_MODEL, GITHUB_AGENT_URL, K8S_AGENT_URL
+from shared.config import API_KEYS, ANTHROPIC_MODEL, CREWAI_VERBOSE, GITHUB_AGENT_URL, K8S_AGENT_URL
 from shared.logging_config import setup_logging
 
 logger = setup_logging("orchestrator-agents")
@@ -51,6 +51,8 @@ def create_k8s_delegate() -> Agent:
             trust_remote_completion_status=True,
         ),
         llm=LLM(model=ANTHROPIC_MODEL),
+        verbose=CREWAI_VERBOSE,
+        fingerprint="k8s-delegate-v1",
     )
 
 
@@ -73,4 +75,6 @@ def create_github_delegate() -> Agent:
             trust_remote_completion_status=True,
         ),
         llm=LLM(model=ANTHROPIC_MODEL),
+        verbose=CREWAI_VERBOSE,
+        fingerprint="github-delegate-v1",
     )

@@ -20,6 +20,8 @@ from k8s_agent.executor import K8sAgentExecutor
 from shared.config import API_KEYS
 from shared.logging_config import setup_logging
 
+import shared.observability  # noqa: F401 — register event listeners
+
 logger = setup_logging("k8s-server")
 
 

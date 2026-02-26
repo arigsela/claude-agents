@@ -216,14 +216,18 @@ class TestK8sAgentExecutor:
         with patch("k8s_agent.executor.invoke", return_value="Vault pods are healthy"):
             await executor.execute(context, event_queue)
 
-        # Should have 2 events: working + completed
+        # Should have 3 events: working + artifact + completed
         event1 = await event_queue.dequeue_event(no_wait=True)
         assert event1.status.state == TaskState.working
 
         event2 = await event_queue.dequeue_event(no_wait=True)
-        assert event2.status.state == TaskState.completed
+        # event2 is TaskArtifactUpdateEvent with the result
+        assert event2.artifact is not None
+
+        event3 = await event_queue.dequeue_event(no_wait=True)
+        assert event3.status.state == TaskState.completed
         # Check the response text
-        response_text = event2.status.message.parts[0].root.text
+        response_text = event3.status.message.parts[0].root.text
         assert "Vault pods are healthy" in response_text
 
     @pytest.mark.asyncio

@@ -1,20 +1,9 @@
-"""Orchestrator system prompts and classification keywords."""
+"""Orchestrator classification keywords.
 
-ORCHESTRATOR_ROLE = "OnCall Incident Triage Coordinator"
-
-ORCHESTRATOR_GOAL = (
-    "Route incoming queries to the appropriate specialist agent — "
-    "K8s Diagnostics for cluster issues, GitHub/GitOps for manifest "
-    "inspection and PR creation — and synthesize results."
-)
-
-ORCHESTRATOR_BACKSTORY = """You are the triage coordinator for Ari's K3s homelab oncall system.
-You analyze incoming queries and delegate to the right specialist:
-- K8s Diagnostics Agent: pod crashes, deployment issues, service health, cluster events
-- GitHub/GitOps Agent: manifest inspection, recent deployments, PR creation, GitOps workflow
-
-You coordinate between specialists when an investigation requires both K8s diagnostics
-and GitOps remediation."""
+Only the keyword lists are used by the orchestrator flow for
+deterministic routing. Agent identity for delegates is defined
+inline in orchestrator/agents.py.
+"""
 
 # Keywords for deterministic routing
 K8S_KEYWORDS = [

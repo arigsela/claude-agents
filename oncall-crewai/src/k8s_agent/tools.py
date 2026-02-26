@@ -15,11 +15,19 @@ from shared.logging_config import setup_logging
 logger = setup_logging("k8s-tools")
 
 
+_k8s_clients: tuple[client.CoreV1Api, client.AppsV1Api] | None = None
+
+
 def _get_k8s_client() -> tuple[client.CoreV1Api, client.AppsV1Api]:
-    """Get initialized Kubernetes client.
+    """Get initialized Kubernetes client (cached singleton).
 
     Tries in-cluster config first, falls back to local kubeconfig.
+    The client is created once and reused across tool calls.
     """
+    global _k8s_clients
+    if _k8s_clients is not None:
+        return _k8s_clients
+
     try:
         config.load_incluster_config()
         logger.info("Loaded in-cluster Kubernetes config")
@@ -30,7 +38,8 @@ def _get_k8s_client() -> tuple[client.CoreV1Api, client.AppsV1Api]:
         except Exception as e:
             logger.error(f"Failed to load Kubernetes config: {e}")
             raise
-    return client.CoreV1Api(), client.AppsV1Api()
+    _k8s_clients = (client.CoreV1Api(), client.AppsV1Api())
+    return _k8s_clients
 
 
 @tool

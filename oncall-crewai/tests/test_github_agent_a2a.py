@@ -211,8 +211,12 @@ class TestGitHubAgentExecutor:
         assert event1.status.state == TaskState.working
 
         event2 = await event_queue.dequeue_event(no_wait=True)
-        assert event2.status.state == TaskState.completed
-        response_text = event2.status.message.parts[0].root.text
+        # event2 is TaskArtifactUpdateEvent with the result
+        assert event2.artifact is not None
+
+        event3 = await event_queue.dequeue_event(no_wait=True)
+        assert event3.status.state == TaskState.completed
+        response_text = event3.status.message.parts[0].root.text
         assert "12 services" in response_text
 
     @pytest.mark.asyncio

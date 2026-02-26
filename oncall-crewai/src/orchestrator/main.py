@@ -44,12 +44,22 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from orchestrator.auth import AuthInfo, create_jwt, verify_auth
-from orchestrator.copilotkit_endpoint import copilotkit_handler
 from orchestrator.flow import OncallFlow
+
+# Lazy import: ag_ui is an optional dependency not available in all environments
+try:
+    from orchestrator.copilotkit_endpoint import copilotkit_handler
+
+    _HAS_AG_UI = True
+except ImportError:
+    _HAS_AG_UI = False
 from orchestrator.session_manager import SessionManager
 from orchestrator.user_manager import UserManager
-from shared.config import API_HOST, API_PORT, CORS_ORIGINS
+from shared.a2a_utils import extract_user_input
+from shared.config import API_HOST, API_KEYS, API_PORT, CORS_ORIGINS
 from shared.logging_config import setup_logging
+
+import shared.observability  # noqa: F401 — register event listeners
 
 logger = setup_logging("orchestrator")
 
@@ -159,17 +169,10 @@ class OrchestratorExecutor(AgentExecutor):
         raise NotImplementedError("Orchestrator does not support cancellation")
 
     def _extract_user_input(self, context: RequestContext) -> str:
-        message = context.message
-        if message and message.parts:
-            text_parts = []
-            for part in message.parts:
-                if isinstance(part, TextPart):
-                    text_parts.append(part.text)
-                elif hasattr(part, "root") and isinstance(part.root, TextPart):
-                    text_parts.append(part.root.text)
-            if text_parts:
-                return " ".join(text_parts)
-        return "Perform a general cluster health check"
+        return extract_user_input(
+            context.message,
+            default="Perform a general cluster health check",
+        )
 
 
 # ============================================================
@@ -272,6 +275,16 @@ def create_app() -> FastAPI:
     # Auth endpoints (no auth required for login/register)
     # ============================================================
 
+    @fastapi_app.post("/auth/register", response_model=AuthResponse)
+    async def register(req: AuthRequest, request: Request):
+        um: UserManager = request.app.state.user_manager
+        try:
+            user = um.create_user(req.username, req.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        token = create_jwt(user.user_id, user.username)
+        return AuthResponse(token=token, user_id=user.user_id, username=user.username)
+
     @fastapi_app.post("/auth/login", response_model=AuthResponse)
     async def login(req: AuthRequest, request: Request):
         um: UserManager = request.app.state.user_manager
@@ -292,12 +305,12 @@ def create_app() -> FastAPI:
     # ============================================================
 
     @fastapi_app.post("/query", response_model=QueryResponse)
-    def query(req: QueryRequest, auth: AuthInfo = Depends(verify_auth)):
+    async def query(req: QueryRequest, auth: AuthInfo = Depends(verify_auth)):
         logger.info(f"Query received: {req.prompt[:80]}...")
 
         flow = OncallFlow()
         flow.state.query = req.prompt
-        result = flow.kickoff()
+        result = await asyncio.to_thread(flow.kickoff)
 
         return QueryResponse(
             response=str(result),
@@ -306,9 +319,11 @@ def create_app() -> FastAPI:
         )
 
     # CopilotKit AG-UI endpoint (must be registered BEFORE A2A mount at "/")
-    @fastapi_app.post("/copilotkit")
-    async def copilotkit(request: Request, auth: AuthInfo = Depends(verify_auth)):
-        return await copilotkit_handler(request, auth)
+    if _HAS_AG_UI:
+
+        @fastapi_app.post("/copilotkit")
+        async def copilotkit(request: Request, auth: AuthInfo = Depends(verify_auth)):
+            return await copilotkit_handler(request, auth)
 
     # ============================================================
     # Session management endpoints (scoped by user)

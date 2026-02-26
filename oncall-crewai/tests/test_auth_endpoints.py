@@ -23,7 +23,11 @@ def mock_env(monkeypatch):
 
 @pytest.fixture
 def app(mock_env, tmp_path, monkeypatch):
-    """Create the FastAPI app with temp DBs."""
+    """Create the FastAPI app with temp DBs.
+
+    Manually initializes app.state because httpx ASGITransport
+    does not trigger FastAPI lifespan events.
+    """
     import orchestrator.auth as auth_module
 
     monkeypatch.setattr(auth_module, "API_KEYS", ["test-api-key"])
@@ -33,7 +37,6 @@ def app(mock_env, tmp_path, monkeypatch):
     import shared.config as config_module
 
     monkeypatch.setattr(config_module, "USERS_DB_PATH", str(tmp_path / "users.db"))
-    monkeypatch.setattr(config_module, "SESSION_DB_PATH", str(tmp_path / "sessions.db"))
 
     # Patch module-level constants too
     import orchestrator.session_manager as sm_module
@@ -45,8 +48,16 @@ def app(mock_env, tmp_path, monkeypatch):
     monkeypatch.setattr(um_module, "USERS_DB_PATH", str(tmp_path / "users.db"))
 
     from orchestrator.main import create_app
+    from orchestrator.session_manager import SessionManager
+    from orchestrator.user_manager import UserManager
 
-    return create_app()
+    fastapi_app = create_app()
+
+    # Manually initialize state (lifespan doesn't run in httpx ASGITransport)
+    fastapi_app.state.user_manager = UserManager(db_path=str(tmp_path / "users.db"))
+    fastapi_app.state.session_manager = SessionManager(db_path=str(tmp_path / "sessions.db"))
+
+    return fastapi_app
 
 
 @pytest.fixture
