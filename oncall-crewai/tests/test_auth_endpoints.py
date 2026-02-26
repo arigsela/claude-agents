@@ -304,3 +304,106 @@ class TestSessionScoping:
         assert response.status_code == 200
         sessions = response.json()
         assert len(sessions) == 2
+
+
+# ============================================================
+# /query session memory
+# ============================================================
+
+
+class TestQuerySessionMemory:
+    """Test that /query persists and loads conversation history."""
+
+    async def _register_and_get_token(self, client, username, password="password123"):
+        reg = await client.post(
+            "/auth/register",
+            json={"username": username, "password": password},
+        )
+        return reg.json()["token"]
+
+    @pytest.mark.asyncio
+    async def test_query_without_context_id_is_stateless(self, client):
+        """Queries without context_id should not create sessions."""
+        token = await self._register_and_get_token(client, "alice")
+
+        from unittest.mock import patch
+
+        with patch("orchestrator.main.OncallFlow") as mock_flow:
+            mock_flow.return_value.state = type("S", (), {"query": "", "route": "k8s"})()
+            mock_flow.return_value.kickoff.return_value = "test result"
+
+            response = await client.post(
+                "/query",
+                json={"prompt": "check pods"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["response"] == "test result"
+            # context_id should be generated but no session saved
+            assert data["context_id"]  # non-empty
+
+        mgr = client._transport.app.state.session_manager
+        sessions = mgr.list_sessions()
+        assert len(sessions) == 0
+
+    @pytest.mark.asyncio
+    async def test_query_with_context_id_saves_session(self, client):
+        """Queries with context_id should persist the exchange."""
+        token = await self._register_and_get_token(client, "alice")
+
+        from unittest.mock import patch
+
+        with patch("orchestrator.main.OncallFlow") as mock_flow:
+            mock_flow.return_value.state = type("S", (), {"query": "", "route": "k8s"})()
+            mock_flow.return_value.kickoff.return_value = "pod is healthy"
+
+            response = await client.post(
+                "/query",
+                json={"prompt": "check pods", "context_id": "session-abc"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 200
+            assert response.json()["context_id"] == "session-abc"
+
+        mgr = client._transport.app.state.session_manager
+        session = mgr.get_session("session-abc")
+        assert session is not None
+        assert len(session.messages) == 2
+        assert session.messages[0]["content"] == "check pods"
+        assert session.messages[1]["content"] == "pod is healthy"
+
+    @pytest.mark.asyncio
+    async def test_query_loads_previous_context(self, client):
+        """Second query with same context_id should include history."""
+        token = await self._register_and_get_token(client, "alice")
+
+        # Seed a previous exchange
+        alice_user_id = (
+            await client.get(
+                "/auth/me", headers={"Authorization": f"Bearer {token}"}
+            )
+        ).json()["user_id"]
+
+        mgr = client._transport.app.state.session_manager
+        mgr.append_messages(
+            "session-xyz", "check pods", "all pods healthy",
+            user_id=alice_user_id,
+        )
+
+        from unittest.mock import patch
+
+        with patch("orchestrator.main.OncallFlow") as mock_flow:
+            mock_flow.return_value.state = type("S", (), {"query": "", "route": "k8s"})()
+            mock_flow.return_value.kickoff.return_value = "follow-up answer"
+
+            await client.post(
+                "/query",
+                json={"prompt": "what about memory?", "context_id": "session-xyz"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            # The flow should have received context-prefixed query
+            set_query = mock_flow.return_value.state.query
+            assert "CONVERSATION HISTORY" in set_query
+            assert "check pods" in set_query

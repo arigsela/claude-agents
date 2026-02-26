@@ -305,17 +305,48 @@ def create_app() -> FastAPI:
     # ============================================================
 
     @fastapi_app.post("/query", response_model=QueryResponse)
-    async def query(req: QueryRequest, auth: AuthInfo = Depends(verify_auth)):
+    async def query(req: QueryRequest, request: Request, auth: AuthInfo = Depends(verify_auth)):
         logger.info(f"Query received: {req.prompt[:80]}...")
 
+        use_session = bool(req.context_id)
+        context_id = req.context_id or str(uuid.uuid4())
+
+        # Build conversation context when a session is provided
+        query_text = req.prompt
+        if use_session:
+            try:
+                mgr: SessionManager = request.app.state.session_manager
+                context = mgr.build_conversation_context(
+                    context_id,
+                    user_id=auth.user_id,
+                )
+                if context:
+                    query_text = context + req.prompt
+            except Exception as e:
+                logger.warning(f"Failed to load session context: {e}")
+
         flow = OncallFlow()
-        flow.state.query = req.prompt
+        flow.state.query = query_text
         result = await asyncio.to_thread(flow.kickoff)
+        result_text = str(result)
+
+        # Persist the exchange to the session (save raw prompt, not context-prefixed)
+        if use_session:
+            try:
+                mgr: SessionManager = request.app.state.session_manager
+                mgr.append_messages(
+                    session_id=context_id,
+                    user_msg=req.prompt,
+                    assistant_msg=result_text,
+                    user_id=auth.user_id or "",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to persist session {context_id}: {e}")
 
         return QueryResponse(
-            response=str(result),
+            response=result_text,
             route=flow.state.route,
-            context_id=req.context_id or str(uuid.uuid4()),
+            context_id=context_id,
         )
 
     # CopilotKit AG-UI endpoint (must be registered BEFORE A2A mount at "/")

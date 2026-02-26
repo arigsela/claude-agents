@@ -17,8 +17,9 @@ from shared.logging_config import setup_logging
 logger = setup_logging("session-manager")
 
 SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "/data/sessions.db")
-SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "24"))
-SESSION_MAX_TOTAL = int(os.getenv("SESSION_MAX_TOTAL", "50"))
+SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "0"))  # 0 = never expire
+SESSION_MAX_TOTAL = int(os.getenv("SESSION_MAX_TOTAL", "500"))
+SESSION_CONTEXT_MAX_TURNS = int(os.getenv("SESSION_CONTEXT_MAX_TURNS", "5"))
 
 
 @dataclass
@@ -81,8 +82,9 @@ class SessionManager:
         self._init_db()
         self._load_sessions_from_db()
 
+        ttl_label = "never" if ttl_hours == 0 else f"{ttl_hours}h"
         logger.info(
-            f"SessionManager initialized: TTL={ttl_hours}h, "
+            f"SessionManager initialized: TTL={ttl_label}, "
             f"max={max_sessions}, DB={db_path}"
         )
 
@@ -129,7 +131,7 @@ class SessionManager:
         loaded = 0
         for row in rows:
             last_accessed = datetime.fromisoformat(row["last_accessed"])
-            if datetime.now() - last_accessed > self.ttl:
+            if self.ttl != timedelta(0) and datetime.now() - last_accessed > self.ttl:
                 self.conn.execute(
                     "DELETE FROM sessions WHERE session_id = ?",
                     (row["session_id"],),
@@ -198,7 +200,7 @@ class SessionManager:
             ).fetchone()
             if row:
                 last_accessed = datetime.fromisoformat(row["last_accessed"])
-                if datetime.now() - last_accessed <= self.ttl:
+                if self.ttl == timedelta(0) or datetime.now() - last_accessed <= self.ttl:
                     session = Session(
                         session_id=row["session_id"],
                         title=row["title"],
@@ -313,14 +315,23 @@ class SessionManager:
         return False
 
     def _is_expired(self, session: Session) -> bool:
+        if self.ttl == timedelta(0):
+            return False  # TTL=0 means never expire
         return datetime.now() - session.last_accessed > self.ttl
 
     async def cleanup_expired_sessions(self) -> None:
-        """Background task to clean expired sessions."""
+        """Background task to clean expired sessions.
+
+        When TTL=0 (never expire), the cleanup task still runs but
+        only enforces the max_sessions cap — it never deletes by age.
+        """
         logger.info("Session cleanup task started")
         while True:
             try:
                 await asyncio.sleep(self.cleanup_interval.total_seconds())
+                if self.ttl == timedelta(0):
+                    # No TTL expiry — only enforce max_sessions cap
+                    continue
                 expired = [
                     sid
                     for sid, s in list(self.sessions.items())
@@ -353,3 +364,43 @@ class SessionManager:
     def stop_cleanup_task(self) -> None:
         if self._cleanup_task and not self._cleanup_task.done():
             self._cleanup_task.cancel()
+
+    def build_conversation_context(
+        self,
+        session_id: str,
+        max_turns: int = SESSION_CONTEXT_MAX_TURNS,
+        user_id: str | None = None,
+    ) -> str:
+        """Build conversation context from recent session history.
+
+        Returns a formatted string of recent exchanges, or empty string
+        if no session or no messages. Respects user ownership when
+        user_id is provided.
+        """
+        try:
+            session = self.get_session(session_id, user_id=user_id)
+            if not session or not session.messages:
+                return ""
+
+            # Take last N exchanges (each exchange = user + assistant = 2 messages)
+            recent = session.messages[-(max_turns * 2):]
+            if not recent:
+                return ""
+
+            lines = []
+            for msg in recent:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                # Truncate long assistant responses to keep context manageable
+                if role == "assistant" and len(content) > 500:
+                    content = content[:500] + "... [truncated]"
+                lines.append(f"{role.upper()}: {content}")
+
+            return (
+                "=== CONVERSATION HISTORY ===\n"
+                + "\n\n".join(lines)
+                + "\n=== END HISTORY ===\n\n"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load conversation context: {e}")
+            return ""

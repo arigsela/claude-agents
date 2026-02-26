@@ -73,35 +73,10 @@ def _extract_latest_user_message(input_data: RunAgentInput) -> str:
 def _build_conversation_context(session_mgr, thread_id: str, max_turns: int = 5) -> str:
     """Build conversation context from recent session history.
 
-    Returns a formatted string of recent exchanges, or empty string if none.
+    Delegates to SessionManager.build_conversation_context().
+    Kept as a thin wrapper for backwards compatibility with tests.
     """
-    try:
-        session = session_mgr.get_session(thread_id)
-        if not session or not session.messages:
-            return ""
-
-        # Take last N exchanges (each exchange = user + assistant = 2 messages)
-        recent = session.messages[-(max_turns * 2):]
-        if not recent:
-            return ""
-
-        lines = []
-        for msg in recent:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            # Truncate long assistant responses to keep context manageable
-            if role == "assistant" and len(content) > 500:
-                content = content[:500] + "... [truncated]"
-            lines.append(f"{role.upper()}: {content}")
-
-        return (
-            "=== CONVERSATION HISTORY ===\n"
-            + "\n\n".join(lines)
-            + "\n=== END HISTORY ===\n\n"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to load conversation context: {e}")
-        return ""
+    return session_mgr.build_conversation_context(thread_id, max_turns=max_turns)
 
 
 async def copilotkit_handler(request: Request, auth: AuthInfo | None = None):

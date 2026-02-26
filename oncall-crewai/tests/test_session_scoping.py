@@ -115,6 +115,136 @@ class TestAppendMessagesWithUser:
         assert session.user_id == "alice"
 
 
+class TestTTLZeroNeverExpire:
+    """Test that TTL=0 means sessions never expire."""
+
+    @pytest.fixture
+    def immortal_mgr(self, tmp_path):
+        from orchestrator.session_manager import SessionManager
+
+        return SessionManager(
+            db_path=str(tmp_path / "immortal.db"),
+            ttl_hours=0,
+            max_sessions=500,
+        )
+
+    def test_session_never_expires(self, immortal_mgr):
+        """Sessions should never be considered expired when TTL=0."""
+        from datetime import datetime, timedelta
+
+        session = immortal_mgr.get_or_create_session("s1", user_id="alice")
+        # Manually set last_accessed to 30 days ago
+        session.last_accessed = datetime.now() - timedelta(days=30)
+        assert not immortal_mgr._is_expired(session)
+
+    def test_load_from_db_preserves_old_sessions(self, tmp_path):
+        """Sessions from DB should survive reload when TTL=0."""
+        from orchestrator.session_manager import SessionManager
+
+        db_path = str(tmp_path / "persist.db")
+
+        # Create a session and add messages
+        mgr1 = SessionManager(db_path=db_path, ttl_hours=0, max_sessions=500)
+        mgr1.append_messages("s1", "hello", "hi", user_id="alice")
+        del mgr1
+
+        # Reload — session should still be there
+        mgr2 = SessionManager(db_path=db_path, ttl_hours=0, max_sessions=500)
+        session = mgr2.get_session("s1", user_id="alice")
+        assert session is not None
+        assert len(session.messages) == 2
+
+    def test_cleanup_skips_when_ttl_zero(self, immortal_mgr):
+        """_is_expired should return False for all sessions when TTL=0."""
+        from datetime import datetime, timedelta
+
+        immortal_mgr.get_or_create_session("s1")
+        session = immortal_mgr.sessions["s1"]
+        session.last_accessed = datetime.now() - timedelta(days=365)
+
+        expired = [
+            sid for sid, s in immortal_mgr.sessions.items()
+            if immortal_mgr._is_expired(s)
+        ]
+        assert len(expired) == 0
+
+    def test_ttl_nonzero_still_expires(self, tmp_path):
+        """Verify TTL > 0 still expires normally (regression check)."""
+        from datetime import datetime, timedelta
+
+        from orchestrator.session_manager import SessionManager
+
+        mgr = SessionManager(
+            db_path=str(tmp_path / "expiring.db"),
+            ttl_hours=1,
+            max_sessions=50,
+        )
+        session = mgr.get_or_create_session("s1")
+        session.last_accessed = datetime.now() - timedelta(hours=2)
+        assert mgr._is_expired(session)
+
+
+class TestBuildConversationContext:
+    """Test SessionManager.build_conversation_context."""
+
+    @pytest.fixture
+    def mgr(self, tmp_path):
+        from orchestrator.session_manager import SessionManager
+
+        return SessionManager(
+            db_path=str(tmp_path / "ctx.db"),
+            ttl_hours=0,
+            max_sessions=500,
+        )
+
+    def test_returns_empty_for_no_session(self, mgr):
+        result = mgr.build_conversation_context("nonexistent")
+        assert result == ""
+
+    def test_returns_empty_for_no_messages(self, mgr):
+        mgr.get_or_create_session("s1")
+        result = mgr.build_conversation_context("s1")
+        assert result == ""
+
+    def test_builds_context_from_messages(self, mgr):
+        mgr.append_messages("s1", "Hello", "Hi there")
+        result = mgr.build_conversation_context("s1")
+        assert "CONVERSATION HISTORY" in result
+        assert "USER: Hello" in result
+        assert "ASSISTANT: Hi there" in result
+
+    def test_truncates_long_assistant_messages(self, mgr):
+        mgr.append_messages("s1", "short", "A" * 1000)
+        result = mgr.build_conversation_context("s1")
+        assert "[truncated]" in result
+
+    def test_respects_max_turns(self, mgr):
+        for i in range(10):
+            mgr.append_messages("s1", f"q{i}", f"a{i}")
+        result = mgr.build_conversation_context("s1", max_turns=2)
+        # Should only have last 2 exchanges (4 messages)
+        assert "q8" in result
+        assert "q9" in result
+        assert "q0" not in result
+
+    def test_respects_user_ownership(self, mgr):
+        mgr.append_messages("s1", "secret", "reply", user_id="alice")
+        # Bob should get empty context
+        result = mgr.build_conversation_context("s1", user_id="bob")
+        assert result == ""
+        # Alice should get context
+        result = mgr.build_conversation_context("s1", user_id="alice")
+        assert "secret" in result
+
+    def test_handles_exception_gracefully(self, mgr):
+        # Force an error by closing the DB connection
+        mgr.conn.close()
+        mgr.conn = None
+        mgr.sessions.clear()
+        result = mgr.build_conversation_context("s1")
+        assert result == ""
+
+
 class TestBackwardsCompatibility:
     def test_legacy_sessions_have_empty_user_id(self, session_mgr):
         """Sessions created without user_id should default to empty string."""
