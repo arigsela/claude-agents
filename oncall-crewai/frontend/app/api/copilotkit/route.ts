@@ -12,24 +12,33 @@ const orchestratorUrl =
 // API_KEYS may be comma-separated; use only the first key
 const apiKey = (process.env.ORCHESTRATOR_API_KEY || "").split(",")[0].trim();
 
-const oncallAgent = new HttpAgent({
-  url: `${orchestratorUrl}/copilotkit`,
-  headers: apiKey ? { "X-API-Key": apiKey } : {},
-});
-
-const runtime = new CopilotRuntime({
-  agents: {
-    // @ts-expect-error - HttpAgent/AbstractAgent type mismatch between ag-ui and copilotkit versions
-    oncallAgent,
-  },
-});
-
 export const POST = async (req: NextRequest) => {
+  // Always use API_KEY for server-to-server auth.
+  // Forward client JWT via X-User-JWT header for user scoping
+  // (CopilotKit runtime doesn't reliably forward Authorization headers)
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  const clientAuth = req.headers.get("Authorization");
+  if (clientAuth) {
+    headers["X-User-JWT"] = clientAuth;
+  }
+
+  const requestAgent = new HttpAgent({
+    url: `${orchestratorUrl}/copilotkit`,
+    headers,
+  });
+  const requestRuntime = new CopilotRuntime({
+    agents: {
+      // @ts-expect-error - HttpAgent/AbstractAgent type mismatch
+      oncallAgent: requestAgent,
+    },
+  });
   const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
-    runtime,
+    runtime: requestRuntime,
     serviceAdapter: new ExperimentalEmptyAdapter(),
     endpoint: "/api/copilotkit",
   });
-
   return handleRequest(req);
 };

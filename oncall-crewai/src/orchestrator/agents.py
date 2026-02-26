@@ -6,7 +6,7 @@ by the remote agent.
 """
 
 from crewai import Agent
-from crewai.a2a import A2AClientConfig
+from crewai.a2a import A2AConfig
 from crewai.a2a.auth import APIKeyAuth
 from crewai.llm import LLM
 
@@ -15,7 +15,7 @@ from shared.logging_config import setup_logging
 
 logger = setup_logging("orchestrator-agents")
 
-# CrewAI's A2AClientConfig fetches the agent card from the endpoint URL path.
+# CrewAI's A2AConfig fetches the agent card from the endpoint URL path.
 # When given just "http://host:port", it GETs "/" which returns 405.
 # Appending the well-known path tells CrewAI where to find the card.
 A2A_CARD_PATH = "/.well-known/agent-card.json"
@@ -43,7 +43,7 @@ def create_k8s_delegate() -> Agent:
             "You coordinate K8s diagnostic investigations by delegating "
             "to the remote K8s Diagnostics Agent via A2A protocol."
         ),
-        a2a=A2AClientConfig(
+        a2a=A2AConfig(
             endpoint=endpoint,
             auth=_build_a2a_auth(),
             timeout=120,
@@ -65,7 +65,7 @@ def create_github_delegate() -> Agent:
             "You coordinate GitOps operations by delegating to the "
             "remote GitOps Remediation Agent via A2A protocol."
         ),
-        a2a=A2AClientConfig(
+        a2a=A2AConfig(
             endpoint=endpoint,
             auth=_build_a2a_auth(),
             timeout=120,

@@ -35,6 +35,11 @@ API_PORT = get_env_int("API_PORT", 8000)
 API_KEYS = [k.strip() for k in get_env("API_KEYS", "").split(",") if k.strip()]
 CORS_ORIGINS = get_env("CORS_ORIGINS", "*")
 
+# JWT / User Authentication
+JWT_SECRET = get_env("JWT_SECRET", "dev-secret-change-in-production")
+JWT_EXPIRY_HOURS = get_env_int("JWT_EXPIRY_HOURS", 24)
+USERS_DB_PATH = get_env("USERS_DB_PATH", "/data/users.db")
+
 # Agent Log Level
 AGENT_LOG_LEVEL = get_env("AGENT_LOG_LEVEL", "INFO")
 

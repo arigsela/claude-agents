@@ -24,6 +24,7 @@ from ag_ui.encoder import EventEncoder
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
+from orchestrator.auth import AuthInfo, verify_jwt
 from orchestrator.flow import OncallFlow, classify_query
 from shared.logging_config import setup_logging
 
@@ -103,7 +104,7 @@ def _build_conversation_context(session_mgr, thread_id: str, max_turns: int = 5)
         return ""
 
 
-async def copilotkit_handler(request: Request):
+async def copilotkit_handler(request: Request, auth: AuthInfo | None = None):
     """Handle AG-UI requests from CopilotKit frontend.
 
     Accepts RunAgentInput JSON, routes through OncallFlow,
@@ -117,7 +118,19 @@ async def copilotkit_handler(request: Request):
     message_id = str(uuid.uuid4())
 
     user_message = _extract_latest_user_message(input_data)
-    logger.info(f"CopilotKit request: thread={thread_id}, query={user_message[:80]}...")
+
+    # Resolve user_id: prefer auth info, fall back to X-User-JWT header
+    user_id = auth.user_id if auth and auth.user_id else ""
+    if not user_id:
+        user_jwt = request.headers.get("X-User-JWT", "")
+        if user_jwt.startswith("Bearer "):
+            try:
+                payload = verify_jwt(user_jwt[7:])
+                user_id = payload.get("sub", "")
+            except Exception:
+                pass
+
+    logger.info(f"CopilotKit request: thread={thread_id}, user={user_id or 'anon'}, query={user_message[:80]}...")
 
     async def event_stream():
         # 1. Run started
@@ -177,6 +190,7 @@ async def copilotkit_handler(request: Request):
                 session_id=thread_id,
                 user_msg=user_message,
                 assistant_msg=result_text,
+                user_id=user_id or "",
             )
         except Exception as e:
             logger.warning(f"Failed to persist session {thread_id}: {e}")

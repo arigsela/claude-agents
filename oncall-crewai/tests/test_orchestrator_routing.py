@@ -26,13 +26,16 @@ def mock_env(monkeypatch):
 @pytest.fixture
 def app(mock_env, monkeypatch):
     """Create the FastAPI app for testing."""
-    from orchestrator.main import create_app
+    import orchestrator.auth as auth_module
 
     # API_KEYS is evaluated at import time in shared.config, so we must
-    # patch the binding in orchestrator.main for tests to see the values.
-    monkeypatch.setattr(
-        "orchestrator.main.API_KEYS", ["valid-key-1", "valid-key-2"]
-    )
+    # patch the binding in orchestrator.auth for tests to see the values.
+    monkeypatch.setattr(auth_module, "API_KEYS", ["valid-key-1", "valid-key-2"])
+    monkeypatch.setattr(auth_module, "JWT_SECRET", "test-jwt-secret")
+    monkeypatch.setattr(auth_module, "JWT_EXPIRY_HOURS", 24)
+
+    from orchestrator.main import create_app
+
     return create_app()
 
 
@@ -198,7 +201,7 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_no_auth_when_api_keys_empty(self, mock_env):
         """When API_KEYS is empty, auth is disabled (dev mode)."""
-        with patch("orchestrator.main.API_KEYS", []):
+        with patch("orchestrator.auth.API_KEYS", []):
             from orchestrator.main import create_app
 
             dev_app = create_app()

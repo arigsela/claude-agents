@@ -23,6 +23,8 @@ interface SessionSidebarProps {
   onDeleteSession: (id: string) => void;
   isOpen: boolean;
   onToggle: () => void;
+  username?: string | null;
+  onLogout?: () => void;
 }
 
 export default function SessionSidebar({
@@ -33,6 +35,8 @@ export default function SessionSidebar({
   onDeleteSession,
   isOpen,
   onToggle,
+  username,
+  onLogout,
 }: SessionSidebarProps) {
   return (
     <>
@@ -154,6 +158,31 @@ export default function SessionSidebar({
             </ul>
           )}
         </div>
+
+        {/* User info & logout */}
+        {username && (
+          <div className="p-3 border-t border-zinc-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-blue-600/20 flex items-center justify-center text-blue-400 text-xs font-bold shrink-0">
+                  {username.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm text-zinc-300 truncate">
+                  {username}
+                </span>
+              </div>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                  aria-label="Sign out"
+                >
+                  Sign out
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </aside>
 
       {/* Mobile overlay */}

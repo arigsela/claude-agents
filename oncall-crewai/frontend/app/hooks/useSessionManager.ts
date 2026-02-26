@@ -6,6 +6,7 @@ import {
   fetchSessions,
   fetchSession,
   deleteSession as apiDeleteSession,
+  initSession,
 } from "../lib/sessions";
 import { TextMessage, Role } from "@copilotkit/runtime-client-gql";
 import { useCopilotMessagesContext } from "@copilotkit/react-core";
@@ -52,6 +53,9 @@ export function useSessionManager() {
       if (stored && list.some((s) => s.session_id === stored)) {
         setThreadId(stored);
         await restoreSession(stored);
+      } else {
+        // Pre-register the current thread with the user's identity
+        initSession(threadId);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +85,8 @@ export function useSessionManager() {
     const newId = crypto.randomUUID();
     setThreadId(newId);
     setMessages([]);
+    // Pre-register the session with the user's identity
+    initSession(newId);
   }, [setThreadId, setMessages]);
 
   const removeSession = useCallback(

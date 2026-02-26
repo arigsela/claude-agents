@@ -30,6 +30,7 @@ class Session:
     created_at: datetime
     last_accessed: datetime
     messages: list[dict] = field(default_factory=list)
+    user_id: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -104,6 +105,20 @@ class SessionManager:
             CREATE INDEX IF NOT EXISTS idx_sessions_last_accessed
                 ON sessions(last_accessed);
         """)
+        # Migration: add user_id column if not present (backwards compatible)
+        cols = [
+            row[1]
+            for row in self.conn.execute("PRAGMA table_info(sessions)").fetchall()
+        ]
+        if "user_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE sessions ADD COLUMN user_id TEXT DEFAULT ''"
+            )
+            logger.info("Migrated sessions table: added user_id column")
+        self.conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id
+                ON sessions(user_id);
+        """)
         self.conn.commit()
 
     def _load_sessions_from_db(self) -> None:
@@ -126,6 +141,7 @@ class SessionManager:
                 created_at=datetime.fromisoformat(row["created_at"]),
                 last_accessed=last_accessed,
                 messages=json.loads(row["messages"]),
+                user_id=row["user_id"] or "",
             )
             self.sessions[session.session_id] = session
             loaded += 1
@@ -138,14 +154,15 @@ class SessionManager:
             return
         self.conn.execute(
             """INSERT OR REPLACE INTO sessions
-               (session_id, title, created_at, last_accessed, messages)
-               VALUES (?, ?, ?, ?, ?)""",
+               (session_id, title, created_at, last_accessed, messages, user_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 session.session_id,
                 session.title,
                 session.created_at.isoformat(),
                 session.last_accessed.isoformat(),
                 json.dumps(session.messages),
+                session.user_id,
             ),
         )
         self.conn.commit()
@@ -162,10 +179,13 @@ class SessionManager:
             self.delete_session(session.session_id)
             logger.info(f"Evicted oldest session: {session.session_id}")
 
-    def get_or_create_session(self, session_id: str) -> Session:
+    def get_or_create_session(self, session_id: str, user_id: str = "") -> Session:
         """Get existing session or create a new one."""
         session = self.sessions.get(session_id)
         if session and not self._is_expired(session):
+            # Adopt orphaned session: update user_id if previously unset
+            if user_id and not session.user_id:
+                session.user_id = user_id
             session.last_accessed = datetime.now()
             self._save_session(session)
             return session
@@ -185,6 +205,7 @@ class SessionManager:
                         created_at=datetime.fromisoformat(row["created_at"]),
                         last_accessed=datetime.now(),
                         messages=json.loads(row["messages"]),
+                        user_id=row["user_id"] or "",
                     )
                     self.sessions[session_id] = session
                     self._save_session(session)
@@ -199,17 +220,18 @@ class SessionManager:
             created_at=now,
             last_accessed=now,
             messages=[],
+            user_id=user_id,
         )
         self.sessions[session_id] = session
         self._save_session(session)
-        logger.info(f"Session created: {session_id}")
+        logger.info(f"Session created: {session_id} (user={user_id or 'anonymous'})")
         return session
 
     def append_messages(
-        self, session_id: str, user_msg: str, assistant_msg: str
+        self, session_id: str, user_msg: str, assistant_msg: str, user_id: str = ""
     ) -> None:
         """Add a user/assistant exchange to a session."""
-        session = self.get_or_create_session(session_id)
+        session = self.get_or_create_session(session_id, user_id=user_id)
         now = datetime.now().isoformat()
 
         session.messages.append(
@@ -226,16 +248,25 @@ class SessionManager:
         session.last_accessed = datetime.now()
         self._save_session(session)
 
-    def list_sessions(self) -> list[dict]:
-        """List all sessions sorted by last_accessed desc."""
+    def list_sessions(self, user_id: str | None = None) -> list[dict]:
+        """List sessions sorted by last_accessed desc.
+
+        If user_id is provided, only return sessions belonging to that user.
+        If user_id is None (API_KEY auth), return all sessions.
+        """
         active = [
             s for s in self.sessions.values() if not self._is_expired(s)
         ]
+        if user_id is not None:
+            active = [s for s in active if s.user_id == user_id]
         active.sort(key=lambda s: s.last_accessed, reverse=True)
         return [s.to_summary() for s in active]
 
-    def get_session(self, session_id: str) -> Session | None:
-        """Get a session by ID, or None if not found/expired."""
+    def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
+        """Get a session by ID, or None if not found/expired/wrong user.
+
+        If user_id is provided, verifies ownership. If None (API_KEY), allows any.
+        """
         session = self.sessions.get(session_id)
         if session is None and self.conn:
             row = self.conn.execute(
@@ -249,6 +280,7 @@ class SessionManager:
                     created_at=datetime.fromisoformat(row["created_at"]),
                     last_accessed=datetime.fromisoformat(row["last_accessed"]),
                     messages=json.loads(row["messages"]),
+                    user_id=row["user_id"] or "",
                 )
                 self.sessions[session_id] = session
 
@@ -257,10 +289,18 @@ class SessionManager:
         if self._is_expired(session):
             self.delete_session(session_id)
             return None
+        if user_id is not None and session.user_id != user_id:
+            return None
         return session
 
-    def delete_session(self, session_id: str) -> bool:
-        """Delete a session. Returns True if found."""
+    def delete_session(self, session_id: str, user_id: str | None = None) -> bool:
+        """Delete a session. Returns True if found.
+
+        If user_id is provided, verifies ownership before deleting.
+        """
+        session = self.sessions.get(session_id)
+        if session and user_id is not None and session.user_id != user_id:
+            return False
         session = self.sessions.pop(session_id, None)
         if self.conn:
             self.conn.execute(

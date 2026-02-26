@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { useCopilotChat } from "@copilotkit/react-core";
 import SessionSidebar from "./components/SessionSidebar";
 import { useSessionManager } from "./hooks/useSessionManager";
+import { useAuth } from "./contexts/AuthContext";
+import { Providers } from "./providers";
 
-export default function Home() {
+function ChatContent() {
   const {
     sessions,
     activeSessionId,
@@ -16,6 +19,7 @@ export default function Home() {
     removeSession,
   } = useSessionManager();
 
+  const { user, logout } = useAuth();
   const { isLoading } = useCopilotChat();
   const wasLoading = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -44,6 +48,8 @@ export default function Home() {
         onDeleteSession={removeSession}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        username={user?.username}
+        onLogout={logout}
       />
 
       <div className="flex flex-col flex-1 min-w-0">
@@ -75,5 +81,34 @@ export default function Home() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+        <div className="text-zinc-400">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null; // Will redirect
+  }
+
+  return (
+    <Providers>
+      <ChatContent />
+    </Providers>
   );
 }

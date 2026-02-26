@@ -3,6 +3,7 @@
 import { createContext, useContext, useState } from "react";
 import { CopilotKit } from "@copilotkit/react-core";
 import "@copilotkit/react-ui/styles.css";
+import { getToken } from "./lib/auth";
 
 interface ThreadContextValue {
   threadId: string;
@@ -26,6 +27,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return crypto.randomUUID();
   });
 
+  // Build headers to forward JWT to CopilotKit runtime
+  const token = typeof window !== "undefined" ? getToken() : null;
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   return (
     <ThreadContext.Provider value={{ threadId, setThreadId }}>
       <CopilotKit
@@ -33,6 +41,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         agent="oncallAgent"
         showDevConsole={false}
         threadId={threadId}
+        headers={headers}
       >
         {children}
       </CopilotKit>

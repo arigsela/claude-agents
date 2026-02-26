@@ -1,9 +1,12 @@
 """Orchestrator main application.
 
 FastAPI app with:
+- POST /auth/login — authenticate user, return JWT
+- POST /auth/register — create user account, return JWT
+- GET /auth/me — get current user info (requires JWT)
 - POST /query — run the OncallFlow to route queries to specialist agents
 - POST /copilotkit — AG-UI SSE endpoint for CopilotKit frontend
-- GET /sessions — list conversation sessions
+- GET /sessions — list conversation sessions (scoped by user)
 - GET /sessions/{session_id} — get session with messages
 - DELETE /sessions/{session_id} — delete session
 - GET /health — health check
@@ -40,38 +43,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from orchestrator.auth import AuthInfo, create_jwt, verify_auth
 from orchestrator.copilotkit_endpoint import copilotkit_handler
 from orchestrator.flow import OncallFlow
 from orchestrator.session_manager import SessionManager
-from shared.config import API_HOST, API_KEYS, API_PORT, CORS_ORIGINS
+from orchestrator.user_manager import UserManager
+from shared.config import API_HOST, API_PORT, CORS_ORIGINS
 from shared.logging_config import setup_logging
 
 logger = setup_logging("orchestrator")
 
 
 # ============================================================
-# Auth
-# ============================================================
-
-
-def verify_api_key(request: Request):
-    """Verify API key from Authorization header."""
-    if not API_KEYS:
-        return  # No auth in dev mode
-
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-    else:
-        token = request.headers.get("X-API-Key", "")
-
-    if token not in API_KEYS:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
-# ============================================================
 # Request/Response models
 # ============================================================
+
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user_id: str
+    username: str
 
 
 class QueryRequest(BaseModel):
@@ -227,10 +223,11 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Startup: initialize session manager
+        # Startup: initialize user manager and session manager
+        app.state.user_manager = UserManager()
         app.state.session_manager = SessionManager()
         app.state.session_manager.start_cleanup_task()
-        logger.info("SessionManager started with cleanup task")
+        logger.info("UserManager and SessionManager started")
         yield
         # Shutdown: stop cleanup
         app.state.session_manager.stop_cleanup_task()
@@ -271,8 +268,31 @@ def create_app() -> FastAPI:
             },
         })
 
+    # ============================================================
+    # Auth endpoints (no auth required for login/register)
+    # ============================================================
+
+    @fastapi_app.post("/auth/login", response_model=AuthResponse)
+    async def login(req: AuthRequest, request: Request):
+        um: UserManager = request.app.state.user_manager
+        user = um.authenticate(req.username, req.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = create_jwt(user.user_id, user.username)
+        return AuthResponse(token=token, user_id=user.user_id, username=user.username)
+
+    @fastapi_app.get("/auth/me")
+    async def auth_me(auth: AuthInfo = Depends(verify_auth)):
+        if not auth.user_id:
+            raise HTTPException(status_code=401, detail="JWT authentication required")
+        return JSONResponse({"user_id": auth.user_id, "username": auth.username})
+
+    # ============================================================
+    # Query / CopilotKit endpoints
+    # ============================================================
+
     @fastapi_app.post("/query", response_model=QueryResponse)
-    def query(req: QueryRequest, _=Depends(verify_api_key)):
+    def query(req: QueryRequest, auth: AuthInfo = Depends(verify_auth)):
         logger.info(f"Query received: {req.prompt[:80]}...")
 
         flow = OncallFlow()
@@ -287,27 +307,37 @@ def create_app() -> FastAPI:
 
     # CopilotKit AG-UI endpoint (must be registered BEFORE A2A mount at "/")
     @fastapi_app.post("/copilotkit")
-    async def copilotkit(request: Request, _=Depends(verify_api_key)):
-        return await copilotkit_handler(request)
+    async def copilotkit(request: Request, auth: AuthInfo = Depends(verify_auth)):
+        return await copilotkit_handler(request, auth)
 
-    # Session management endpoints
-    @fastapi_app.get("/sessions")
-    async def list_sessions(_=Depends(verify_api_key)):
+    # ============================================================
+    # Session management endpoints (scoped by user)
+    # ============================================================
+
+    @fastapi_app.post("/sessions/{session_id}", status_code=201)
+    async def init_session(session_id: str, auth: AuthInfo = Depends(verify_auth)):
+        """Pre-create a session with the authenticated user's ID."""
         mgr: SessionManager = fastapi_app.state.session_manager
-        return JSONResponse(mgr.list_sessions())
+        session = mgr.get_or_create_session(session_id, user_id=auth.user_id or "")
+        return JSONResponse(session.to_summary(), status_code=201)
+
+    @fastapi_app.get("/sessions")
+    async def list_sessions(auth: AuthInfo = Depends(verify_auth)):
+        mgr: SessionManager = fastapi_app.state.session_manager
+        return JSONResponse(mgr.list_sessions(user_id=auth.user_id))
 
     @fastapi_app.get("/sessions/{session_id}")
-    async def get_session(session_id: str, _=Depends(verify_api_key)):
+    async def get_session(session_id: str, auth: AuthInfo = Depends(verify_auth)):
         mgr: SessionManager = fastapi_app.state.session_manager
-        session = mgr.get_session(session_id)
+        session = mgr.get_session(session_id, user_id=auth.user_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return JSONResponse(session.to_dict())
 
     @fastapi_app.delete("/sessions/{session_id}", status_code=204)
-    async def delete_session(session_id: str, _=Depends(verify_api_key)):
+    async def delete_session(session_id: str, auth: AuthInfo = Depends(verify_auth)):
         mgr: SessionManager = fastapi_app.state.session_manager
-        if not mgr.delete_session(session_id):
+        if not mgr.delete_session(session_id, user_id=auth.user_id):
             raise HTTPException(status_code=404, detail="Session not found")
 
     # A2A server
