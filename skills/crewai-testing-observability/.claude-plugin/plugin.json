@@ -1,0 +1,6 @@
+{
+  "name": "crewai-testing-observability",
+  "version": "1.0.0",
+  "description": "Test, monitor, and customize CrewAI applications with CLI testing, event listeners, fingerprinting, prompt customization, and multimodal file handling.",
+  "author": { "name": "Arisela" }
+}

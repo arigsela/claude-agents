@@ -69,9 +69,9 @@ oncall-agent-api/
 ---
 
 ### Claude Code Skills ⭐⭐
-> Plugin marketplace with 12 reusable skills
+> Plugin marketplace with 17 reusable skills
 
-**What I Built**: Marketplace of 12 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
+**What I Built**: Marketplace of 17 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
 
 | Skill | Implementation |
 |-------|----------------|
@@ -82,7 +82,7 @@ oncall-agent-api/
 
 **Technologies**: `Claude Code Plugins` `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
 
-**Available Skills (11)**:
+**Available Skills (17)**:
 | Skill | Category | Description |
 |-------|----------|-------------|
 | architecture-diagrams | documentation | Mermaid, PlantUML, C4 system diagrams |
@@ -97,6 +97,11 @@ oncall-agent-api/
 | creating-implementation-plans | development | Phase-based implementation planning |
 | executing-implementation-plans | development | Phase-based execution with checkpoints |
 | olympus-customer-deletion | automation | Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction |
+| crewai-agent-design | learning | CrewAI agent design with Role-Goal-Backstory framework and best practices |
+| crewai-crew-orchestration | learning | CrewAI crew orchestration with tasks, flows, processes, and production patterns |
+| crewai-testing-observability | learning | CrewAI testing, event listeners, fingerprinting, prompt customization, and multimodal files |
+| crewai-tool-development | learning | CrewAI custom tools (BaseTool, @tool), async tools, MCP integration, and built-in tools catalog |
+| crewai-memory-knowledge | learning | CrewAI unified memory (scopes, slices, scoring) and knowledge (RAG sources, embedders) |
 
 #### Install Skills from the Marketplace
 
@@ -112,10 +117,12 @@ claude plugin add --from-github arigsela/claude-agents/skills/<skill-name>
 
 **Available skill names for installation:**
 ```
-architecture-diagrams        aws-well-architected       cloud-design-patterns
-code-review                  creating-implementation-plans  devops-architect
-executing-implementation-plans  feature-builder          git-commit-pr
-olympus-customer-deletion    platform-engineering-architect  prompt-engineering-patterns
+architecture-diagrams           aws-well-architected            cloud-design-patterns
+code-review                     creating-implementation-plans   crewai-agent-design
+crewai-crew-orchestration       crewai-memory-knowledge         crewai-testing-observability
+crewai-tool-development         devops-architect                executing-implementation-plans
+feature-builder                 git-commit-pr                   olympus-customer-deletion
+platform-engineering-architect  prompt-engineering-patterns
 ```
 
 #### Legacy CLI (local use)

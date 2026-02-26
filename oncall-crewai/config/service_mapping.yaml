@@ -1,0 +1,84 @@
+# Service to Deployment Mapping (oncall-crewai)
+# Stripped-down version for multi-agent exploration.
+# Maps Kubernetes service names to GitHub repositories and service metadata.
+# Zeus, Datadog, and AWS cost fields removed.
+
+service_mappings:
+  # Critical Services
+  proteus:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-dev
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  artemis-auth:
+    github_repo: artemishealth/kleis
+    k8s_deployment_name: artemis-auth
+    namespace: artemis-dev
+    criticality: critical
+    health_check_endpoint: /health
+
+  hermes:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-dev
+    criticality: critical
+    health_check_endpoint: /
+
+  # High Priority Services
+  export-manager:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: export-manager
+    namespace: artemis-dev
+    criticality: high
+
+  karpenter:
+    github_repo: kubernetes-sigs/karpenter
+    k8s_deployment_name: karpenter
+    namespace: kube-system
+    criticality: high
+
+  # Homelab Services (k3s)
+  chores-tracker:
+    github_repo: arigsela/chores-tracker
+    k8s_deployment_name: chores-tracker
+    namespace: default
+    criticality: high
+    health_check_endpoint: /health
+
+  mysql:
+    github_repo: arigsela/kubernetes
+    k8s_deployment_name: mysql
+    namespace: default
+    criticality: critical
+
+  postgresql:
+    github_repo: arigsela/kubernetes
+    k8s_deployment_name: postgresql
+    namespace: default
+    criticality: critical
+
+  vault:
+    github_repo: arigsela/kubernetes
+    k8s_deployment_name: vault
+    namespace: vault
+    criticality: critical
+
+  n8n:
+    github_repo: arigsela/kubernetes
+    k8s_deployment_name: n8n
+    namespace: default
+    criticality: high
+
+  nginx-ingress:
+    github_repo: arigsela/kubernetes
+    k8s_deployment_name: nginx-ingress-controller
+    namespace: ingress-nginx
+    criticality: critical
+
+  oncall-agent-api:
+    github_repo: arigsela/claude-agents
+    k8s_deployment_name: oncall-agent-api
+    namespace: oncall-agent
+    criticality: high

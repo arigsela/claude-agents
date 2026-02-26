@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-02-18T00:00:00Z",
+  "lastUpdated": "2026-02-26T00:00:00Z",
   "skills": {
     "architecture-diagrams": {
       "name": "architecture-diagrams",
@@ -120,6 +120,56 @@
       "source": {
         "type": "local",
         "ref": "skills/olympus-customer-deletion"
+      }
+    },
+    "crewai-tool-development": {
+      "name": "crewai-tool-development",
+      "version": "1.0.0",
+      "path": "./crewai-tool-development",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-tool-development"
+      }
+    },
+    "crewai-agent-design": {
+      "name": "crewai-agent-design",
+      "version": "1.0.0",
+      "path": "./crewai-agent-design",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-agent-design"
+      }
+    },
+    "crewai-crew-orchestration": {
+      "name": "crewai-crew-orchestration",
+      "version": "1.0.0",
+      "path": "./crewai-crew-orchestration",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-crew-orchestration"
+      }
+    },
+    "crewai-testing-observability": {
+      "name": "crewai-testing-observability",
+      "version": "1.0.0",
+      "path": "./crewai-testing-observability",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-testing-observability"
+      }
+    },
+    "crewai-memory-knowledge": {
+      "name": "crewai-memory-knowledge",
+      "version": "1.0.0",
+      "path": "./crewai-memory-knowledge",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-memory-knowledge"
       }
     }
   },

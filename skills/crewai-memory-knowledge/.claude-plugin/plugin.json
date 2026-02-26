@@ -1,0 +1,6 @@
+{
+  "name": "crewai-memory-knowledge",
+  "version": "1.0.0",
+  "description": "Give CrewAI agents persistent context with unified memory (scopes, slices, composite scoring) and domain knowledge (RAG sources, embedders, custom sources).",
+  "author": { "name": "Arisela" }
+}

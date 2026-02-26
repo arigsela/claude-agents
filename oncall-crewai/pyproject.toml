@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oncall-crewai"
+version = "0.1.0"
+description = "Multi-agent oncall system using CrewAI + A2A protocol"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    # CrewAI with A2A + Anthropic native provider
+    "crewai[a2a,anthropic]>=1.0.0",
+
+    # A2A protocol SDK with HTTP server
+    "a2a-sdk[http-server]>=0.3.10",
+
+    # Web framework
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.30.0",
+
+    # Kubernetes client
+    "kubernetes>=31.0.0",
+
+    # GitHub API
+    "PyGithub>=2.5.0",
+
+    # Data validation
+    "pydantic>=2.12.0",
+
+    # Configuration
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
+
+    # Authentication
+    "PyJWT>=2.8.0",
+    "bcrypt>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+    "black>=24.0.0",
+    "ruff>=0.6.0",
+    "httpx>=0.27.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

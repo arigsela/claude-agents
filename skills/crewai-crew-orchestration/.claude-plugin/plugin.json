@@ -1,0 +1,6 @@
+{
+  "name": "crewai-crew-orchestration",
+  "version": "1.0.0",
+  "description": "Build and orchestrate multi-agent CrewAI systems with crews, tasks, flows, processes, and production architecture patterns.",
+  "author": { "name": "Arisela" }
+}
