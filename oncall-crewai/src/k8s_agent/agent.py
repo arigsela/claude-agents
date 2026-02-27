@@ -114,7 +114,5 @@ def invoke(query: str, context_id: str = "") -> str:
     log_token_usage(result, agent_name="k8s-diagnostics")
     logger.info(f"K8s agent completed: context_id={context_id}")
 
-    # Return structured output if available, otherwise raw
-    if hasattr(result, "pydantic") and result.pydantic:
-        return result.pydantic.model_dump_json()
+    # Return raw LLM response (human-readable) rather than JSON serialization
     return result.raw if hasattr(result, "raw") else str(result)
