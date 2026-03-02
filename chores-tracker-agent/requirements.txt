@@ -1,0 +1,35 @@
+# ==============================================================================
+# Python Dependencies
+# ==============================================================================
+# Pin major versions for reproducibility. Run `pip install -r requirements.txt`
+# to install all dependencies.
+#
+# CORE STACK:
+# - crewai: Multi-agent AI framework (agents, tasks, crews, flows)
+# - fastapi + uvicorn: High-performance async web framework + ASGI server
+# - a2a-sdk: Google's Agent-to-Agent protocol SDK
+# - pydantic: Data validation and settings management
+# - anthropic: Anthropic API client (used by CrewAI via LiteLLM)
+# ==============================================================================
+
+# --- AI / Agent Framework ---
+crewai>=1.6.0,<2.0.0
+crewai[tools]>=1.6.0,<2.0.0
+
+# --- Web Framework ---
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.34.0,<1.0.0
+
+# --- A2A Protocol ---
+a2a-sdk>=0.2.0,<1.0.0
+
+# --- LLM Provider ---
+anthropic>=0.42.0,<1.0.0
+
+# --- Data Validation ---
+pydantic>=2.10.0,<3.0.0
+
+# --- Testing ---
+pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.24.0,<1.0.0
+httpx>=0.28.0,<1.0.0
