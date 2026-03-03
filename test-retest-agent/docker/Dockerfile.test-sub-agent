@@ -1,0 +1,29 @@
+# ==============================================================================
+# Dockerfile — Test Sub Agent Service
+# ==============================================================================
+# Builds a lightweight Python container for the sub-agent.
+# Same pattern as the orchestrator Dockerfile — see comments there for details.
+# ==============================================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy shared code
+COPY src/shared/ ./src/shared/
+
+# Copy sub-agent code
+COPY src/test-sub-agent/ ./src/test-sub-agent/
+
+# Copy config files (includes knowledge sources if present)
+COPY config/ ./config/
+
+ENV PYTHONPATH=/app/src
+
+EXPOSE 8080
+
+CMD ["uvicorn", "test-sub-agent.server:app", "--host", "0.0.0.0", "--port", "8080"]

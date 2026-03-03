@@ -1,0 +1,20 @@
+# ==============================================================================
+# Python Project Configuration (pyproject.toml)
+# ==============================================================================
+# This is the modern standard for Python project metadata (PEP 621).
+# It replaces the older setup.py / setup.cfg approach.
+# ==============================================================================
+
+[project]
+name = "test-retest-agent"
+version = "1.0.0"
+description = "Test agent for verifying oncall-crewai directory structure"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
