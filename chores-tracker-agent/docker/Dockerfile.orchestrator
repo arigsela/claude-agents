@@ -1,0 +1,44 @@
+# ==============================================================================
+# Dockerfile — Orchestrator Service
+# ==============================================================================
+# Builds a lightweight Python container for the orchestrator.
+#
+# WHY python:3.11-slim?
+# - "slim" removes dev tools (gcc, docs) → smaller image (~150MB vs ~900MB)
+# - 3.11 matches our pyproject.toml requires-python
+#
+# LAYER CACHING STRATEGY:
+# 1. Copy requirements.txt FIRST (changes rarely)
+# 2. Run pip install (cached unless requirements change)
+# 3. Copy source code LAST (changes frequently)
+# This means code changes don't trigger a full pip install rebuild.
+# ==============================================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies first (layer caching optimization)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy shared code (used by all services)
+COPY src/shared/ ./src/shared/
+
+# Copy orchestrator code
+COPY src/orchestrator/ ./src/orchestrator/
+
+# Copy config files
+COPY config/ ./config/
+
+# PYTHONPATH tells Python where to find our src/ modules.
+# Without this, "from shared.config import ..." would fail.
+ENV PYTHONPATH=/app/src
+
+# Expose the orchestrator port (documentation — doesn't actually open the port)
+EXPOSE 8000
+
+# Run the FastAPI server via uvicorn.
+# --host 0.0.0.0: Listen on all interfaces (required in Docker/K8s)
+# --port: Must match the EXPOSE and K8s service targetPort
+CMD ["uvicorn", "orchestrator.main:app", "--host", "0.0.0.0", "--port", "8000"]
