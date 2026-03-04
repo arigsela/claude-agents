@@ -1,0 +1,113 @@
+# ==============================================================================
+# GitHub Actions Workflow: Build & Push CrewAI Agent Docker Images to ECR
+# ==============================================================================
+#
+# TRIGGERED BY: workflow_dispatch (called from Backstage scaffolder via REST API)
+#
+# HOW IT WORKS:
+# The Backstage scaffolder creates a PR with agent code on a feature branch,
+# then dispatches this workflow to build Docker images from that branch and
+# push them to ECR. This avoids needing Docker-in-Docker inside the EKS pod
+# where Backstage runs (containerd runtime has no Docker daemon).
+#
+# IMPORTANT: workflow_dispatch `ref` must target the branch where this YAML
+# file exists (typically `main`). The actual code branch to build is passed
+# as the `branch` input parameter.
+#
+# PREREQUISITES:
+# 1. Repository secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# 2. ECR repositories must already exist (created by aws:ecr:create action)
+# 3. The branch specified in `inputs.branch` must exist on the remote
+# ==============================================================================
+
+name: Build Agent Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      project-name:
+        description: 'Project name (e.g. chores-knowledge-agent)'
+        required: true
+        type: string
+      sub-agent-name:
+        description: 'Sub-agent name (e.g. knowledge-agent)'
+        required: true
+        type: string
+      version:
+        description: 'Image version tag (e.g. 1.0.0)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to build from (e.g. scaffolder/add-chores-knowledge-agent)'
+        required: true
+        type: string
+
+# Only allow one build per project at a time to avoid ECR tag conflicts
+concurrency:
+  group: build-${{ inputs.project-name }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REGISTRY: 852893458518.dkr.ecr.us-east-2.amazonaws.com
+
+jobs:
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # Step 1: Check out the PR branch (where the scaffolded code lives)
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      # Step 2: Configure AWS credentials for ECR access
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Step 3: Authenticate Docker to ECR
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Step 4: Set up Docker Buildx for multi-platform builds and caching
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 5: Build and push the orchestrator image
+      # The orchestrator is the "front door" — receives queries and routes
+      # them to sub-agents via the A2A protocol.
+      - name: Build & Push Orchestrator Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ inputs.project-name }}/orchestrator
+          file: ./${{ inputs.project-name }}/orchestrator/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ inputs.project-name }}-orchestrator:${{ inputs.version }}
+            ${{ env.ECR_REGISTRY }}/${{ inputs.project-name }}-orchestrator:latest
+          cache-from: type=gha,scope=${{ inputs.project-name }}-orchestrator
+          cache-to: type=gha,mode=max,scope=${{ inputs.project-name }}-orchestrator
+
+      # Step 6: Build and push the sub-agent image
+      # The sub-agent is the CrewAI agent that does the actual work.
+      - name: Build & Push Sub-Agent Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ inputs.project-name }}/${{ inputs.sub-agent-name }}
+          file: ./${{ inputs.project-name }}/${{ inputs.sub-agent-name }}/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ inputs.project-name }}-${{ inputs.sub-agent-name }}:${{ inputs.version }}
+            ${{ env.ECR_REGISTRY }}/${{ inputs.project-name }}-${{ inputs.sub-agent-name }}:latest
+          cache-from: type=gha,scope=${{ inputs.project-name }}-${{ inputs.sub-agent-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.project-name }}-${{ inputs.sub-agent-name }}
