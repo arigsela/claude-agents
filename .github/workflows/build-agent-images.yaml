@@ -84,11 +84,14 @@ jobs:
       # Step 5: Build and push the orchestrator image
       # The orchestrator is the "front door" — receives queries and routes
       # them to sub-agents via the A2A protocol.
+      # Context is the project root (e.g. ./dnd-agent) because the Dockerfiles
+      # reference src/shared/, src/orchestrator/, config/, requirements.txt.
+      # Dockerfiles live at docker/Dockerfile.<service-name> (scaffolder convention).
       - name: Build & Push Orchestrator Image
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ inputs.project-name }}/orchestrator
-          file: ./${{ inputs.project-name }}/orchestrator/Dockerfile
+          context: ./${{ inputs.project-name }}
+          file: ./${{ inputs.project-name }}/docker/Dockerfile.orchestrator
           push: true
           platforms: linux/amd64
           tags: |
@@ -99,11 +102,12 @@ jobs:
 
       # Step 6: Build and push the sub-agent image
       # The sub-agent is the CrewAI agent that does the actual work.
+      # Same context/Dockerfile convention as the orchestrator.
       - name: Build & Push Sub-Agent Image
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ inputs.project-name }}/${{ inputs.sub-agent-name }}
-          file: ./${{ inputs.project-name }}/${{ inputs.sub-agent-name }}/Dockerfile
+          context: ./${{ inputs.project-name }}
+          file: ./${{ inputs.project-name }}/docker/Dockerfile.${{ inputs.sub-agent-name }}
           push: true
           platforms: linux/amd64
           tags: |
