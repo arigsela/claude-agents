@@ -81,12 +81,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Step 5: Build and push the orchestrator image
+      # Step 5: Compute Python-safe sub-agent name (hyphens -> underscores)
+      # Python module/directory names cannot contain hyphens. The Dockerfile
+      # and source directory use underscores, but ECR image tags keep hyphens.
+      - name: Compute Python-safe name
+        id: names
+        run: echo "python_name=${SUB_AGENT//-/_}" >> "$GITHUB_OUTPUT"
+        env:
+          SUB_AGENT: ${{ inputs.sub-agent-name }}
+
+      # Step 6: Build and push the orchestrator image
       # The orchestrator is the "front door" — receives queries and routes
       # them to sub-agents via the A2A protocol.
       # Context is the project root (e.g. ./dnd-agent) because the Dockerfiles
       # reference src/shared/, src/orchestrator/, config/, requirements.txt.
-      # Dockerfiles live at docker/Dockerfile.<service-name> (scaffolder convention).
+      # Dockerfiles live at docker/Dockerfile.<python-safe-name> (scaffolder convention).
       - name: Build & Push Orchestrator Image
         uses: docker/build-push-action@v6
         with:
@@ -100,14 +109,14 @@ jobs:
           cache-from: type=gha,scope=${{ inputs.project-name }}-orchestrator
           cache-to: type=gha,mode=max,scope=${{ inputs.project-name }}-orchestrator
 
-      # Step 6: Build and push the sub-agent image
+      # Step 7: Build and push the sub-agent image
       # The sub-agent is the CrewAI agent that does the actual work.
-      # Same context/Dockerfile convention as the orchestrator.
+      # Dockerfile uses Python-safe name (underscores), image tags use original name (hyphens).
       - name: Build & Push Sub-Agent Image
         uses: docker/build-push-action@v6
         with:
           context: ./${{ inputs.project-name }}
-          file: ./${{ inputs.project-name }}/docker/Dockerfile.${{ inputs.sub-agent-name }}
+          file: ./${{ inputs.project-name }}/docker/Dockerfile.${{ steps.names.outputs.python_name }}
           push: true
           platforms: linux/amd64
           tags: |
