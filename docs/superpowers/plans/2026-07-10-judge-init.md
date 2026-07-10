@@ -31,7 +31,7 @@
 - Produces: a template containing a literal `{{example_rubric}}` placeholder line, alone on its own line. Task 3's `rubric_init.sh` renders it by whole-line replacement (awk), so the placeholder MUST be the only non-whitespace content on its line.
 - Produces: `example-rubric.md`, a frozen, self-contained style reference with no placeholders of its own.
 
-- [ ] **Step 1: Write the prompt template and example rubric in the repo**
+- [x] **Step 1: Write the prompt template and example rubric in the repo**
 
 Write `skills/codex-judge/rubric-init.prompt.md` with exactly this content:
 
@@ -100,7 +100,7 @@ API, Kubernetes, Slack, and GitOps. Hold the diff to the bar below.
 - Cluster-mutating operation with no scope limit or guard.
 ```
 
-- [ ] **Step 2: Copy both files to the live location**
+- [x] **Step 2: Copy both files to the live location**
 
 ```bash
 mkdir -p ~/.claude/judge
@@ -108,7 +108,7 @@ cp skills/codex-judge/rubric-init.prompt.md ~/.claude/judge/rubric-init.prompt.m
 cp skills/codex-judge/example-rubric.md ~/.claude/judge/example-rubric.md
 ```
 
-- [ ] **Step 3: Verify the placeholder and the copies**
+- [x] **Step 3: Verify the placeholder and the copies**
 
 Run:
 ```bash
@@ -118,7 +118,7 @@ diff skills/codex-judge/example-rubric.md ~/.claude/judge/example-rubric.md && e
 ```
 Expected: `1`, then `PROMPT_MATCHES`, then `EXAMPLE_MATCHES`.
 
-- [ ] **Step 4: Commit the repo-source files**
+- [x] **Step 4: Commit the repo-source files**
 
 ```bash
 git checkout -b feat/judge-init
@@ -139,7 +139,7 @@ No commit for the `~/.claude/judge/` copies (outside any git repository).
 - Consumes (not yet existing; that is the point of red): `~/.claude/hooks/rubric_init.sh` with the contract: no argument, no stdin contract; not a git repo → exit 1, stderr contains "Not inside a git repository"; `codex` not on `PATH` → exit 1, stderr contains "codex CLI not on PATH"; `codex exec` exits non-zero OR writes an empty last-message file → exit 1, stderr contains "Codex produced no output"; otherwise → exit 0, stdout is exactly the content Codex wrote to `--output-last-message`.
 - Produces: `JUDGE_INIT_SH=<path> bash tests/judge/test_rubric_init.sh` exiting 0 with `RESULT: 5 passed, 0 failed`, defaulting `JUDGE_INIT_SH` to `~/.claude/hooks/rubric_init.sh` when unset, so the same suite can validate both the live copy (Task 3) and the plugin-packaged copy (Task 4).
 
-- [ ] **Step 1: Write the test suite**
+- [x] **Step 1: Write the test suite**
 
 Write `tests/judge/test_rubric_init.sh` with exactly this content:
 
@@ -257,7 +257,7 @@ echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails for the right reason**
+- [x] **Step 2: Run the suite to verify it fails for the right reason**
 
 Run: `bash tests/judge/test_rubric_init.sh`
 Expected: `FATAL: rubric_init.sh not found at /Users/asela/.claude/hooks/rubric_init.sh`, exit 1.
@@ -281,7 +281,7 @@ git commit -m "test: red suite for rubric_init.sh (fake-codex shim)"
 - Consumes: `~/.claude/judge/rubric-init.prompt.md` and `~/.claude/judge/example-rubric.md` (Task 1).
 - Produces: the exact contract Task 2's suite asserts. Task 5's `/judge-init` command runs `bash ~/.claude/hooks/rubric_init.sh`.
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 Write `~/.claude/hooks/rubric_init.sh` with exactly this content:
 
@@ -339,17 +339,17 @@ fi
 cat "$LAST_MSG"
 ```
 
-- [ ] **Step 2: Make it executable**
+- [x] **Step 2: Make it executable**
 
 Run: `chmod +x ~/.claude/hooks/rubric_init.sh`
 
-- [ ] **Step 3: Run the suite to verify green**
+- [x] **Step 3: Run the suite to verify green**
 
 Run: `bash tests/judge/test_rubric_init.sh`
 Expected: `PASS:` lines T1-T5, then `RESULT: 5 passed, 0 failed`, exit 0.
 If any test fails, fix `rubric_init.sh` (not the test) until green.
 
-- [ ] **Step 4: Commit (test suite unchanged, record green state)**
+- [x] **Step 4: Commit (test suite unchanged, record green state)**
 
 ```bash
 git commit --allow-empty -m "feat: rubric_init.sh green against test suite (script lives in ~/.claude/hooks)"
@@ -367,7 +367,7 @@ git commit --allow-empty -m "feat: rubric_init.sh green against test suite (scri
 - Consumes: `skills/codex-judge/rubric-init.prompt.md` and `skills/codex-judge/example-rubric.md` (Task 1); `CLAUDE_PLUGIN_ROOT` when installed as a plugin hook.
 - Produces: a portable copy of `rubric_init.sh` that resolves its prompt directory the same way the packaged `judge.sh` already does, so it works both installed as a plugin and invoked directly by path.
 
-- [ ] **Step 1: Write the packaged copy**
+- [x] **Step 1: Write the packaged copy**
 
 Write `skills/codex-judge/hooks/rubric_init.sh` with exactly this content (identical to the live copy in Task 3, Step 1, except the `JUDGE_HOME` line):
 
@@ -428,16 +428,16 @@ fi
 cat "$LAST_MSG"
 ```
 
-- [ ] **Step 2: Make it executable**
+- [x] **Step 2: Make it executable**
 
 Run: `chmod +x skills/codex-judge/hooks/rubric_init.sh`
 
-- [ ] **Step 3: Run the suite against the packaged copy**
+- [x] **Step 3: Run the suite against the packaged copy**
 
 Run: `JUDGE_INIT_SH=skills/codex-judge/hooks/rubric_init.sh bash tests/judge/test_rubric_init.sh`
 Expected: `PASS:` lines T1-T5, then `RESULT: 5 passed, 0 failed`, exit 0.
 
-- [ ] **Step 4: Confirm the only difference between the two copies is the expected `JUDGE_HOME` divergence**
+- [x] **Step 4: Confirm the only difference between the two copies is the expected `JUDGE_HOME` divergence**
 
 The packaged copy replaces the live copy's single `JUDGE_HOME=` line with that
 same line plus its three explanatory comment lines above it (mirroring the
@@ -455,7 +455,7 @@ rm -f /tmp/rubric_init.live.stripped /tmp/rubric_init.packaged.stripped
 ```
 Expected: `IDENTICAL_EXCEPT_JUDGE_HOME`, with no diff output above it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/codex-judge/hooks/rubric_init.sh
@@ -474,7 +474,7 @@ git commit -m "feat: package rubric_init.sh into the codex-judge plugin"
 - Consumes: `~/.claude/hooks/rubric_init.sh` (Task 3) for the live copy; `${CLAUDE_PLUGIN_ROOT}/hooks/rubric_init.sh` (Task 4) for the packaged copy.
 - Produces: the `/judge-init` slash command, available immediately in this and other local sessions (live copy) and via the codex-judge plugin once reinstalled/updated (packaged copy).
 
-- [ ] **Step 1: Write the live command**
+- [x] **Step 1: Write the live command**
 
 Write `~/.claude/commands/judge-init.md` with exactly this content:
 
@@ -496,7 +496,7 @@ Scaffold a rubric for this repo:
    not commit it; let the user review and commit normally.
 ```
 
-- [ ] **Step 2: Write the packaged command**
+- [x] **Step 2: Write the packaged command**
 
 Write `skills/codex-judge/commands/judge-init.md` with exactly this content (identical to the live copy in Step 1, except line 1 of the body):
 
@@ -518,7 +518,7 @@ Scaffold a rubric for this repo:
    not commit it; let the user review and commit normally.
 ```
 
-- [ ] **Step 3: Confirm the only differences between the two copies are the expected script-path lines**
+- [x] **Step 3: Confirm the only differences between the two copies are the expected script-path lines**
 
 The script path appears twice in this file (once in the `allowed-tools`
 frontmatter scope, once in the "Execute" instruction), so both lines
@@ -532,7 +532,7 @@ Expected: two hunks, one for the `allowed-tools` line and one for the
 (`~/.claude/hooks/rubric_init.sh`) versus the packaged path
 (`"${CLAUDE_PLUGIN_ROOT}/hooks/rubric_init.sh"`). No other lines differ.
 
-- [ ] **Step 4: Validate the frontmatter parses**
+- [x] **Step 4: Validate the frontmatter parses**
 
 Run:
 ```bash
@@ -540,7 +540,7 @@ head -4 ~/.claude/commands/judge-init.md
 ```
 Expected: the three-dash-delimited frontmatter block with `description` and `allowed-tools` keys, no YAML errors.
 
-- [ ] **Step 5: Commit the packaged command**
+- [x] **Step 5: Commit the packaged command**
 
 ```bash
 git add skills/codex-judge/commands/judge-init.md
@@ -560,7 +560,7 @@ No commit for `~/.claude/commands/judge-init.md` (outside any git repository).
 - Consumes: everything from Tasks 1-5, plus a working `codex` login.
 - Produces: confidence that the real Codex authenticates, receives the rendered prompt, and drafts a rubric matching the fixed five-section skeleton across two different stacks. This is the only task that spends Codex tokens.
 
-- [ ] **Step 1: Run the drafter against this Python-stack repo**
+- [x] **Step 1: Run the drafter against this Python-stack repo**
 
 ```bash
 cd /Users/asela/git/claude-agents && bash ~/.claude/hooks/rubric_init.sh > /tmp/rubric-init-python.md
@@ -568,7 +568,7 @@ cat /tmp/rubric-init-python.md
 ```
 Expected: within ~180s, a markdown document under 60 lines whose bullets reference this repo's actual stack (black/ruff/pytest, Anthropic API, Slack, Kubernetes). If instead you see an error mentioning authentication, run `codex login` first, then retry this step.
 
-- [ ] **Step 2: Build a throwaway Terraform-stack scratch repo**
+- [x] **Step 2: Build a throwaway Terraform-stack scratch repo**
 
 ```bash
 T=$(mktemp -d "${TMPDIR:-/tmp}/rubric-init-tf.XXXXXX")
@@ -583,7 +583,7 @@ git -C "$T" add main.tf
 git -C "$T" -c user.email=t@t -c user.name=t commit -q -m "add example resource"
 ```
 
-- [ ] **Step 3: Run the drafter against the Terraform-stack repo**
+- [x] **Step 3: Run the drafter against the Terraform-stack repo**
 
 ```bash
 cd "$T" && bash ~/.claude/hooks/rubric_init.sh > /tmp/rubric-init-tf.md
@@ -591,7 +591,7 @@ cat /tmp/rubric-init-tf.md
 ```
 Expected: within ~180s, a markdown document under 60 lines whose Security/Reject-on-sight bullets reference Terraform-specific concerns (state files, unscoped `apply`/`destroy`) rather than the Python-specific language from Step 1.
 
-- [ ] **Step 4: Verify both drafts carry the same five-section skeleton**
+- [x] **Step 4: Verify both drafts carry the same five-section skeleton**
 
 Run:
 ```bash
@@ -604,7 +604,7 @@ echo "Header check complete"
 ```
 Expected: `Header check complete` with no `MISSING` lines printed above it.
 
-- [ ] **Step 5: Clean up the scratch repo and drafts**
+- [x] **Step 5: Clean up the scratch repo and drafts**
 
 ```bash
 rm -rf "$T" /tmp/rubric-init-python.md /tmp/rubric-init-tf.md
@@ -621,7 +621,7 @@ rm -rf "$T" /tmp/rubric-init-python.md /tmp/rubric-init-tf.md
 - Consumes: `~/.claude/hooks/rubric_init.sh` (Task 3), `~/.claude/commands/judge-init.md` (Task 5).
 - Produces: mechanical proof that `rubric_init.sh` never touches `.judge/rubric.md` itself (so all destructive risk is isolated to `judge-init.md`'s Claude-side instructions), and that both branches of the overwrite decision (confirm and decline) behave correctly when actually exercised against a real existing rubric.
 
-- [ ] **Step 1: Build a scratch repo with a pre-existing sentinel rubric**
+- [x] **Step 1: Build a scratch repo with a pre-existing sentinel rubric**
 
 ```bash
 S=$(mktemp -d "${TMPDIR:-/tmp}/judge-init-overwrite.XXXXXX")
@@ -633,12 +633,12 @@ git -C "$S" add .judge/rubric.md
 git -C "$S" -c user.email=t@t -c user.name=t commit -q -m "seed existing rubric"
 ```
 
-- [ ] **Step 2: Confirm the sentinel rubric is in place before running the drafter**
+- [x] **Step 2: Confirm the sentinel rubric is in place before running the drafter**
 
 Run: `test -f "$S/.judge/rubric.md" && echo EXISTING_RUBRIC_PRESENT`
 Expected: `EXISTING_RUBRIC_PRESENT`
 
-- [ ] **Step 3: Run the drafter and confirm it never touches the repo's filesystem**
+- [x] **Step 3: Run the drafter and confirm it never touches the repo's filesystem**
 
 ```bash
 cd "$S" && bash ~/.claude/hooks/rubric_init.sh > /tmp/overwrite-test-draft.md
@@ -646,7 +646,7 @@ diff "$S/.judge/rubric.md" <(printf '# SENTINEL existing rubric, must not be ove
 ```
 Expected: `SCRIPT_DID_NOT_TOUCH_FILE`. This confirms `rubric_init.sh` itself never writes `.judge/rubric.md`, so the overwrite decision lives entirely in `judge-init.md`'s Claude-side instructions (Step 4), which the next step exercises directly.
 
-- [ ] **Step 4: Walk through `judge-init.md`'s own instructions against this scratch repo, exercising both branches of the overwrite decision**
+- [x] **Step 4: Walk through `judge-init.md`'s own instructions against this scratch repo, exercising both branches of the overwrite decision**
 
 Per instruction 4 in `judge-init.md`, `.judge/rubric.md` already exists in `$S` (confirmed in Step 2), so both a decline and a confirm must be exercised and checked before moving on:
 
@@ -660,13 +660,13 @@ diff "$S/.judge/rubric.md" /tmp/overwrite-test-draft.md && echo CONFIRM_WROTE_DR
 ```
 Expected: `DECLINE_PRESERVED_ORIGINAL` then `CONFIRM_WROTE_DRAFT`.
 
-- [ ] **Step 5: Clean up**
+- [x] **Step 5: Clean up**
 
 ```bash
 rm -rf "$S" /tmp/overwrite-test-draft.md
 ```
 
-- [ ] **Step 6: Commit the plan checkboxes**
+- [x] **Step 6: Commit the plan checkboxes**
 
 ```bash
 cd /Users/asela/git/claude-agents
