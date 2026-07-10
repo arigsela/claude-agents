@@ -88,6 +88,11 @@
       "name": "crewai-memory-knowledge",
       "source": "./skills/crewai-memory-knowledge",
       "description": "Give CrewAI agents persistent context with unified memory (scopes, slices, composite scoring) and domain knowledge (RAG sources, embedders, custom sources)."
+    },
+    {
+      "name": "codex-judge",
+      "source": "./skills/codex-judge",
+      "description": "Codex-as-judge Stop hook + /judge command: runs the Codex CLI as an adversarial code reviewer against your working-tree diff, blocking the stop with REWORK feedback until the diff passes a per-repo .judge/rubric.md."
     }
   ]
 }
