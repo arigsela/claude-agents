@@ -1,0 +1,16 @@
+{
+  "description": "Codex-as-judge Stop hook — judges the working-tree diff against .judge/rubric.md before allowing a stop.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/judge.sh\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}
