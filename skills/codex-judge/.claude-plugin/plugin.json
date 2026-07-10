@@ -1,6 +1,6 @@
 {
   "name": "codex-judge",
   "version": "1.0.0",
-  "description": "Codex-as-judge Stop hook + /judge command: runs the Codex CLI as an adversarial code reviewer against your working-tree diff, blocking the stop with REWORK feedback until the diff passes a per-repo rubric.",
+  "description": "Codex-as-judge Stop hook + /judge command: runs the Codex CLI as an adversarial code reviewer against your working-tree diff, blocking the stop with REWORK feedback until the diff passes a per-repo rubric. Includes /judge-init to draft that rubric via Codex.",
   "author": { "name": "Arisela" }
 }

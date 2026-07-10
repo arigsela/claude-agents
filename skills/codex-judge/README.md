@@ -11,6 +11,11 @@ command to run the same review on demand.
   `rework` blocks the stop and feeds the findings back to Claude (up to 3
   rounds per session); `approve` lets it stop. Fail-open on any error.
 - **`/judge` command**: run the judge manually and see the verdict/rationale.
+- **`/judge-init` command**: draft a repo-tailored `.judge/rubric.md` via the
+  Codex CLI, so activating the judge in a new repo doesn't require
+  hand-authoring the rubric. Shows the draft, warns and confirms before
+  overwriting an existing rubric, then writes it. Never writes the file
+  itself without that confirmation.
 
 ## Requirements
 
