@@ -262,7 +262,7 @@ echo "RESULT: $PASS passed, $FAIL failed"
 Run: `bash tests/judge/test_rubric_init.sh`
 Expected: `FATAL: rubric_init.sh not found at /Users/asela/.claude/hooks/rubric_init.sh`, exit 1.
 
-- [ ] **Step 3: Commit the red suite**
+- [x] **Step 3: Commit the red suite**
 
 ```bash
 git add tests/judge/test_rubric_init.sh
