@@ -27,7 +27,7 @@ explore the repo and draft a rubric → Claude presents the draft and writes it:
                  │ gate: git repo?           no ──▶ exit 1, message
                  │ gate: codex on PATH?      no ──▶ exit 1, message
                  │ prompt: rubric-init.prompt.md (fixed 5-section skeleton
-                 │         + embedded claude-agents rubric as style example)
+                 │         + bundled example-rubric.md as style example)
                  ▼
         codex exec --sandbox read-only --output-last-message <tmpfile> \
           - < prompt.md          (cwd = target repo root; Codex explores
@@ -58,7 +58,8 @@ already use (settings.json and `~/.claude/commands/judge.md` invoke the live
 | Path | Repo source | Live copy | Responsibility |
 |---|---|---|---|
 | `rubric_init.sh` | `skills/codex-judge/hooks/rubric_init.sh` | `~/.claude/hooks/rubric_init.sh` | Gate checks (git repo, `codex` on `PATH`), builds the prompt, invokes `codex exec` in the target repo root, prints the drafted rubric markdown to stdout on success. |
-| `rubric-init.prompt.md` | `skills/codex-judge/rubric-init.prompt.md` | `~/.claude/judge/rubric-init.prompt.md` | Prompt template: fixed section headers (Correctness/Security/Tests/Scope/Reject on sight), instructs Codex to explore the repo's stack/conventions and fill in stack-specific bullets, embeds `claude-agents/.judge/rubric.md` inline as a worked style example. |
+| `rubric-init.prompt.md` | `skills/codex-judge/rubric-init.prompt.md` | `~/.claude/judge/rubric-init.prompt.md` | Prompt template: fixed section headers (Correctness/Security/Tests/Scope/Reject on sight), instructs Codex to explore the repo's stack/conventions and fill in stack-specific bullets. |
+| `example-rubric.md` | `skills/codex-judge/example-rubric.md` | `~/.claude/judge/example-rubric.md` | Frozen copy of `claude-agents/.judge/rubric.md`, taken at authoring time and bundled alongside the prompt template. Substituted into `{{example_rubric}}` as a fixed style reference — never read live from the claude-agents repo, so `/judge-init` has no cross-repo or single-machine path dependency. |
 | `judge-init.md` | `skills/codex-judge/commands/judge-init.md` | `~/.claude/commands/judge-init.md` | Slash command: run the script, show the draft, warn + confirm before overwrite if `.judge/rubric.md` already exists, write via Claude's own Write tool. |
 
 `rubric_init.sh` never writes `.judge/rubric.md` itself — the overwrite check
@@ -87,7 +88,8 @@ level of concreteness, not its content):
 {{example_rubric}}
 ```
 
-`rubric_init.sh` substitutes `{{example_rubric}}` using the same whole-line
+`rubric_init.sh` substitutes `{{example_rubric}}` from the bundled
+`example-rubric.md` file (see Components), using the same whole-line
 placeholder technique `judge.sh` already uses for `{{rubric}}`/`{{diff}}` —
 immune to the substituted content containing shell or `{{`-like metacharacters.
 No `{{diff}}` placeholder is needed here.
