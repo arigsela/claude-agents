@@ -13,7 +13,7 @@
 - Only these paths may be created or modified. Repo (`/Users/asela/git/claude-agents`, branch `feat/judge-init`, normal git commits): `skills/codex-judge/hooks/rubric_init.sh`, `skills/codex-judge/rubric-init.prompt.md`, `skills/codex-judge/example-rubric.md`, `skills/codex-judge/commands/judge-init.md`, `tests/judge/test_rubric_init.sh`, `docs/superpowers/plans/2026-07-10-judge-init.md` (this file's checkboxes). Live (`$HOME/.claude`, NOT a git repository, verification steps instead of commits): `~/.claude/hooks/rubric_init.sh`, `~/.claude/judge/rubric-init.prompt.md`, `~/.claude/judge/example-rubric.md`, `~/.claude/commands/judge-init.md`.
 - Fail-loud policy: every gate or error in `rubric_init.sh` prints a clear message to stderr and exits 1. No round counter, no verdict log, no fail-open. This script is not part of the Stop-hook loop, so there is no in-flight session to protect.
 - `rubric_init.sh` never writes `.judge/rubric.md`. The overwrite check and the file write both happen in the Claude-side instructions in `judge-init.md`, never in shell.
-- The live and plugin-packaged copies of `rubric_init.sh` differ only in how `JUDGE_HOME` is resolved: the live copy hardcodes it, the packaged copy resolves it via `CLAUDE_PLUGIN_ROOT` with an explanatory comment above it, matching the existing divergence between the live and packaged `judge.sh` exactly. The live and packaged copies of `judge-init.md` differ in exactly one line (the script invocation path), matching `judge.md`.
+- The live and plugin-packaged copies of `rubric_init.sh` differ only in how `JUDGE_HOME` is resolved: the live copy hardcodes it, the packaged copy resolves it via `CLAUDE_PLUGIN_ROOT` with an explanatory comment above it, matching the existing divergence between the live and packaged `judge.sh` exactly. The live and packaged copies of `judge-init.md` differ only in the script path, which appears on two lines (the `allowed-tools` scope and the "Execute" instruction); every other line is identical, matching `judge.md`'s single divergent-path pattern in spirit though not in line count.
 - All shell must work with macOS BSD userland (BSD sed/awk/grep, bash 3.2-safe syntax; `local` only inside functions), consistent with `judge.sh`.
 - `JUDGE_CODEX_ARGS` (word-split) is honored as an escape hatch, matching `judge.sh`.
 
@@ -518,13 +518,19 @@ Scaffold a rubric for this repo:
    not commit it; let the user review and commit normally.
 ```
 
-- [ ] **Step 3: Confirm the only difference between the two copies is the expected one line**
+- [ ] **Step 3: Confirm the only differences between the two copies are the expected script-path lines**
 
-Run:
+The script path appears twice in this file (once in the `allowed-tools`
+frontmatter scope, once in the "Execute" instruction), so both lines
+diverge between the live and packaged copies:
+
 ```bash
 diff ~/.claude/commands/judge-init.md skills/codex-judge/commands/judge-init.md
 ```
-Expected: a single hunk showing only the script invocation line differs.
+Expected: two hunks, one for the `allowed-tools` line and one for the
+"Execute" line; both differences are the live script path
+(`~/.claude/hooks/rubric_init.sh`) versus the packaged path
+(`"${CLAUDE_PLUGIN_ROOT}/hooks/rubric_init.sh"`). No other lines differ.
 
 - [ ] **Step 4: Validate the frontmatter parses**
 
