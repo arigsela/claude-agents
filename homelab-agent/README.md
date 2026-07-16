@@ -32,6 +32,7 @@ the graph runs without persistence.
 | `kagent-core` | 0.9.11 | Transitive dependency of `kagent-langgraph`; provides `KAgentConfig`. |
 | `a2a-sdk` | 0.3.26 (pinned `[http-server]>=0.3.10,<0.4`) | Pinned to the 0.3.x line because `kagent.langgraph.__init__` imports `kagent.langgraph._a2a`, which needs `a2a.server.apps.A2AStarletteApplication` — present in a2a-sdk 0.3.x, removed in a2a-sdk 1.x. This also matches production: `oncall-crewai` runs `a2a-sdk==0.3.24` against the same kagent 0.9.11 controller. Nothing in this codebase imports the `a2a` package directly (yet — Task 8's A2A server will), so the downgrade from the initially-resolved 1.1.1 was safe. |
 | `openai` | 2.45.0 | **Not used by this project's code.** Pinned solely because `kagent.core.tracing` unconditionally imports an OpenTelemetry auto-instrumentor for the `openai` SDK; without it, `from kagent.core import KAgentConfig` raises `ModuleNotFoundError: No module named 'openai'`. This is an undeclared-dependency wart in kagent-core 0.9.11, not something this project uses directly. |
+| container base | `python:3.14-slim` | Matches the dev venv's interpreter (all 50 tests run on 3.14) rather than the `python:3.11-slim` inherited from the oncall-crewai template — `kagent-core`'s otel dependency chain doesn't resolve on 3.11. `requires-python` in `pyproject.toml` stays `>=3.11` (that floor describes the code, not the shipped image). |
 
 With these versions, `from kagent.langgraph import KAgentCheckpointer` and
 `from kagent.core import KAgentConfig` import cleanly, and
