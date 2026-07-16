@@ -57,3 +57,26 @@ the `state -> partial update` contract.
 
 **What you just learned:** a node is just a function; the graph is just
 declared wiring; `compile()` turns the declaration into a runnable.
+
+---
+
+## 3. MCP tools as LangGraph tools & the A2A client (`tools.py`)
+
+**What:** `MultiServerMCPClient` (from `langchain-mcp-adapters`) connects to
+one or more MCP servers and returns their tools as LangChain `BaseTool`s.
+A2A is a separate protocol — agent-to-agent JSON-RPC over HTTP — and calling
+another agent is just an HTTP POST (`message/send`).
+
+**Why they exist:** MCP standardizes "here are tools you can call" between
+processes; the adapter means LangGraph code never speaks MCP directly. A2A
+standardizes "ask another agent a question and get its answer."
+
+**Here:** kagent does NOT auto-inject MCP tools into BYO containers, so
+`get_doc_tools()` in `src/homelab_agent/tools.py` wires the same two
+in-cluster MCP servers the old agent used (`agent_docs`, `backstage_catalog`),
+with URLs/auth from env. Delegation to k8s-reader — a `type: Agent` CRD tool
+in the old Declarative spec — becomes `ask_k8s_reader()`: an explicit A2A
+client call a graph node makes. Same capability, now visible in code.
+
+**What you just learned:** in a BYO agent, *you* own the integration edges;
+MCP and A2A are the two standard sockets this stack plugs into.
