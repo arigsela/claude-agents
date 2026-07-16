@@ -15,3 +15,22 @@ Concepts covered as the build progresses:
 7. The A2A serving contract — `server.py` / `executor.py`
 
 (Sections are appended by the task that introduces each concept.)
+
+---
+
+## 1. State & reducers (`state.py`)
+
+**What:** LangGraph threads ONE typed dict — the State — through every node.
+A node is a function `state -> partial update`; LangGraph merges the update.
+
+**Why it exists:** nodes stay pure and composable; the merge policy (not the
+node) decides what happens when several nodes touch the same field.
+
+**Here:** `AgentState` in `src/homelab_agent/state.py`. `checked` and `drift`
+are `Annotated[list[str], operator.add]` — a *reducer* — so `retrieve` and
+`delegate_k8s` can each append to `checked` without clobbering each other.
+Every other field is written by exactly one node, so plain last-writer-wins
+is safe. `tests/test_state.py` proves both behaviors with a toy 2-node graph.
+
+**What you just learned:** state updates are *merged, not assigned*, and the
+per-field reducer is where that policy lives.
