@@ -10,6 +10,28 @@ def test_returns_none_without_kagent_env(monkeypatch):
     assert get_checkpointer() is None
 
 
+def test_returns_kagent_checkpointer_under_kagent_env(monkeypatch):
+    """KAgentConfig() requires KAGENT_URL, KAGENT_NAME, KAGENT_NAMESPACE
+    (see kagent.core._config.KAgentConfig.__init__) — all three must be set
+    for get_checkpointer() to reach the real KAgentCheckpointer branch.
+
+    NOTE: env vars are set BEFORE the `kagent.langgraph` import below —
+    `kagent.core._config` reads KAGENT_URL/NAME/NAMESPACE into module-level
+    globals at first import, so importing before the env is set would cache
+    `None` for the lifetime of the test process.
+    """
+    monkeypatch.setenv("KAGENT_URL", "http://kagent-controller.kagent:8083")
+    monkeypatch.setenv("KAGENT_NAME", "homelab-knowledge")
+    monkeypatch.setenv("KAGENT_NAMESPACE", "kagent")
+
+    from kagent.langgraph import KAgentCheckpointer
+
+    checkpointer = get_checkpointer()
+
+    assert checkpointer is not None
+    assert isinstance(checkpointer, KAgentCheckpointer)
+
+
 async def test_threads_persist_state_across_invocations():
     """The concept the checkpointer buys us, demonstrated with MemorySaver:
     same thread_id → the graph resumes with remembered state."""
