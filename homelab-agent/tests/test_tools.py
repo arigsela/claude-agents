@@ -116,31 +116,49 @@ async def test_ask_k8s_reader_targets_configured_url():
 
 async def test_run_doc_retrieval_invokes_react_agent_and_reports_checked():
     class FakeAgent:
+        def __init__(self):
+            self.received_payload = None
+
         async def ainvoke(self, payload):
+            self.received_payload = payload
+
             class Msg:
                 content = "found: base-apps/cert-manager/docs.md"
             return {"messages": [Msg()]}
 
+    agent = FakeAgent()
     with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
-         patch.object(tools, "_build_doc_agent", return_value=FakeAgent()):
+         patch.object(tools, "_build_doc_agent", return_value=agent):
         findings, checked = await tools.run_doc_retrieval("what is cert-manager?", "docs")
 
     assert "cert-manager" in findings
     assert checked == ["agent-docs MCP (get_file_contents / search_code)"]
 
+    user_message = agent.received_payload["messages"][0][1]
+    assert user_message == "Route: docs\nQuestion: what is cert-manager?"
+
 
 async def test_run_doc_retrieval_ownership_route_reports_backstage():
     class FakeAgent:
+        def __init__(self):
+            self.received_payload = None
+
         async def ainvoke(self, payload):
+            self.received_payload = payload
+
             class Msg:
                 content = "owner: platform-engineering"
             return {"messages": [Msg()]}
 
+    agent = FakeAgent()
     with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
-         patch.object(tools, "_build_doc_agent", return_value=FakeAgent()):
+         patch.object(tools, "_build_doc_agent", return_value=agent):
         findings, checked = await tools.run_doc_retrieval("who owns vault?", "ownership")
 
     assert checked == [
         "agent-docs MCP (get_file_contents / search_code)",
         "backstage-catalog MCP (get-catalog-entity)",
     ]
+
+    user_message = agent.received_payload["messages"][0][1]
+    assert user_message == "Route: ownership\nQuestion: who owns vault?"
