@@ -151,3 +151,25 @@ i.e. when kagent injected its env into the BYO pod. Locally it returns
 **What you just learned:** persistence is a compile-time plug-in
 (`compile(checkpointer=...)`) plus a per-call address (`thread_id`) — the
 graph code itself never changes.
+
+---
+
+## 7. The A2A serving contract (`server.py`, `executor.py`)
+
+**What:** kagent deploys a BYO image and talks to it over A2A on port 8080:
+`GET /.well-known/agent.json` for discovery (the *agent card*: name,
+skills, capabilities) and JSON-RPC `POST /` with `message/send` for work.
+
+**Why it exists:** A2A is how kagent's control plane (UI, `/mcp` endpoint,
+other agents) invokes ANY agent uniformly — Declarative or BYO.
+
+**Here:** `server.py` mounts the a2a-sdk's `A2AStarletteApplication` inside
+FastAPI (pattern borrowed from oncall-crewai) and carries over the three
+skills from the old agent's `a2aConfig` verbatim. `executor.py` is the
+actual bridge: extract the question from the A2A message → 
+`graph.ainvoke({"question": ...}, config={"configurable": {"thread_id": context_id}})`
+→ emit working/artifact/completed events. Note the join point of two earlier
+concepts: the A2A `context_id` becomes the checkpointer `thread_id`.
+
+**What you just learned:** the graph is the brain; A2A is the socket; the
+executor is the adapter between them — and it's ~100 lines, not a framework.
