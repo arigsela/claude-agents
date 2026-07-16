@@ -34,3 +34,26 @@ is safe. `tests/test_state.py` proves both behaviors with a toy 2-node graph.
 
 **What you just learned:** state updates are *merged, not assigned*, and the
 per-field reducer is where that policy lives.
+
+---
+
+## 2. StateGraph & nodes (`graph.py`)
+
+**What:** a `StateGraph` is a builder: you `add_node(name, fn)`, connect
+names with `add_edge`, pick an entry point, and `compile()` it into a
+runnable you can `invoke` / `ainvoke`.
+
+**Why it exists:** the graph makes control flow *explicit and auditable* —
+you can read `build_graph()` and know every path a request can take, unlike
+a monolithic prompt loop. That auditability is the reason this migration
+chose LangGraph.
+
+**Here:** `orient` in `src/homelab_agent/graph.py` is the first node: a
+plain function taking `AgentState` and returning `{"route": ..., "plan": ...}`.
+Note the hybrid inside it — a deterministic keyword pass first, a cheap LLM
+(`get_router_model()`) only for ambiguity, and a safe default (`docs`) on
+LLM failure. Nodes may contain arbitrary logic; LangGraph only cares about
+the `state -> partial update` contract.
+
+**What you just learned:** a node is just a function; the graph is just
+declared wiring; `compile()` turns the declaration into a runnable.
