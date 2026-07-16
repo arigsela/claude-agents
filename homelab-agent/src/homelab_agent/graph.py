@@ -11,6 +11,7 @@ import logging
 
 from langgraph.graph import END, StateGraph
 
+from homelab_agent import tools
 from homelab_agent.model import get_router_model
 from homelab_agent.prompts import ROUTER_PROMPT
 from homelab_agent.state import AgentState, Route
@@ -63,6 +64,19 @@ def orient(state: AgentState) -> dict:
     return {"route": route, "plan": f"llm-routed to '{route}'"}
 
 
+async def retrieve(state: AgentState) -> dict:
+    """Node 2: always runs. Doc retrieval via the ReAct sub-agent.
+
+    Thin by design: the node owns the STATE contract (which fields it
+    writes); tools.py owns the HOW. That keeps nodes trivially testable —
+    tests patch tools.run_doc_retrieval and never touch MCP or the model.
+    """
+    findings, checked = await tools.run_doc_retrieval(
+        state["question"], state["route"]
+    )
+    return {"doc_findings": findings, "checked": checked}
+
+
 def build_graph(checkpointer=None):
     """Assemble and compile the StateGraph.
 
@@ -72,6 +86,8 @@ def build_graph(checkpointer=None):
     """
     g = StateGraph(AgentState)
     g.add_node("orient", orient)
+    g.add_node("retrieve", retrieve)
     g.set_entry_point("orient")
-    g.add_edge("orient", END)  # extended in later tasks
+    g.add_edge("orient", "retrieve")
+    g.add_edge("retrieve", END)  # conditional routing lands in Task 6
     return g.compile(checkpointer=checkpointer)

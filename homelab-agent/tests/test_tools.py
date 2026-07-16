@@ -110,3 +110,37 @@ async def test_ask_k8s_reader_targets_configured_url():
     mock_send.assert_awaited_once_with(
         tools.settings.k8s_reader_a2a_url, "is vault healthy?"
     )
+
+
+# --- run_doc_retrieval -------------------------------------------------------
+
+async def test_run_doc_retrieval_invokes_react_agent_and_reports_checked():
+    class FakeAgent:
+        async def ainvoke(self, payload):
+            class Msg:
+                content = "found: base-apps/cert-manager/docs.md"
+            return {"messages": [Msg()]}
+
+    with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
+         patch.object(tools, "_build_doc_agent", return_value=FakeAgent()):
+        findings, checked = await tools.run_doc_retrieval("what is cert-manager?", "docs")
+
+    assert "cert-manager" in findings
+    assert checked == ["agent-docs MCP (get_file_contents / search_code)"]
+
+
+async def test_run_doc_retrieval_ownership_route_reports_backstage():
+    class FakeAgent:
+        async def ainvoke(self, payload):
+            class Msg:
+                content = "owner: platform-engineering"
+            return {"messages": [Msg()]}
+
+    with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
+         patch.object(tools, "_build_doc_agent", return_value=FakeAgent()):
+        findings, checked = await tools.run_doc_retrieval("who owns vault?", "ownership")
+
+    assert checked == [
+        "agent-docs MCP (get_file_contents / search_code)",
+        "backstage-catalog MCP (get-catalog-entity)",
+    ]

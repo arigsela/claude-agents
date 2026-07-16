@@ -61,9 +61,14 @@ def test_orient_defaults_to_docs_on_llm_garbage_or_error():
 
 # --- minimal graph: orient wired into a real StateGraph ---------------------
 
-def test_build_graph_runs_orient():
+async def test_build_graph_runs_orient():
+    from unittest.mock import AsyncMock, patch
+
     from homelab_agent.graph import build_graph
 
-    g = build_graph()
-    out = g.invoke({"question": "Is the argo-cd control plane healthy?"})
+    # The graph now contains async nodes → must use ainvoke, not invoke.
+    with patch("homelab_agent.tools.run_doc_retrieval",
+               AsyncMock(return_value=("", []))):
+        g = build_graph()
+        out = await g.ainvoke({"question": "Is the argo-cd control plane healthy?"})
     assert out["route"] == "live"

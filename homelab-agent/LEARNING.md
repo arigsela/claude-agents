@@ -80,3 +80,26 @@ client call a graph node makes. Same capability, now visible in code.
 
 **What you just learned:** in a BYO agent, *you* own the integration edges;
 MCP and A2A are the two standard sockets this stack plugs into.
+
+---
+
+## 4. `create_react_agent` vs a hand-built graph (`tools.py`)
+
+**What:** `create_react_agent` is LangGraph's prebuilt agent loop: model
+with tools bound → if the reply contains tool calls, a `ToolNode` executes
+them and loops back (`tools_condition` decides) → otherwise finish.
+
+**Why both exist:** the prebuilt loop is perfect when the shape is "call
+tools until done." A hand-built `StateGraph` is better when you need
+deterministic, auditable routing between distinct stages.
+
+**Here — we deliberately use BOTH:** the outer graph (`graph.py`) is
+hand-built because explicit routing/drift stages are the reason this
+migration chose LangGraph. Inside the single `retrieve` node,
+`_build_doc_agent()` uses `create_react_agent` over the MCP doc tools,
+because the atlas→index→app traversal is exactly the generic ReAct shape.
+`ToolNode` and `tools_condition` are inside that prebuilt — we get them
+without wiring them by hand.
+
+**What you just learned:** prebuilts and hand-built graphs compose — a
+whole prebuilt agent can live inside one node of your own graph.

@@ -110,3 +110,46 @@ async def ask_k8s_reader(question: str) -> str:
     Capability-transitivity is preserved — k8s-reader binds only read tools.
     """
     return await a2a_send(settings.k8s_reader_a2a_url, question)
+
+
+# --- doc retrieval: a prebuilt ReAct agent INSIDE one node -------------------
+
+def _build_doc_agent(model, doc_tools, system_prompt: str):
+    """Build the tool-calling loop for retrieval.
+
+    LangGraph concept — create_react_agent vs a hand-built graph:
+    `create_react_agent` compiles the standard agent loop for you — a model
+    node with tools bound, a ToolNode that executes whichever tool the model
+    called, and a `tools_condition` edge looping until the model stops
+    calling tools. We hand-build the OUTER graph (auditable routing is the
+    point of this migration) but use the prebuilt loop INSIDE retrieve,
+    where "call read tools until you've gathered enough" is exactly the
+    generic ReAct shape and hand-rolling it would add nothing.
+    """
+    try:
+        from langgraph.prebuilt import create_react_agent
+
+        return create_react_agent(model, doc_tools, prompt=system_prompt)
+    except ImportError:
+        # Newer stacks moved the prebuilt into langchain
+        from langchain.agents import create_agent
+
+        return create_agent(model, tools=doc_tools, system_prompt=system_prompt)
+
+
+async def run_doc_retrieval(question: str, route: str) -> tuple[str, list[str]]:
+    """Run the atlas→index→app traversal; return (findings, checked)."""
+    from homelab_agent.model import get_model
+    from homelab_agent.prompts import RETRIEVE_PROMPT
+
+    doc_tools = await get_doc_tools()
+    agent = _build_doc_agent(get_model(), doc_tools, RETRIEVE_PROMPT)
+    result = await agent.ainvoke(
+        {"messages": [("user", f"Route: {route}\nQuestion: {question}")]}
+    )
+    findings = result["messages"][-1].content
+
+    checked = ["agent-docs MCP (get_file_contents / search_code)"]
+    if route == "ownership":
+        checked.append("backstage-catalog MCP (get-catalog-entity)")
+    return findings, checked
