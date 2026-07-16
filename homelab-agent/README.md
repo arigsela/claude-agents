@@ -24,6 +24,12 @@ for the design.
 BYO pods and enable the checkpointer (see `checkpointer.py`); absent locally,
 the graph runs without persistence.
 
+## Pinned environment
+
+| Package | Installed version | Notes |
+|---|---|---|
+| `kagent-langgraph` | 0.9.11 | Provides `KAgentCheckpointer`. Its `__init__.py` unconditionally imports `kagent.langgraph._a2a`, which needs `a2a.server.apps.A2AStarletteApplication` — present in a2a-sdk 0.3.x, removed in a2a-sdk 1.x (this project resolves to `a2a-sdk` 1.1.1). As a result `from kagent.langgraph import KAgentCheckpointer` currently raises `ModuleNotFoundError` in this environment; `checkpointer.get_checkpointer()` catches that and degrades to `None` with a logged warning (see `# TODO(deploy-follow-up)` in `checkpointer.py`). `kagent-core` 0.9.11 (a transitive dependency) additionally requires the unrelated `openai` package to import, due to an unconditional otel auto-instrumentor import. |
+
 ## Local dev
 
     python3 -m venv .venv && source .venv/bin/activate

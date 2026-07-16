@@ -127,3 +127,27 @@ awaits the delegate.
 **What you just learned:** routing = a pure function of state + a label→node
 map, and putting a node "behind" a branch is how you encode its
 preconditions structurally.
+
+---
+
+## 6. Checkpointer & threads (`checkpointer.py`)
+
+**What:** a checkpointer saves the graph state after every step, keyed by a
+`thread_id` you pass at invoke time (`config={"configurable": {"thread_id": ...}}`).
+`graph.get_state(config)` reads it back; a new invoke on the same thread
+resumes from it.
+
+**Why it exists:** without one, a compiled graph is stateless between
+invocations — a pod restart or a follow-up question starts from nothing.
+It is also the substrate for HITL interrupts (pause, persist, resume).
+
+**Here:** `get_checkpointer()` returns kagent's `KAgentCheckpointer`
+(controller-backed, survives restarts) only when `KAGENT_URL` is present —
+i.e. when kagent injected its env into the BYO pod. Locally it returns
+`None` and tests demonstrate the concept with `MemorySaver`
+(`tests/test_checkpointer.py`). The A2A executor uses the caller's
+`context_id` as the `thread_id`, so one A2A conversation = one thread.
+
+**What you just learned:** persistence is a compile-time plug-in
+(`compile(checkpointer=...)`) plus a per-call address (`thread_id`) — the
+graph code itself never changes.
