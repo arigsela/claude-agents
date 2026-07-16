@@ -77,3 +77,38 @@ async def test_threads_persist_state_across_invocations():
         snapshot = g.get_state(config)
     assert snapshot.values["question"] == "What is cert-manager?"
     assert snapshot.values["answer"] == "answer"
+
+
+async def test_checked_does_not_accumulate_across_turns_on_same_thread():
+    """Regression for the persisted-thread bug: with a checkpointer active,
+    a second invoke on the SAME thread_id resumes stored channel values.
+    Without a reset, `checked` (an accumulator field) would keep growing
+    turn over turn and pollute every follow-up answer's "What I checked"
+    section with entries from earlier questions. orient's reset sentinel
+    (see graph.py / state.py's `accumulate`) must clear it each turn."""
+    from unittest.mock import AsyncMock, patch
+
+    from homelab_agent.graph import build_graph
+
+    with patch(
+        "homelab_agent.tools.run_doc_retrieval",
+        AsyncMock(
+            side_effect=[
+                ("cert-manager findings", ["agent-docs MCP turn1"]),
+                ("vault findings", ["agent-docs MCP turn2"]),
+            ]
+        ),
+    ), patch("homelab_agent.graph.get_model") as mock_model:
+        reply = AsyncMock()
+        reply.return_value.content = "answer"
+        mock_model.return_value.ainvoke = reply
+
+        g = build_graph(checkpointer=MemorySaver())
+        config = {"configurable": {"thread_id": "session-multi-turn"}}
+
+        # Both questions keyword-route to "docs" (no delegate_k8s/drift_check).
+        await g.ainvoke({"question": "What is cert-manager?"}, config=config)
+        result2 = await g.ainvoke({"question": "What is vault?"}, config=config)
+
+    # Only turn 2's entry — turn 1's must not have leaked through.
+    assert result2["checked"] == ["agent-docs MCP turn2"]

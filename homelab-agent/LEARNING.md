@@ -27,13 +27,26 @@ A node is a function `state -> partial update`; LangGraph merges the update.
 node) decides what happens when several nodes touch the same field.
 
 **Here:** `AgentState` in `src/homelab_agent/state.py`. `checked` and `drift`
-are `Annotated[list[str], operator.add]` — a *reducer* — so `retrieve` and
+are `Annotated[list[str], accumulate]` — a *reducer* — so `retrieve` and
 `delegate_k8s` can each append to `checked` without clobbering each other.
-Every other field is written by exactly one node, so plain last-writer-wins
-is safe. `tests/test_state.py` proves both behaviors with a toy 2-node graph.
+A reducer is ANY two-arg merge function, not just `operator.add`: `accumulate`
+concatenates lists the same way, but also treats `None` as a **reset
+sentinel** — a node returning `{"checked": None}` clears the field instead of
+appending. `orient`, always the first node of a turn, returns that sentinel
+for `checked` and `drift` on every run. That matters once a checkpointer is
+in play (section 6): a second `ainvoke` on the same `thread_id` resumes the
+thread's *persisted* state, and a plain `operator.add` reducer would keep
+appending forever — last turn's "What I checked" entries polluting this
+turn's answer. The reset makes accumulation scoped to one turn, not one
+thread. Every other field is written by exactly one node, so plain
+last-writer-wins is safe. `tests/test_state.py` proves the accumulate-within-
+a-run and reset-on-`None` behaviors; `tests/test_checkpointer.py` proves the
+across-turns case on a real checkpointer thread.
 
-**What you just learned:** state updates are *merged, not assigned*, and the
-per-field reducer is where that policy lives.
+**What you just learned:** state updates are *merged, not assigned*, the
+per-field reducer is where that policy lives, and a reducer can encode more
+than "combine" — `None` as a reset sentinel is what keeps per-turn state
+from leaking across a persisted thread's turns.
 
 ---
 

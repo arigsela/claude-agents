@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 # Test seam: tests inject an httpx.MockTransport here.
 _transport: httpx.AsyncBaseTransport | None = None
 
+# The read-only guarantee, made structural: only these MCP tool names are
+# ever handed to the ReAct loop, regardless of what the remote MCP servers
+# advertise. If a server is reconfigured (or a future version) starts
+# exposing a write tool (e.g. `create_or_update_file`), it gets silently
+# dropped here instead of becoming callable — the guarantee doesn't depend
+# on trusting the server, only on this allowlist.
+READ_ONLY_TOOLS = frozenset({"get_file_contents", "search_code", "get-catalog-entity"})
+
 
 def _mcp_server_config() -> dict:
     """Build MultiServerMCPClient config from env (see README env table)."""
@@ -46,9 +54,14 @@ def _mcp_server_config() -> dict:
 
 async def get_doc_tools() -> list:
     """Discover the doc tools (get_file_contents, search_code,
-    get-catalog-entity) from the in-cluster MCP servers as LangChain tools."""
+    get-catalog-entity) from the in-cluster MCP servers as LangChain tools.
+
+    Filtered through READ_ONLY_TOOLS: whatever the MCP servers advertise,
+    only the allowlisted read-only tools are bound into the ReAct loop.
+    """
     client = MultiServerMCPClient(_mcp_server_config())
-    return await client.get_tools()
+    tools_list = await client.get_tools()
+    return [t for t in tools_list if t.name in READ_ONLY_TOOLS]
 
 
 # --- A2A client (delegation is an HTTP call, not a CRD tool) -----------------
@@ -130,13 +143,12 @@ def _build_doc_agent(model, doc_tools, system_prompt: str):
     """
     try:
         from langgraph.prebuilt import create_react_agent
-
-        return create_react_agent(model, doc_tools, prompt=system_prompt)
     except ImportError:
         # Newer stacks moved the prebuilt into langchain
         from langchain.agents import create_agent
 
         return create_agent(model, tools=doc_tools, system_prompt=system_prompt)
+    return create_react_agent(model, doc_tools, prompt=system_prompt)
 
 
 async def run_doc_retrieval(question: str, route: str) -> tuple[str, list[str]]:

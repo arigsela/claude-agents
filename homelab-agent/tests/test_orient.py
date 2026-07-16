@@ -31,6 +31,19 @@ def test_keyword_route_returns_none_when_ambiguous():
     assert _keyword_route("billing-api rollout question") is None
 
 
+def test_keyword_route_does_not_match_substring_inside_unrelated_word():
+    # "down" is a LIVE keyword, but must not match the "down" inside
+    # "markdown" — that's the raw-substring bug this fix closes. The
+    # question should fall through to the "where is" docs phrase instead.
+    assert _keyword_route("Where is the markdown documentation kept?") == "docs"
+
+
+def test_keyword_route_ownership_wins_over_live_keyword_in_same_question():
+    # Priority regression: an ownership phrase ("who owns") must still win
+    # even when a live keyword ("crashing") also appears in the question.
+    assert _keyword_route("Who owns chores-tracker-backend — it keeps crashing?") == "ownership"
+
+
 # --- the node --------------------------------------------------------------
 
 def test_orient_uses_keywords_without_llm():

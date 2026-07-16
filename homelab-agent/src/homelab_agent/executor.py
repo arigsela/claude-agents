@@ -65,7 +65,11 @@ class HomelabAgentExecutor(AgentExecutor):
         self._graph = build_graph(checkpointer=get_checkpointer())
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        task_id, context_id = context.task_id, context.context_id
+        task_id = context.task_id
+        # Resolved once: every event and the checkpointer thread_id below
+        # must agree on the same id, or a missing A2A context_id would get
+        # a fresh uuid per use and split one conversation across "threads".
+        context_id = context.context_id or str(uuid.uuid4())
         try:
             question = _extract_user_input(context.message)
             logger.info("homelab-agent question: %s", question[:120])
@@ -82,7 +86,7 @@ class HomelabAgentExecutor(AgentExecutor):
 
             result = await self._graph.ainvoke(
                 {"question": question},
-                config={"configurable": {"thread_id": context_id or str(uuid.uuid4())}},
+                config={"configurable": {"thread_id": context_id}},
             )
             answer = result.get("answer") or "No answer produced."
 

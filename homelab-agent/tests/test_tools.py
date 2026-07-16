@@ -112,6 +112,35 @@ async def test_ask_k8s_reader_targets_configured_url():
     )
 
 
+# --- get_doc_tools read-only allowlist ---------------------------------------
+
+class _FakeTool:
+    def __init__(self, name: str):
+        self.name = name
+
+
+async def test_get_doc_tools_filters_to_read_only_allowlist():
+    """Structural enforcement of the read-only guarantee: even if the MCP
+    server advertises a write tool (server-side reconfiguration, a new
+    server version, ...), get_doc_tools must never hand it to the ReAct
+    loop. Filtering client-side means the guarantee doesn't depend on the
+    remote server behaving."""
+    fake_tools = [
+        _FakeTool("get_file_contents"),
+        _FakeTool("search_code"),
+        _FakeTool("get-catalog-entity"),
+        _FakeTool("create_or_update_file"),  # write tool: must be dropped
+        _FakeTool("delete_file"),  # write tool: must be dropped
+    ]
+    with patch.object(
+        tools.MultiServerMCPClient, "get_tools", AsyncMock(return_value=fake_tools)
+    ):
+        result = await tools.get_doc_tools()
+
+    names = {t.name for t in result}
+    assert names == {"get_file_contents", "search_code", "get-catalog-entity"}
+
+
 # --- run_doc_retrieval -------------------------------------------------------
 
 async def test_run_doc_retrieval_invokes_react_agent_and_reports_checked():

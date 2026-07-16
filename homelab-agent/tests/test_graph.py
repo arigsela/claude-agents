@@ -64,6 +64,17 @@ async def test_drift_check_parses_bullets():
     assert result["drift"] == ["docs say 3 replicas, cluster shows 1"]
 
 
+async def test_drift_check_preserves_leading_negative_numbers():
+    # lstrip("- ") is a char-set strip: it would also eat the leading "-"
+    # off "-1 replica...", mangling "-1" into "1". Must preserve it.
+    fake = FakeChat("- -1 replica vs 3 documented")
+    with patch("homelab_agent.graph.get_model", return_value=fake):
+        result = await graph.drift_check(
+            {"doc_findings": "3 replicas", "live_findings": "-1 replica"}
+        )
+    assert result["drift"] == ["-1 replica vs 3 documented"]
+
+
 async def test_drift_check_none_means_empty():
     fake = FakeChat("NONE")
     with patch("homelab_agent.graph.get_model", return_value=fake):

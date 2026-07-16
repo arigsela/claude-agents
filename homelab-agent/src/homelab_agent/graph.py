@@ -8,6 +8,7 @@ This module grows across tasks following the learning arc:
 """
 
 import logging
+import re
 
 from langgraph.graph import END, StateGraph
 
@@ -59,23 +60,49 @@ _DOCS_KEYWORDS = (
 )
 
 
+def _compile_phrase_patterns(phrases: tuple[str, ...]) -> list[re.Pattern]:
+    """Word-boundary-anchored patterns for a keyword tuple.
+
+    Anchored on the LEFT (`\\b` before the phrase) only, case-insensitively.
+    That's enough to stop a phrase matching mid-word inside an unrelated
+    word — e.g. LIVE's "down" no longer fires on "markdown" (no boundary
+    between "mark" and "down"), and OWNERSHIP's "part of" no longer fires
+    inside "counterpart of" — while still allowing a phrase to match as the
+    PREFIX of a longer word, e.g. LIVE's "crashloop" still fires on
+    "CrashLooping"/"CrashLoopBackOff". A trailing `\\b` would break that
+    legitimate case, so it's intentionally left off.
+    """
+    return [re.compile(r"\b" + re.escape(phrase), re.IGNORECASE) for phrase in phrases]
+
+
+_OWNERSHIP_PATTERNS = _compile_phrase_patterns(_OWNERSHIP_KEYWORDS)
+_LIVE_PATTERNS = _compile_phrase_patterns(_LIVE_KEYWORDS)
+_DOCS_PATTERNS = _compile_phrase_patterns(_DOCS_KEYWORDS)
+
+
 def _keyword_route(question: str) -> Route | None:
-    q = question.lower()
-    if any(k in q for k in _OWNERSHIP_KEYWORDS):
+    if any(p.search(question) for p in _OWNERSHIP_PATTERNS):
         return "ownership"
-    if any(k in q for k in _LIVE_KEYWORDS):
+    if any(p.search(question) for p in _LIVE_PATTERNS):
         return "live"
-    if any(k in q for k in _DOCS_KEYWORDS):
+    if any(p.search(question) for p in _DOCS_PATTERNS):
         return "docs"
     return None  # ambiguous → LLM fallback
 
 
 def orient(state: AgentState) -> dict:
-    """Node 1: classify the question. Writes `route` (+ a one-line `plan`)."""
+    """Node 1: classify the question. Writes `route` (+ a one-line `plan`).
+
+    orient is always the first node of a turn, so it also emits the
+    accumulate() reset sentinel (`checked`/`drift`: None) — this wipes any
+    entries a *previous* turn left behind on a persisted checkpointer
+    thread, before retrieve/delegate_k8s/drift_check append this turn's.
+    """
     question = state["question"]
+    reset = {"checked": None, "drift": None}
     route = _keyword_route(question)
     if route is not None:
-        return {"route": route, "plan": f"keyword-routed to '{route}'"}
+        return {"route": route, "plan": f"keyword-routed to '{route}'", **reset}
 
     # Ambiguity: ask the cheap router model for a single-word verdict.
     try:
@@ -85,7 +112,7 @@ def orient(state: AgentState) -> dict:
         logger.warning("router model failed (%s); defaulting to docs", exc)
         candidate = ""
     route = candidate if candidate in ("docs", "live", "ownership") else "docs"
-    return {"route": route, "plan": f"llm-routed to '{route}'"}
+    return {"route": route, "plan": f"llm-routed to '{route}'", **reset}
 
 
 async def retrieve(state: AgentState) -> dict:
@@ -117,8 +144,15 @@ async def drift_check(state: AgentState) -> dict:
     text = reply.content.strip()
     if text.upper().startswith("NONE"):
         return {"drift": []}
+    # re.sub, not str.lstrip("- "): lstrip strips a CHARACTER SET, so it
+    # would eat the leading "-" off a legitimate negative number too (e.g.
+    # "- -1 replica..." -> "1 replica..." instead of "-1 replica...").
+    # The regex only strips the bullet marker itself: one leading "-" plus
+    # its following whitespace.
     drift = [
-        line.lstrip("- ").strip() for line in text.splitlines() if line.strip().startswith("-")
+        re.sub(r"^-\s*", "", line.strip())
+        for line in text.splitlines()
+        if line.strip().startswith("-")
     ]
     return {"drift": drift}
 
