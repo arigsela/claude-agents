@@ -103,3 +103,27 @@ without wiring them by hand.
 
 **What you just learned:** prebuilts and hand-built graphs compose — a
 whole prebuilt agent can live inside one node of your own graph.
+
+---
+
+## 5. Conditional edges (`graph.py`)
+
+**What:** `add_conditional_edges(source, fn, mapping)` — after `source`
+runs, LangGraph calls `fn(state)`; the returned label picks the next node
+from `mapping`.
+
+**Why it exists:** it makes branching a first-class, inspectable part of the
+graph instead of an if-statement buried in a prompt or a node body.
+
+**Here:** `needs_live()` after `retrieve` sends `route == "live"` through
+`delegate_k8s → drift_check → synthesize`, everything else straight to
+`synthesize`. Two properties worth noticing: (1) this is a decision, not a
+fan-out — exactly one branch executes, so there's no join node that could
+wait forever on the path that didn't run; (2) `drift_check` sits only on
+the live branch, so `doc_findings` AND `live_findings` are guaranteed
+present when it executes. `tests/test_graph.py` asserts the docs path never
+awaits the delegate.
+
+**What you just learned:** routing = a pure function of state + a label→node
+map, and putting a node "behind" a branch is how you encode its
+preconditions structurally.

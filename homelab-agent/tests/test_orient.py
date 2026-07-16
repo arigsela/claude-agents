@@ -62,13 +62,21 @@ def test_orient_defaults_to_docs_on_llm_garbage_or_error():
 # --- minimal graph: orient wired into a real StateGraph ---------------------
 
 async def test_build_graph_runs_orient():
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     from homelab_agent.graph import build_graph
 
     # The graph now contains async nodes → must use ainvoke, not invoke.
+    # This question keyword-routes to "live", so Task 6's wiring now also
+    # runs delegate_k8s -> drift_check -> synthesize; patch those external
+    # calls (A2A delegate, model) so this stays a router-only unit test.
+    fake_chat = MagicMock()
+    fake_chat.ainvoke = AsyncMock(return_value=MagicMock(content="NONE"))
     with patch("homelab_agent.tools.run_doc_retrieval",
-               AsyncMock(return_value=("", []))):
+               AsyncMock(return_value=("", []))), \
+         patch("homelab_agent.tools.ask_k8s_reader",
+               AsyncMock(return_value="")), \
+         patch("homelab_agent.graph.get_model", return_value=fake_chat):
         g = build_graph()
         out = await g.ainvoke({"question": "Is the argo-cd control plane healthy?"})
     assert out["route"] == "live"
