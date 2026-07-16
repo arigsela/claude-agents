@@ -112,3 +112,57 @@ async def test_checked_does_not_accumulate_across_turns_on_same_thread():
 
     # Only turn 2's entry — turn 1's must not have leaked through.
     assert result2["checked"] == ["agent-docs MCP turn2"]
+
+
+async def test_live_findings_does_not_leak_into_later_docs_turn_on_same_thread():
+    """Companion regression to the checked/drift leak: live_findings is a
+    plain scalar written only by delegate_k8s on the live path. Without a
+    turn-start reset it survives in the persisted thread's state after a
+    live turn and leaks into a later docs turn's synthesize prompt — an
+    internally inconsistent answer where "What I checked" (already reset)
+    omits k8s-reader but the "Live cluster findings" section still shows
+    stale data from the earlier live turn."""
+    from unittest.mock import AsyncMock, patch
+
+    from homelab_agent.graph import build_graph
+
+    class FakeChat:
+        def __init__(self, *replies):
+            self._replies = list(replies)
+
+        async def ainvoke(self, _input):
+            class Msg:
+                pass
+
+            msg = Msg()
+            msg.content = self._replies.pop(0)
+            return msg
+
+    # 3 model calls total: turn 1's drift_check + synthesize, turn 2's synthesize.
+    fake_chat = FakeChat(
+        "NONE",
+        "Vault is healthy.\n\nWhat I checked\n- k8s-reader",
+        "cert-manager is deployed via Argo CD.\n\nWhat I checked\n- agent-docs MCP",
+    )
+
+    with patch(
+        "homelab_agent.tools.run_doc_retrieval",
+        AsyncMock(
+            side_effect=[
+                ("vault runbook says 3 replicas", ["agent-docs MCP"]),
+                ("cert-manager docs", ["agent-docs MCP"]),
+            ]
+        ),
+    ), patch(
+        "homelab_agent.tools.ask_k8s_reader", AsyncMock(return_value="vault-0 running")
+    ), patch("homelab_agent.graph.get_model", return_value=fake_chat):
+        g = build_graph(checkpointer=MemorySaver())
+        config = {"configurable": {"thread_id": "session-live-then-docs"}}
+
+        # Turn 1: live-route question -> delegate_k8s writes live_findings.
+        await g.ainvoke({"question": "Is the argo-cd control plane healthy?"}, config=config)
+        # Turn 2: docs-route question on the SAME thread -> delegate_k8s must NOT run,
+        # so live_findings must not still hold turn 1's value.
+        result2 = await g.ainvoke({"question": "What is cert-manager?"}, config=config)
+
+    assert result2.get("live_findings", "") == ""

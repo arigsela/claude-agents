@@ -93,13 +93,17 @@ def _keyword_route(question: str) -> Route | None:
 def orient(state: AgentState) -> dict:
     """Node 1: classify the question. Writes `route` (+ a one-line `plan`).
 
-    orient is always the first node of a turn, so it also emits the
-    accumulate() reset sentinel (`checked`/`drift`: None) — this wipes any
-    entries a *previous* turn left behind on a persisted checkpointer
-    thread, before retrieve/delegate_k8s/drift_check append this turn's.
+    orient is always the first node of a turn, so it also resets per-turn
+    state: `checked`/`drift`: None is the accumulate() reset sentinel (see
+    state.py) that wipes entries a *previous* turn left behind; `live_findings`:
+    "" resets the plain scalar the same way — it's written only by
+    delegate_k8s (the live path), so without this it would survive
+    untouched on a persisted checkpointer thread and leak a stale live
+    answer into a later docs-route turn's synthesize prompt. Safe because
+    last-writer-wins: delegate_k8s overwrites it again on live turns.
     """
     question = state["question"]
-    reset = {"checked": None, "drift": None}
+    reset = {"checked": None, "drift": None, "live_findings": ""}
     route = _keyword_route(question)
     if route is not None:
         return {"route": route, "plan": f"keyword-routed to '{route}'", **reset}
