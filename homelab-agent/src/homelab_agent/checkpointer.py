@@ -48,9 +48,20 @@ def get_checkpointer():
         )
         return None
 
-    config = KAgentConfig()
-    # Constructor signature confirmed via inspect.signature(KAgentCheckpointer.__init__)
-    # against the real, importable package: it takes a configured
-    # httpx.AsyncClient, not a bare base_url string.
-    client = httpx.AsyncClient(base_url=config.url)
-    return KAgentCheckpointer(client=client, app_name=config.app_name)
+    try:
+        config = KAgentConfig()
+        # Constructor signature confirmed via inspect.signature(KAgentCheckpointer.__init__)
+        # against the real, importable package: it takes a configured
+        # httpx.AsyncClient, not a bare base_url string.
+        client = httpx.AsyncClient(base_url=config.url)
+        return KAgentCheckpointer(client=client, app_name=config.app_name)
+    except Exception as exc:
+        # KAgentConfig() raises ValueError if KAGENT_URL is set but
+        # KAGENT_NAME/KAGENT_NAMESPACE are missing — a partial kagent env
+        # must degrade gracefully, not raise, to honor this function's fixed
+        # contract (checkpointer or None, never an exception).
+        logger.warning(
+            "kagent env incomplete or checkpointer init failed (%s); running without persistence",
+            exc,
+        )
+        return None
