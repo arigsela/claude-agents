@@ -24,11 +24,11 @@ Route = Literal["docs", "live", "ownership"]
 
 
 class AgentState(TypedDict, total=False):
-    question: str          # the user's question (set once, at invoke)
-    route: Route           # written by orient
-    plan: str              # short rationale from orient's classifier
-    doc_findings: str      # written by retrieve
-    live_findings: str     # written by delegate_k8s
-    drift: Annotated[list[str], operator.add]    # appended by drift_check
-    answer: str            # written by synthesize
+    question: str  # the user's question (set once, at invoke)
+    route: Route  # written by orient
+    plan: str  # short rationale from orient's classifier
+    doc_findings: str  # written by retrieve
+    live_findings: str  # written by delegate_k8s
+    drift: Annotated[list[str], operator.add]  # appended by drift_check
+    answer: str  # written by synthesize
     checked: Annotated[list[str], operator.add]  # appended by retrieve/delegate_k8s

@@ -17,6 +17,4 @@ def get_model() -> ChatAnthropic:
 
 def get_router_model() -> ChatAnthropic:
     """Cheap model for orient's fallback classifier only."""
-    return ChatAnthropic(
-        model=settings.router_model_name, temperature=0, max_tokens=16
-    )
+    return ChatAnthropic(model=settings.router_model_name, temperature=0, max_tokens=16)

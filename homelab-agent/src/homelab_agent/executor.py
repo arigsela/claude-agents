@@ -70,10 +70,15 @@ class HomelabAgentExecutor(AgentExecutor):
             question = _extract_user_input(context.message)
             logger.info("homelab-agent question: %s", question[:120])
 
-            await event_queue.enqueue_event(_status_event(
-                task_id, context_id, TaskState.working,
-                "Consulting agent-docs (and live state if needed)...", False,
-            ))
+            await event_queue.enqueue_event(
+                _status_event(
+                    task_id,
+                    context_id,
+                    TaskState.working,
+                    "Consulting agent-docs (and live state if needed)...",
+                    False,
+                )
+            )
 
             result = await self._graph.ainvoke(
                 {"question": question},
@@ -81,23 +86,36 @@ class HomelabAgentExecutor(AgentExecutor):
             )
             answer = result.get("answer") or "No answer produced."
 
-            await event_queue.enqueue_event(TaskArtifactUpdateEvent(
-                task_id=task_id,
-                context_id=context_id,
-                artifact=Artifact(
-                    artifact_id=str(uuid.uuid4()),
-                    parts=[Part(root=TextPart(text=answer))],
-                ),
-            ))
-            await event_queue.enqueue_event(_status_event(
-                task_id, context_id, TaskState.completed, answer, True,
-            ))
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    artifact=Artifact(
+                        artifact_id=str(uuid.uuid4()),
+                        parts=[Part(root=TextPart(text=answer))],
+                    ),
+                )
+            )
+            await event_queue.enqueue_event(
+                _status_event(
+                    task_id,
+                    context_id,
+                    TaskState.completed,
+                    answer,
+                    True,
+                )
+            )
         except Exception as exc:
             logger.error("executor error: %s", exc, exc_info=True)
-            await event_queue.enqueue_event(_status_event(
-                task_id, context_id, TaskState.failed,
-                f"homelab-agent error: {exc}", True,
-            ))
+            await event_queue.enqueue_event(
+                _status_event(
+                    task_id,
+                    context_id,
+                    TaskState.failed,
+                    f"homelab-agent error: {exc}",
+                    True,
+                )
+            )
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise NotImplementedError("homelab-agent does not support cancellation")

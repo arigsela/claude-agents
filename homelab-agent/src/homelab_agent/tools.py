@@ -53,6 +53,7 @@ async def get_doc_tools() -> list:
 
 # --- A2A client (delegation is an HTTP call, not a CRD tool) -----------------
 
+
 def _extract_a2a_text(result: dict) -> str:
     """Pull the text out of an A2A `message/send` result.
 
@@ -114,6 +115,7 @@ async def ask_k8s_reader(question: str) -> str:
 
 # --- doc retrieval: a prebuilt ReAct agent INSIDE one node -------------------
 
+
 def _build_doc_agent(model, doc_tools, system_prompt: str):
     """Build the tool-calling loop for retrieval.
 
@@ -144,9 +146,7 @@ async def run_doc_retrieval(question: str, route: str) -> tuple[str, list[str]]:
 
     doc_tools = await get_doc_tools()
     agent = _build_doc_agent(get_model(), doc_tools, RETRIEVE_PROMPT)
-    result = await agent.ainvoke(
-        {"messages": [("user", f"Route: {route}\nQuestion: {question}")]}
-    )
+    result = await agent.ainvoke({"messages": [("user", f"Route: {route}\nQuestion: {question}")]})
     findings = result["messages"][-1].content
 
     checked = ["agent-docs MCP (get_file_contents / search_code)"]

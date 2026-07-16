@@ -53,3 +53,16 @@ injects into BYO pods), else `None`.
 
     OLD_AGENT_URL=http://localhost:18080 NEW_AGENT_URL=http://localhost:8080 \
       python scripts/parity_check.py
+
+## Container
+
+    docker build -t homelab-agent:dev .
+    docker run --rm -p 8080:8080 -e ANTHROPIC_API_KEY=... homelab-agent:dev
+
+## Deploy image to ECR
+
+    ./deploy-to-ecr.sh v0.1.0
+
+Cluster-side deployment (kagent BYO `Agent` CR, ESO secrets, Vault role) is
+the follow-up plan in `arigsela/kubernetes` — this repo only produces the
+image and documents the env contract above.

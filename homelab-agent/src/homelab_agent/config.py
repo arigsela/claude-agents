@@ -26,9 +26,7 @@ class Settings:
         return cls(
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             model_name=os.getenv("MODEL_NAME", "claude-sonnet-4-6"),
-            router_model_name=os.getenv(
-                "ROUTER_MODEL_NAME", "claude-haiku-4-5-20251001"
-            ),
+            router_model_name=os.getenv("ROUTER_MODEL_NAME", "claude-haiku-4-5-20251001"),
             agent_docs_mcp_url=os.getenv(
                 "AGENT_DOCS_MCP_URL", "http://agent-docs-mcp.kagent:3000/mcp"
             ),

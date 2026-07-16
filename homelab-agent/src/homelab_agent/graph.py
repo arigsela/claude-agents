@@ -21,17 +21,41 @@ logger = logging.getLogger(__name__)
 # Deterministic first pass, à la oncall-crewai's router: cheap, predictable,
 # and it keeps the LLM out of the loop for the common phrasings.
 _OWNERSHIP_KEYWORDS = (
-    "who owns", "owner", "depends on", "dependency", "dependencies",
-    "what system", "part of",
+    "who owns",
+    "owner",
+    "depends on",
+    "dependency",
+    "dependencies",
+    "what system",
+    "part of",
 )
 _LIVE_KEYWORDS = (
-    "crashloop", "crashing", "pending", "stuck", "failing", "down",
-    "healthy", "health", "status", "logs", "events", "restart",
-    "running", "sync",
+    "crashloop",
+    "crashing",
+    "pending",
+    "stuck",
+    "failing",
+    "down",
+    "healthy",
+    "health",
+    "status",
+    "logs",
+    "events",
+    "restart",
+    "running",
+    "sync",
 )
 _DOCS_KEYWORDS = (
-    "what is", "how does", "how do", "how is", "where does", "where is",
-    "explain", "pattern", "onboard", "deploy a new",
+    "what is",
+    "how does",
+    "how do",
+    "how is",
+    "where does",
+    "where is",
+    "explain",
+    "pattern",
+    "onboard",
+    "deploy a new",
 )
 
 
@@ -71,9 +95,7 @@ async def retrieve(state: AgentState) -> dict:
     writes); tools.py owns the HOW. That keeps nodes trivially testable —
     tests patch tools.run_doc_retrieval and never touch MCP or the model.
     """
-    findings, checked = await tools.run_doc_retrieval(
-        state["question"], state["route"]
-    )
+    findings, checked = await tools.run_doc_retrieval(state["question"], state["route"])
     return {"doc_findings": findings, "checked": checked}
 
 
@@ -96,9 +118,7 @@ async def drift_check(state: AgentState) -> dict:
     if text.upper().startswith("NONE"):
         return {"drift": []}
     drift = [
-        line.lstrip("- ").strip()
-        for line in text.splitlines()
-        if line.strip().startswith("-")
+        line.lstrip("- ").strip() for line in text.splitlines() if line.strip().startswith("-")
     ]
     return {"drift": drift}
 
@@ -147,9 +167,7 @@ def build_graph(checkpointer=None):
 
     g.set_entry_point("orient")
     g.add_edge("orient", "retrieve")
-    g.add_conditional_edges(
-        "retrieve", needs_live, {"live": "delegate_k8s", "docs": "synthesize"}
-    )
+    g.add_conditional_edges("retrieve", needs_live, {"live": "delegate_k8s", "docs": "synthesize"})
     g.add_edge("delegate_k8s", "drift_check")
     g.add_edge("drift_check", "synthesize")
     g.add_edge("synthesize", END)

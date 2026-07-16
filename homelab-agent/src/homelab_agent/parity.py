@@ -33,9 +33,13 @@ def build_report(results: list[dict]) -> str:
             f"## [{status}] ({r['skill']}) {r['question']}",
             "",
             "### Old agent",
-            "", r["old_answer"] or "(no reply)", "",
+            "",
+            r["old_answer"] or "(no reply)",
+            "",
             "### New agent",
-            "", r["new_answer"] or "(no reply)", "",
+            "",
+            r["new_answer"] or "(no reply)",
+            "",
         ]
         if r["new_violations"]:
             lines += ["### Violations", ""]
