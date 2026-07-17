@@ -254,3 +254,26 @@ checkpointer thread last turn's recall never leaks into this turn.
 
 **What you just learned:** long-term memory is just two nodes around a Store —
 read early to inform the answer, write late to capture it.
+
+---
+
+## 10. Streaming — `astream` → A2A events (`executor.py`)
+
+**What:** `graph.astream(..., stream_mode=["updates","messages"])` yields
+`(mode, chunk)` tuples as the graph runs. `updates` fires once per node with
+its state delta; `messages` fires per LLM token with `(chunk, metadata)`,
+where `metadata["langgraph_node"]` says which node produced it.
+
+**Why two modes:** `updates` drives coarse progress ("Retrieving docs…",
+"Delegating to k8s-reader…"); `messages`, filtered to the `synthesize` node,
+streams the final answer token-by-token. Tokens from the router/drift model
+calls are ignored — only the answer streams.
+
+**Here:** `execute()` maps `updates` → progress `TaskStatusUpdateEvent`s and
+`synthesize` `messages` → streamed answer events, then emits the assembled
+answer as the terminal `artifact` + `completed` events. Non-streaming callers
+can ignore the intermediate events and just read `completed` — the old
+contract is intact; streaming is purely additive.
+
+**What you just learned:** a LangGraph graph is a live event source, and the
+A2A executor is a translator from graph events to protocol events.

@@ -26,6 +26,7 @@ from a2a.types import (
 
 from homelab_agent.checkpointer import get_checkpointer
 from homelab_agent.graph import build_graph
+from homelab_agent.memory import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,35 @@ def _extract_user_input(message) -> str:
     return "Give me an overview of this homelab cluster."
 
 
+_PROGRESS = {
+    "orient": "Orienting…",
+    "recall": "Recalling related context…",
+    "retrieve": "Retrieving docs…",
+    "delegate_k8s": "Delegating to k8s-reader…",
+    "drift_check": "Checking for drift…",
+    "synthesize": "Synthesizing answer…",
+    # remember: silent housekeeping, no progress event
+}
+
+
+def _chunk_text(message_chunk) -> str:
+    """Extract text from a LangGraph 'messages'-mode chunk (str or block list)."""
+    text = getattr(message_chunk, "text", None)
+    if isinstance(text, str) and text:
+        return text
+    content = getattr(message_chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return ""
+
+
 class HomelabAgentExecutor(AgentExecutor):
     def __init__(self):
-        # Compile once; the checkpointer (if any) makes threads persistent.
-        self._graph = build_graph(checkpointer=get_checkpointer())
+        # Compile once. Checkpointer = short-term thread state; store = long-term
+        # semantic memory. Both are None when unconfigured (local dev).
+        self._graph = build_graph(checkpointer=get_checkpointer(), store=get_store())
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
@@ -79,16 +105,47 @@ class HomelabAgentExecutor(AgentExecutor):
                     task_id,
                     context_id,
                     TaskState.working,
-                    "Consulting agent-docs (and live state if needed)...",
+                    "Working on it…",
                     False,
                 )
             )
 
-            result = await self._graph.ainvoke(
+            answer_parts: list[str] = []
+            async for mode, chunk in self._graph.astream(
                 {"question": question},
                 config={"configurable": {"thread_id": context_id}},
-            )
-            answer = result.get("answer") or "No answer produced."
+                stream_mode=["updates", "messages"],
+            ):
+                if mode == "updates":
+                    for node_name in chunk:
+                        message = _PROGRESS.get(node_name)
+                        if message:
+                            await event_queue.enqueue_event(
+                                _status_event(
+                                    task_id,
+                                    context_id,
+                                    TaskState.working,
+                                    message,
+                                    False,
+                                )
+                            )
+                elif mode == "messages":
+                    message_chunk, metadata = chunk
+                    if metadata.get("langgraph_node") == "synthesize":
+                        token = _chunk_text(message_chunk)
+                        if token:
+                            answer_parts.append(token)
+                            await event_queue.enqueue_event(
+                                _status_event(
+                                    task_id,
+                                    context_id,
+                                    TaskState.working,
+                                    token,
+                                    False,
+                                )
+                            )
+
+            answer = "".join(answer_parts) or "No answer produced."
 
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
