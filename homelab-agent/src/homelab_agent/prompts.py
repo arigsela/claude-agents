@@ -84,6 +84,9 @@ Compose the final answer from the findings below. REQUIRED format:
 If drift findings are present, call them out explicitly as DRIFT — the docs
 are meant to track reality, so a mismatch is valuable signal.
 
+## Related prior exchanges (from memory — may be stale, verify against docs)
+{memory_findings}
+
 ## Question
 {question}
 

@@ -136,3 +136,92 @@ async def test_live_route_end_to_end_runs_delegate_and_drift():
     assert out["checked"] == ["agent-docs MCP", "k8s-reader (A2A delegate)"]
     assert out["drift"] == ["docs say 3 replicas, cluster shows 1"]
     assert "What I checked" in out["answer"]
+
+
+# --- Task 3: conversation memory nodes -------------------------------------
+
+from langgraph.store.memory import InMemoryStore
+
+
+def _fake_embed(texts):
+    """Deterministic bag-of-words embedding over a tiny fixed vocab, so
+    identical/overlapping questions score highest. Returns EMBEDDING-dim
+    vectors matching the test store's configured dims."""
+    vocab = ["vault", "unseal", "cert", "manager", "argocd", "crashloop"]
+    out = []
+    for t in texts:
+        tl = t.lower()
+        out.append([float(tl.count(w)) for w in vocab])
+    return out
+
+
+def _mem_store():
+    store = InMemoryStore(index={"dims": 6, "embed": _fake_embed, "fields": ["question"]})
+    return store
+
+
+async def test_recall_fills_memory_findings_and_checked():
+    store = _mem_store()
+    store.put(("homelab-agent", "memories"), "k1",
+              {"question": "how do I unseal vault", "answer": "use the vault-unseal job"})
+    result = await graph.recall(
+        {"question": "vault unseal steps?"}, store=store
+    )
+    assert "vault-unseal job" in result["memory_findings"]
+    assert result["checked"] == ["memory (1 prior exchange)"]
+
+
+async def test_recall_noop_without_store():
+    result = await graph.recall({"question": "anything"}, store=None)
+    assert result == {}
+
+
+async def test_remember_writes_exchange():
+    store = _mem_store()
+    await graph.remember(
+        {"question": "is argocd healthy?", "answer": "yes, all synced"}, store=store
+    )
+    hits = store.search(("homelab-agent", "memories"), query="argocd health", limit=1)
+    assert hits and hits[0].value["answer"] == "yes, all synced"
+
+
+async def test_remember_noop_without_store():
+    assert await graph.remember({"question": "q", "answer": "a"}, store=None) == {}
+
+
+async def test_memory_findings_flow_into_synthesis():
+    store = _mem_store()
+    store.put(("homelab-agent", "memories"), "k1",
+              {"question": "cert manager issuing", "answer": "uses ClusterIssuer letsencrypt"})
+    captured = {}
+
+    class FakeChat:
+        async def ainvoke(self, prompt):
+            captured["prompt"] = prompt
+
+            class Msg:
+                content = "answer"
+
+            return Msg()
+
+    with patch("homelab_agent.tools.run_doc_retrieval",
+               AsyncMock(return_value=("docs", ["agent-docs MCP"]))), \
+         patch("homelab_agent.graph.get_model", return_value=FakeChat()):
+        g = graph.build_graph(store=store)
+        out = await g.ainvoke(
+            {"question": "how does cert manager issue certs?"}
+        )
+    assert "ClusterIssuer letsencrypt" in captured["prompt"]  # recalled into synthesis
+    assert "memory (1 prior exchange)" in out["checked"]
+
+
+async def test_docs_route_still_works_without_store():
+    """Regression: the graph runs end-to-end when no store is configured."""
+    with patch("homelab_agent.tools.run_doc_retrieval",
+               AsyncMock(return_value=("docs", ["agent-docs MCP"]))), \
+         patch("homelab_agent.graph.get_model",
+               return_value=FakeChat("Answer.\n\nWhat I checked\n- agent-docs MCP")):
+        g = graph.build_graph()  # store defaults to None
+        out = await g.ainvoke({"question": "What is cert-manager and how does it issue certs here?"})
+    assert out["answer"]
+    assert "memory_findings" not in out or out["memory_findings"] == ""

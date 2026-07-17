@@ -231,3 +231,26 @@ in parallel — that needs a list-form join edge
 join handling so docs-only routes don't wait on a node that never runs; and
 HITL interrupts, which the checkpointer already makes possible
 (`interrupt_before=["delegate_k8s"]` at compile time would pause there).
+
+---
+
+## 9. Memory in the graph — `recall` & `remember` (`graph.py`)
+
+**What:** two thin nodes wrap the Store. `recall` (right after `orient`)
+embeds the question, `store.search`es for the top-k similar past exchanges
+above a similarity floor, and writes them to `memory_findings`. `remember`
+(right after `synthesize`) `store.put`s this turn's `(question, answer)`.
+
+**Why here, why thin:** placing `recall` early lets the recalled context flow
+into `synthesize`'s prompt (labeled "may be stale, verify against docs" so it
+never overrides fresh reads). `remember` runs last so it has the final answer.
+Both are single-in/single-out on the linear path — the graph stays sequential.
+LangGraph injects the `store` by parameter name; it's `None` when memory is
+off, so both nodes no-op and the agent behaves exactly as before.
+
+**The reset detail:** `orient` clears `memory_findings` (alongside
+`checked`/`drift`/`live_findings`) at turn start, so on a persisted
+checkpointer thread last turn's recall never leaks into this turn.
+
+**What you just learned:** long-term memory is just two nodes around a Store —
+read early to inform the answer, write late to capture it.

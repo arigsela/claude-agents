@@ -9,10 +9,12 @@ This module grows across tasks following the learning arc:
 
 import logging
 import re
+import uuid
 
 from langgraph.graph import END, StateGraph
 
 from homelab_agent import tools
+from homelab_agent.config import settings
 from homelab_agent.model import get_model, get_router_model
 from homelab_agent.prompts import DRIFT_PROMPT, ROUTER_PROMPT, SYNTHESIZE_PROMPT
 from homelab_agent.state import AgentState, Route
@@ -103,7 +105,7 @@ def orient(state: AgentState) -> dict:
     last-writer-wins: delegate_k8s overwrites it again on live turns.
     """
     question = state["question"]
-    reset = {"checked": None, "drift": None, "live_findings": ""}
+    reset = {"checked": None, "drift": None, "live_findings": "", "memory_findings": ""}
     route = _keyword_route(question)
     if route is not None:
         return {"route": route, "plan": f"keyword-routed to '{route}'", **reset}
@@ -117,6 +119,27 @@ def orient(state: AgentState) -> dict:
         candidate = ""
     route = candidate if candidate in ("docs", "live", "ownership") else "docs"
     return {"route": route, "plan": f"llm-routed to '{route}'", **reset}
+
+
+async def recall(state: AgentState, *, store=None) -> dict:
+    """Node: semantic recall of similar past exchanges (no-op without a store).
+
+    LangGraph injects `store` (the one passed to build_graph/compile) by
+    parameter name; it is None when memory is unconfigured, so this node
+    degrades to a no-op exactly like the store factory does.
+    """
+    if store is None:
+        return {}
+    namespace = (settings.memory_namespace, "memories")
+    hits = store.search(namespace, query=state["question"], limit=settings.memory_top_k)
+    kept = [h for h in hits if (h.score or 0.0) >= settings.memory_similarity_floor]
+    if not kept:
+        return {}
+    findings = "\n".join(
+        f"- Q: {h.value.get('question', '')}\n  A: {h.value.get('answer', '')}" for h in kept
+    )
+    label = f"memory ({len(kept)} prior exchange{'s' if len(kept) != 1 else ''})"
+    return {"memory_findings": findings, "checked": [label]}
 
 
 async def retrieve(state: AgentState) -> dict:
@@ -170,9 +193,23 @@ async def synthesize(state: AgentState) -> dict:
             live_findings=state.get("live_findings", ""),
             drift="\n".join(state.get("drift", [])) or "(none)",
             checked="\n".join(f"- {c}" for c in state.get("checked", [])),
+            memory_findings=state.get("memory_findings", "") or "(none)",
         )
     )
     return {"answer": reply.content}
+
+
+async def remember(state: AgentState, *, store=None) -> dict:
+    """Node: persist this turn's (question, answer) exchange (no-op without a store)."""
+    if store is None:
+        return {}
+    namespace = (settings.memory_namespace, "memories")
+    store.put(
+        namespace,
+        str(uuid.uuid4()),
+        {"question": state.get("question", ""), "answer": state.get("answer", "")},
+    )
+    return {}
 
 
 def needs_live(state: AgentState) -> str:
@@ -189,7 +226,7 @@ def needs_live(state: AgentState) -> str:
     return "live" if state.get("route") == "live" else "docs"
 
 
-def build_graph(checkpointer=None):
+def build_graph(checkpointer=None, store=None):
     """Assemble and compile the StateGraph.
 
     LangGraph concept — you declare nodes and edges on a StateGraph builder,
@@ -198,15 +235,19 @@ def build_graph(checkpointer=None):
     """
     g = StateGraph(AgentState)
     g.add_node("orient", orient)
+    g.add_node("recall", recall)
     g.add_node("retrieve", retrieve)
     g.add_node("delegate_k8s", delegate_k8s)
     g.add_node("drift_check", drift_check)
     g.add_node("synthesize", synthesize)
+    g.add_node("remember", remember)
 
     g.set_entry_point("orient")
-    g.add_edge("orient", "retrieve")
+    g.add_edge("orient", "recall")
+    g.add_edge("recall", "retrieve")
     g.add_conditional_edges("retrieve", needs_live, {"live": "delegate_k8s", "docs": "synthesize"})
     g.add_edge("delegate_k8s", "drift_check")
     g.add_edge("drift_check", "synthesize")
-    g.add_edge("synthesize", END)
-    return g.compile(checkpointer=checkpointer)
+    g.add_edge("synthesize", "remember")
+    g.add_edge("remember", END)
+    return g.compile(checkpointer=checkpointer, store=store)

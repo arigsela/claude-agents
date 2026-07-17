@@ -45,6 +45,7 @@ class AgentState(TypedDict, total=False):
     plan: str  # short rationale from orient's classifier
     doc_findings: str  # written by retrieve
     live_findings: str  # written by delegate_k8s
+    memory_findings: str  # written by recall; recalled prior (Q,A) exchanges
     drift: Annotated[list[str], accumulate]  # appended by drift_check
     answer: str  # written by synthesize
     checked: Annotated[list[str], accumulate]  # appended by retrieve/delegate_k8s
