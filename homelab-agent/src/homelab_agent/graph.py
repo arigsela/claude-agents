@@ -132,7 +132,7 @@ async def recall(state: AgentState, *, store=None) -> dict:
         return {}
     namespace = (settings.memory_namespace, "memories")
     try:
-        hits = store.search(namespace, query=state["question"], limit=settings.memory_top_k)
+        hits = await store.asearch(namespace, query=state["question"], limit=settings.memory_top_k)
     except Exception as exc:
         logger.warning("memory recall failed (%s); continuing without recalled context", exc)
         return {}
@@ -209,7 +209,7 @@ async def remember(state: AgentState, *, store=None) -> dict:
         return {}
     namespace = (settings.memory_namespace, "memories")
     try:
-        store.put(
+        await store.aput(
             namespace,
             str(uuid.uuid4()),
             {"question": state.get("question", ""), "answer": state.get("answer", "")},

@@ -216,12 +216,12 @@ async def test_memory_findings_flow_into_synthesis():
 
 
 class _RaisingSearchStore:
-    def search(self, *args, **kwargs):
+    async def asearch(self, *args, **kwargs):
         raise RuntimeError("embedding backend unreachable")
 
 
 class _RaisingPutStore:
-    def put(self, *args, **kwargs):
+    async def aput(self, *args, **kwargs):
         raise RuntimeError("embedding backend unreachable")
 
 

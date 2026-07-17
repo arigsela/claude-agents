@@ -214,26 +214,6 @@ the agent's memory across all conversations, made searchable by embeddings.
 
 ---
 
-## Closing: the whole picture
-
-One request's life: A2A `message/send` hits `server.py` (:8080) →
-`executor.py` extracts the question and calls the compiled graph with
-`thread_id = context_id` → `orient` classifies (keywords, then cheap LLM) →
-`retrieve` runs a prebuilt ReAct agent over MCP doc tools → the conditional
-edge sends live-state questions through `delegate_k8s` (A2A call to
-k8s-reader) and `drift_check` (docs vs live diff) → `synthesize` composes
-the formatted answer → the checkpointer persists the thread → the executor
-streams the answer back as A2A events.
-
-Deliberately deferred (v2 candidates): running `retrieve` and `delegate_k8s`
-in parallel — that needs a list-form join edge
-(`add_edge(["retrieve", "delegate_k8s"], "drift_check")`) plus branch-aware
-join handling so docs-only routes don't wait on a node that never runs; and
-HITL interrupts, which the checkpointer already makes possible
-(`interrupt_before=["delegate_k8s"]` at compile time would pause there).
-
----
-
 ## 9. Memory in the graph — `recall` & `remember` (`graph.py`)
 
 **What:** two thin nodes wrap the Store. `recall` (right after `orient`)
@@ -277,3 +257,23 @@ contract is intact; streaming is purely additive.
 
 **What you just learned:** a LangGraph graph is a live event source, and the
 A2A executor is a translator from graph events to protocol events.
+
+---
+
+## Closing: the whole picture
+
+One request's life: A2A `message/send` hits `server.py` (:8080) →
+`executor.py` extracts the question and calls the compiled graph with
+`thread_id = context_id` → `orient` classifies (keywords, then cheap LLM) →
+`retrieve` runs a prebuilt ReAct agent over MCP doc tools → the conditional
+edge sends live-state questions through `delegate_k8s` (A2A call to
+k8s-reader) and `drift_check` (docs vs live diff) → `synthesize` composes
+the formatted answer → the checkpointer persists the thread → the executor
+streams the answer back as A2A events.
+
+Deliberately deferred (v2 candidates): running `retrieve` and `delegate_k8s`
+in parallel — that needs a list-form join edge
+(`add_edge(["retrieve", "delegate_k8s"], "drift_check")`) plus branch-aware
+join handling so docs-only routes don't wait on a node that never runs; and
+HITL interrupts, which the checkpointer already makes possible
+(`interrupt_before=["delegate_k8s"]` at compile time would pause there).

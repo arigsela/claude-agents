@@ -66,7 +66,10 @@ _PROGRESS = {
     "retrieve": "Retrieving docs…",
     "delegate_k8s": "Delegating to k8s-reader…",
     "drift_check": "Checking for drift…",
-    "synthesize": "Synthesizing answer…",
+    # synthesize: no entry here — its streamed "messages" tokens (below)
+    # ARE its progress; an "updates"-derived label would only fire after
+    # those tokens already streamed, so it'd trail the answer instead of
+    # preceding it.
     # remember: silent housekeeping, no progress event
 }
 
