@@ -33,22 +33,28 @@ def _index_config() -> dict:
     return {"dims": EMBEDDING_DIMS, "embed": embeddings, "fields": ["question"]}
 
 
+_OPEN_STORE_CMS: list = []  # retain entered CMs for the process lifetime so they aren't GC'd/closed
+
+
 def get_store() -> BaseStore | None:
     """Return a pgvector-backed semantic store, or None when memory is off."""
     if not settings.memory_db_url:
         return None
+    store_cm = None
     try:
         from langgraph.store.postgres import PostgresStore
 
-        # from_conn_string returns a context manager; enter it manually and
-        # keep the store for the process lifetime (the executor holds it).
         store_cm = PostgresStore.from_conn_string(settings.memory_db_url, index=_index_config())
         store = store_cm.__enter__()
-        store.setup()  # idempotent: creates the store + vector tables if absent
+        store.setup()
+        _OPEN_STORE_CMS.append(store_cm)  # keep alive for the process lifetime
         return store
-    except Exception as exc:  # unreachable DB, bad DSN, missing pgvector, etc.
-        logger.warning(
-            "memory store unavailable (%s); running without conversation memory",
-            exc,
-        )
+    except Exception as exc:
+        # If __enter__ opened a connection but setup() failed, close it.
+        if store_cm is not None:
+            try:
+                store_cm.__exit__(type(exc), exc, exc.__traceback__)
+            except Exception:
+                pass
+        logger.warning("memory store unavailable (%s); running without conversation memory", exc)
         return None

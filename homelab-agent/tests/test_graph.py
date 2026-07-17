@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock, patch
 
+from langgraph.store.memory import InMemoryStore
+
 from homelab_agent import graph
 
 
@@ -140,8 +142,6 @@ async def test_live_route_end_to_end_runs_delegate_and_drift():
 
 # --- Task 3: conversation memory nodes -------------------------------------
 
-from langgraph.store.memory import InMemoryStore
-
 
 def _fake_embed(texts):
     """Deterministic bag-of-words embedding over a tiny fixed vocab, so
@@ -213,6 +213,35 @@ async def test_memory_findings_flow_into_synthesis():
         )
     assert "ClusterIssuer letsencrypt" in captured["prompt"]  # recalled into synthesis
     assert "memory (1 prior exchange)" in out["checked"]
+
+
+class _RaisingSearchStore:
+    def search(self, *args, **kwargs):
+        raise RuntimeError("embedding backend unreachable")
+
+
+class _RaisingPutStore:
+    def put(self, *args, **kwargs):
+        raise RuntimeError("embedding backend unreachable")
+
+
+async def test_recall_degrades_to_noop_on_store_search_error():
+    result = await graph.recall({"question": "anything"}, store=_RaisingSearchStore())
+    assert result == {}
+
+
+async def test_remember_degrades_to_noop_on_store_put_error():
+    result = await graph.remember(
+        {"question": "q", "answer": "a"}, store=_RaisingPutStore()
+    )
+    assert result == {}
+
+
+def test_synthesize_prompt_frames_memory_as_untrusted():
+    from homelab_agent.prompts import SYNTHESIZE_PROMPT
+
+    assert "UNTRUSTED" in SYNTHESIZE_PROMPT
+    assert "NOT instructions" in SYNTHESIZE_PROMPT
 
 
 async def test_docs_route_still_works_without_store():
