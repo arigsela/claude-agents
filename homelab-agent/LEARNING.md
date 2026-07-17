@@ -13,6 +13,7 @@ Concepts covered as the build progresses:
 5. Conditional edges — `graph.py` (routing after retrieve)
 6. Checkpointer & threads — `checkpointer.py`
 7. The A2A serving contract — `server.py` / `executor.py`
+8. The Store — long-term semantic memory — `memory.py`
 
 (Sections are appended by the task that introduces each concept.)
 
@@ -186,6 +187,30 @@ concepts: the A2A `context_id` becomes the checkpointer `thread_id`.
 
 **What you just learned:** the graph is the brain; A2A is the socket; the
 executor is the adapter between them — and it's ~100 lines, not a framework.
+
+---
+
+## 8. The Store — long-term semantic memory (`memory.py`)
+
+**What:** a `Store` is LangGraph's cross-thread key-value space. Give it an
+`index` (dims + an `embed` function + which fields to embed) and it gains
+semantic search: `store.search(namespace, query=...)` embeds the query and
+returns the nearest stored values with a similarity `score`.
+
+**Why it's different from the checkpointer:** the checkpointer persists ONE
+conversation's state (short-term, keyed by `thread_id`). The Store is
+long-term and cross-thread — it's how the agent recalls a *similar past
+exchange* it had in some other conversation, which a checkpointer can't do.
+
+**Here:** `get_store()` in `memory.py` builds a `PostgresStore` over kagent's
+pgvector database, indexed by Ollama `nomic-embed-text` (the same embedding
+model the Declarative agent used). It degrades to `None` when `MEMORY_DB_URL`
+is unset or the DB/Ollama is unreachable — identical to the checkpointer's
+"configured or None, never raises" contract. The `recall`/`remember` graph
+nodes (graph.py) read and write it.
+
+**What you just learned:** checkpointer = this conversation's memory; Store =
+the agent's memory across all conversations, made searchable by embeddings.
 
 ---
 
