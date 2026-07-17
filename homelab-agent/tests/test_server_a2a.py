@@ -2,7 +2,7 @@
 Mirrors oncall-crewai/tests/test_k8s_agent_a2a.py."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -158,8 +158,12 @@ class TestStreaming:
         async def fake_astream(inputs, config=None, stream_mode=None):
             yield ("updates", {"orient": {"route": "docs"}})
             yield ("updates", {"retrieve": {"doc_findings": "x"}})
-            msg1 = MagicMock(); msg1.content = "cert-"; msg1.text = "cert-"
-            msg2 = MagicMock(); msg2.content = "manager."; msg2.text = "manager."
+            msg1 = MagicMock()
+            msg1.content = "cert-"
+            msg1.text = "cert-"
+            msg2 = MagicMock()
+            msg2.content = "manager."
+            msg2.text = "manager."
             yield ("messages", (msg1, {"langgraph_node": "synthesize"}))
             yield ("messages", (msg2, {"langgraph_node": "synthesize"}))
 
@@ -222,3 +226,55 @@ class TestStreaming:
         )
         assert any("stream exploded" in e.status.message.parts[0].root.text
                    for e in events if hasattr(e, "status") and e.status.message)
+
+    async def test_execute_uses_authoritative_synthesize_answer_without_token_deltas(self):
+        """If synthesize never emits messages-mode deltas (e.g. model doesn't
+        stream tokens for some reason), the completed answer must still come
+        through — from the authoritative "updates" state, not just
+        concatenated tokens (which would be empty here)."""
+        from a2a.server.events.event_queue import EventQueue
+        from a2a.types import TaskState, TextPart
+
+        from homelab_agent.executor import HomelabAgentExecutor
+
+        executor = HomelabAgentExecutor()
+        context = MagicMock()
+        context.task_id = str(uuid.uuid4())
+        context.context_id = str(uuid.uuid4())
+        context.message.parts = [TextPart(text="What is cert-manager?")]
+
+        # No "messages" events at all — only the "updates" delta carrying the
+        # synthesize node's authoritative answer.
+        async def fake_astream(inputs, config=None, stream_mode=None):
+            yield ("updates", {"orient": {"route": "docs"}})
+            yield ("updates", {"retrieve": {"doc_findings": "x"}})
+            yield (
+                "updates",
+                {"synthesize": {"answer": "cert-manager issues certs via Argo CD."}},
+            )
+
+        executor._graph = MagicMock()
+        executor._graph.astream = fake_astream
+
+        event_queue = EventQueue()
+        await executor.execute(context, event_queue)
+
+        events = []
+        while True:
+            try:
+                events.append(await event_queue.dequeue_event(no_wait=True))
+            except Exception:
+                break
+
+        final_completed = next(
+            e for e in events if hasattr(e, "status") and e.status.state == TaskState.completed
+        )
+        assert (
+            final_completed.status.message.parts[0].root.text
+            == "cert-manager issues certs via Argo CD."
+        )
+        artifact_event = next(e for e in events if getattr(e, "artifact", None) is not None)
+        assert (
+            artifact_event.artifact.parts[0].root.text
+            == "cert-manager issues certs via Argo CD."
+        )

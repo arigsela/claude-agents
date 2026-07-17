@@ -111,13 +111,14 @@ class HomelabAgentExecutor(AgentExecutor):
             )
 
             answer_parts: list[str] = []
+            final_answer: str | None = None
             async for mode, chunk in self._graph.astream(
                 {"question": question},
                 config={"configurable": {"thread_id": context_id}},
                 stream_mode=["updates", "messages"],
             ):
                 if mode == "updates":
-                    for node_name in chunk:
+                    for node_name, delta in chunk.items():
                         message = _PROGRESS.get(node_name)
                         if message:
                             await event_queue.enqueue_event(
@@ -129,6 +130,19 @@ class HomelabAgentExecutor(AgentExecutor):
                                     False,
                                 )
                             )
+                        # The "updates" delta carries the synthesize node's
+                        # authoritative answer straight from graph state — the
+                        # source of truth. Streamed "messages" tokens are for
+                        # live UX only; if they're ever absent (model doesn't
+                        # emit token deltas), this keeps the real answer intact
+                        # instead of silently falling back to "No answer
+                        # produced."
+                        if (
+                            node_name == "synthesize"
+                            and isinstance(delta, dict)
+                            and delta.get("answer")
+                        ):
+                            final_answer = delta["answer"]
                 elif mode == "messages":
                     message_chunk, metadata = chunk
                     if metadata.get("langgraph_node") == "synthesize":
@@ -145,7 +159,7 @@ class HomelabAgentExecutor(AgentExecutor):
                                 )
                             )
 
-            answer = "".join(answer_parts) or "No answer produced."
+            answer = final_answer or "".join(answer_parts) or "No answer produced."
 
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
