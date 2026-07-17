@@ -32,3 +32,28 @@ def test_env_overrides_defaults(monkeypatch):
     assert s.model_name == "claude-sonnet-5"
     assert s.k8s_reader_a2a_url == "http://localhost:9999"
     assert s.backstage_mcp_token == "sekrit"
+
+
+def test_memory_defaults(monkeypatch):
+    for var in (
+        "MEMORY_DB_URL", "OLLAMA_BASE_URL", "EMBEDDING_MODEL",
+        "MEMORY_TOP_K", "MEMORY_NAMESPACE", "MEMORY_SIMILARITY_FLOOR",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings.from_env()
+    assert s.memory_db_url == ""
+    assert s.ollama_base_url == "http://ollama.ollama.svc.cluster.local:11434"
+    assert s.embedding_model == "nomic-embed-text"
+    assert s.memory_top_k == 3
+    assert s.memory_namespace == "homelab-agent"
+    assert s.memory_similarity_floor == 0.3
+
+
+def test_memory_env_overrides(monkeypatch):
+    monkeypatch.setenv("MEMORY_DB_URL", "postgresql://u:p@db:5432/kagent")
+    monkeypatch.setenv("MEMORY_TOP_K", "5")
+    monkeypatch.setenv("MEMORY_SIMILARITY_FLOOR", "0.55")
+    s = Settings.from_env()
+    assert s.memory_db_url == "postgresql://u:p@db:5432/kagent"
+    assert s.memory_top_k == 5
+    assert s.memory_similarity_floor == 0.55

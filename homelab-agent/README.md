@@ -17,6 +17,12 @@ for the design.
 | `BACKSTAGE_MCP_URL` | no | `http://backstage.backstage.svc.cluster.local/api/mcp-actions/v1/catalog` | Backstage catalog MCP (streamable HTTP) |
 | `BACKSTAGE_MCP_TOKEN` | yes (runtime) | `` | Bearer token for the Backstage MCP |
 | `K8S_READER_A2A_URL` | no | `http://k8s-reader.kagent.svc.cluster.local:8080` | A2A endpoint of the read-only k8s-reader agent |
+| `MEMORY_DB_URL` | no | `` (empty → memory off) | Postgres+pgvector DSN for conversation memory (from a scoped secret) |
+| `OLLAMA_BASE_URL` | no | `http://ollama.ollama.svc.cluster.local:11434` | Ollama endpoint for embeddings |
+| `EMBEDDING_MODEL` | no | `nomic-embed-text` | Embedding model (768-dim) |
+| `MEMORY_TOP_K` | no | `3` | Recalled prior exchanges per turn |
+| `MEMORY_NAMESPACE` | no | `homelab-agent` | Store namespace prefix |
+| `MEMORY_SIMILARITY_FLOOR` | no | `0.3` | Minimum similarity to include a recalled exchange |
 | `LOG_LEVEL` | no | `INFO` | Python log level |
 | `AGENT_URL` | no | `http://0.0.0.0:8080` | Self-URL advertised in the A2A agent card |
 
@@ -32,6 +38,9 @@ the graph runs without persistence.
 | `kagent-core` | 0.9.11 | Transitive dependency of `kagent-langgraph`; provides `KAgentConfig`. |
 | `a2a-sdk` | 0.3.26 (pinned `[http-server]>=0.3.10,<0.4`) | Pinned to the 0.3.x line because `kagent.langgraph.__init__` imports `kagent.langgraph._a2a`, which needs `a2a.server.apps.A2AStarletteApplication` — present in a2a-sdk 0.3.x, removed in a2a-sdk 1.x. This also matches production: `oncall-crewai` runs `a2a-sdk==0.3.24` against the same kagent 0.9.11 controller. Nothing in this codebase imports the `a2a` package directly (yet — Task 8's A2A server will), so the downgrade from the initially-resolved 1.1.1 was safe. |
 | `openai` | 2.45.0 | **Not used by this project's code.** Pinned solely because `kagent.core.tracing` unconditionally imports an OpenTelemetry auto-instrumentor for the `openai` SDK; without it, `from kagent.core import KAgentConfig` raises `ModuleNotFoundError: No module named 'openai'`. This is an undeclared-dependency wart in kagent-core 0.9.11, not something this project uses directly. |
+| `langchain-ollama` | 1.1.0 | Provides `OllamaEmbeddings` for conversation-memory embeddings (floor `>=0.2` resolved cleanly to the latest 1.x). |
+| `langgraph-checkpoint-postgres` | 3.1.0 | Provides `langgraph.store.postgres.PostgresStore` for conversation memory (floor `>=2.0` resolved cleanly to the latest 3.x). |
+| `psycopg[binary]` | 3.3.4 | Postgres driver backing `PostgresStore` (floor `>=3.1` resolved cleanly to the latest 3.x). |
 | container base | `python:3.14-slim` | Matches the dev venv's interpreter (all 50 tests run on 3.14) rather than the `python:3.11-slim` inherited from the oncall-crewai template — `kagent-core`'s otel dependency chain doesn't resolve on 3.11. `requires-python` in `pyproject.toml` stays `>=3.11` (that floor describes the code, not the shipped image). |
 
 With these versions, `from kagent.langgraph import KAgentCheckpointer` and

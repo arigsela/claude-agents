@@ -19,6 +19,12 @@ class Settings:
     backstage_mcp_url: str
     backstage_mcp_token: str
     k8s_reader_a2a_url: str
+    memory_db_url: str
+    ollama_base_url: str
+    embedding_model: str
+    memory_top_k: int
+    memory_namespace: str
+    memory_similarity_floor: float
     log_level: str
 
     @classmethod
@@ -39,6 +45,14 @@ class Settings:
             k8s_reader_a2a_url=os.getenv(
                 "K8S_READER_A2A_URL", "http://k8s-reader.kagent.svc.cluster.local:8080"
             ),
+            memory_db_url=os.getenv("MEMORY_DB_URL", ""),
+            ollama_base_url=os.getenv(
+                "OLLAMA_BASE_URL", "http://ollama.ollama.svc.cluster.local:11434"
+            ),
+            embedding_model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
+            memory_top_k=int(os.getenv("MEMORY_TOP_K", "3")),
+            memory_namespace=os.getenv("MEMORY_NAMESPACE", "homelab-agent"),
+            memory_similarity_floor=float(os.getenv("MEMORY_SIMILARITY_FLOOR", "0.3")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
         )
 
