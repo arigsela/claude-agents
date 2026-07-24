@@ -1,0 +1,21 @@
+# ==============================================================================
+# Task Templates Configuration (YAML)
+# ==============================================================================
+#
+# CrewAI tasks define WHAT the agent should do. Like agents.yaml, this file
+# provides an alternative YAML-based task definition. Currently, tasks are
+# created dynamically in agent.py. To switch to YAML config, update agent.py
+# to use CrewAI's YAML-based task loader.
+# ==============================================================================
+
+query_task:
+  description: >
+    Analyze and respond to the following query: {query}
+    Use your available tools and knowledge to provide a thorough, accurate response.
+    Include specific details, examples, and actionable recommendations.
+  expected_output: >
+    A comprehensive response with:
+    1. A clear summary answering the query
+    2. Detailed explanation with evidence
+    3. Specific recommendations or next steps
+  agent: sub_agent

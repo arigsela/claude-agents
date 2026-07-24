@@ -1,0 +1,57 @@
+# ==============================================================================
+# Docker Compose — Local Development Stack
+# ==============================================================================
+#
+# HOW TO USE:
+#   docker-compose up --build        # Build images and start all services
+#   docker-compose up -d             # Start in background (detached)
+#   docker-compose logs -f           # Follow all logs
+#   docker-compose down              # Stop and remove containers
+#
+# NETWORKING:
+# Docker Compose creates a shared network. Services reference each other
+# by service name (e.g., http://orchestrator:8000).
+# This mirrors K8s internal DNS (http://service.namespace.svc:port).
+# ==============================================================================
+
+services:
+  # --- ORCHESTRATOR ---
+  # The "front door" — receives queries and routes to sub-agents.
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-anthropic/claude-sonnet-4-5-20250929}
+      - PROJECT_NAME=dungeons-dragons-agent
+      - ORCHESTRATOR_PORT=8000
+      - SUB_AGENT_URL=http://character-creation-agent:8080
+      - API_KEYS=${API_KEYS:-}
+      - LOG_FORMAT=text
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - character-creation-agent
+    restart: unless-stopped
+
+  # --- SUB-AGENT ---
+  # Processes domain-specific queries with tools and knowledge.
+  character-creation-agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.character_creation_agent
+    ports:
+      - "8080:8080"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-anthropic/claude-sonnet-4-5-20250929}
+      - PROJECT_NAME=dungeons-dragons-agent
+      - SUB_AGENT_PORT=8080
+      - AGENT_URL=http://character-creation-agent:8080
+      - API_KEYS=${API_KEYS:-}
+      - LOG_FORMAT=text
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
