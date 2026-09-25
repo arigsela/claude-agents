@@ -2,6 +2,7 @@
 
 import sys
 
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from homelab_agent.checkpointer import get_checkpointer
@@ -66,7 +67,7 @@ async def test_threads_persist_state_across_invocations():
                AsyncMock(return_value=("findings", ["agent-docs MCP"]))), \
          patch("homelab_agent.graph.get_model") as mock_model:
         reply = AsyncMock()
-        reply.return_value.content = "answer"
+        reply.return_value = AIMessage(content="answer")
         mock_model.return_value.ainvoke = reply
 
         g = build_graph(checkpointer=MemorySaver())
@@ -100,7 +101,7 @@ async def test_checked_does_not_accumulate_across_turns_on_same_thread():
         ),
     ), patch("homelab_agent.graph.get_model") as mock_model:
         reply = AsyncMock()
-        reply.return_value.content = "answer"
+        reply.return_value = AIMessage(content="answer")
         mock_model.return_value.ainvoke = reply
 
         g = build_graph(checkpointer=MemorySaver())
@@ -131,12 +132,7 @@ async def test_live_findings_does_not_leak_into_later_docs_turn_on_same_thread()
             self._replies = list(replies)
 
         async def ainvoke(self, _input):
-            class Msg:
-                pass
-
-            msg = Msg()
-            msg.content = self._replies.pop(0)
-            return msg
+            return AIMessage(content=self._replies.pop(0))
 
     # 3 model calls total: turn 1's drift_check + synthesize, turn 2's synthesize.
     fake_chat = FakeChat(

@@ -172,7 +172,7 @@ async def drift_check(state: AgentState) -> dict:
             live=state.get("live_findings", ""),
         )
     )
-    text = reply.content.strip()
+    text = reply.text.strip()
     if text.upper().startswith("NONE"):
         return {"drift": []}
     # re.sub, not str.lstrip("- "): lstrip strips a CHARACTER SET, so it
@@ -200,7 +200,7 @@ async def synthesize(state: AgentState) -> dict:
             memory_findings=state.get("memory_findings", "") or "(none)",
         )
     )
-    return {"answer": reply.content}
+    return {"answer": reply.text}
 
 
 async def remember(state: AgentState, *, store=None) -> dict:

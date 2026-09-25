@@ -10,7 +10,7 @@ for the design.
 | Env var | Required | Default | Purpose |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | yes (runtime) | — | ChatAnthropic auth (own Vault key, not shared `kagent-anthropic`) |
-| `MODEL_NAME` | no | `claude-sonnet-4-6` | Main graph model (parity with current agent) |
+| `MODEL_NAME` | no | `claude-sonnet-5` | Main graph model |
 | `ROUTER_MODEL_NAME` | no | `claude-haiku-4-5-20251001` | Cheap model for the orient fallback classifier |
 | `AGENT_DOCS_MCP_URL` | no | `http://agent-docs-mcp.kagent:3000/mcp` | Read-only GitHub MCP (streamable HTTP) |
 | `AGENT_DOCS_MCP_AUTH_HEADER` | no | `` | Optional `Authorization` header value for agent-docs MCP |

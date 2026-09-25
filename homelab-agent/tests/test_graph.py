@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.messages import AIMessage
 from langgraph.store.memory import InMemoryStore
 
 from homelab_agent import graph
@@ -41,12 +42,16 @@ class FakeChat:
         self._replies = list(replies)
 
     async def ainvoke(self, _input):
-        class Msg:
-            pass
+        return AIMessage(content=self._replies.pop(0))
 
-        msg = Msg()
-        msg.content = self._replies.pop(0)
-        return msg
+
+def thinking_reply(text: str) -> list[dict]:
+    """Content as claude-sonnet-5 returns it: adaptive thinking is on by
+    default, so the text arrives after a thinking block, not as a bare str."""
+    return [
+        {"type": "thinking", "thinking": "", "signature": "sig"},
+        {"type": "text", "text": text},
+    ]
 
 
 async def test_delegate_k8s_node():
@@ -94,6 +99,25 @@ async def test_synthesize_formats_answer():
             "drift": [], "checked": ["agent-docs MCP"],
         })
     assert "What I checked" in result["answer"]
+
+
+async def test_drift_check_reads_text_past_thinking_blocks():
+    fake = FakeChat(thinking_reply("- docs say 3 replicas, cluster shows 1"))
+    with patch("homelab_agent.graph.get_model", return_value=fake):
+        result = await graph.drift_check(
+            {"doc_findings": "3 replicas", "live_findings": "1 replica"}
+        )
+    assert result["drift"] == ["docs say 3 replicas, cluster shows 1"]
+
+
+async def test_synthesize_answer_is_text_not_content_blocks():
+    fake = FakeChat(thinking_reply("Vault is healthy."))
+    with patch("homelab_agent.graph.get_model", return_value=fake):
+        result = await graph.synthesize({
+            "question": "q", "doc_findings": "d", "live_findings": "l",
+            "drift": [], "checked": ["agent-docs MCP"],
+        })
+    assert result["answer"] == "Vault is healthy."
 
 
 def test_needs_live_routing():
@@ -198,11 +222,7 @@ async def test_memory_findings_flow_into_synthesis():
     class FakeChat:
         async def ainvoke(self, prompt):
             captured["prompt"] = prompt
-
-            class Msg:
-                content = "answer"
-
-            return Msg()
+            return AIMessage(content="answer")
 
     with patch("homelab_agent.tools.run_doc_retrieval",
                AsyncMock(return_value=("docs", ["agent-docs MCP"]))), \

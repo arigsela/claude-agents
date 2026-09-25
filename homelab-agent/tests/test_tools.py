@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage
 
 from homelab_agent import tools
 
@@ -151,9 +152,7 @@ async def test_run_doc_retrieval_invokes_react_agent_and_reports_checked():
         async def ainvoke(self, payload):
             self.received_payload = payload
 
-            class Msg:
-                content = "found: base-apps/cert-manager/docs.md"
-            return {"messages": [Msg()]}
+            return {"messages": [AIMessage(content="found: base-apps/cert-manager/docs.md")]}
 
     agent = FakeAgent()
     with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
@@ -175,9 +174,7 @@ async def test_run_doc_retrieval_ownership_route_reports_backstage():
         async def ainvoke(self, payload):
             self.received_payload = payload
 
-            class Msg:
-                content = "owner: platform-engineering"
-            return {"messages": [Msg()]}
+            return {"messages": [AIMessage(content="owner: platform-engineering")]}
 
     agent = FakeAgent()
     with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
@@ -191,3 +188,20 @@ async def test_run_doc_retrieval_ownership_route_reports_backstage():
 
     user_message = agent.received_payload["messages"][0][1]
     assert user_message == "Route: ownership\nQuestion: who owns vault?"
+
+
+async def test_run_doc_retrieval_findings_are_text_past_thinking_blocks():
+    # claude-sonnet-5 thinks by default: the agent's last message carries a
+    # thinking block before the text. Findings must be the text, not the list.
+    class FakeAgent:
+        async def ainvoke(self, payload):
+            return {"messages": [AIMessage(content=[
+                {"type": "thinking", "thinking": "", "signature": "sig"},
+                {"type": "text", "text": "found: base-apps/vault/docs.md"},
+            ])]}
+
+    with patch.object(tools, "get_doc_tools", new=AsyncMock(return_value=[])), \
+         patch.object(tools, "_build_doc_agent", return_value=FakeAgent()):
+        findings, _ = await tools.run_doc_retrieval("what is vault?", "docs")
+
+    assert findings == "found: base-apps/vault/docs.md"

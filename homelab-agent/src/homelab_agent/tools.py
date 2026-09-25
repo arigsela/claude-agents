@@ -159,7 +159,7 @@ async def run_doc_retrieval(question: str, route: str) -> tuple[str, list[str]]:
     doc_tools = await get_doc_tools()
     agent = _build_doc_agent(get_model(), doc_tools, RETRIEVE_PROMPT)
     result = await agent.ainvoke({"messages": [("user", f"Route: {route}\nQuestion: {question}")]})
-    findings = result["messages"][-1].content
+    findings = result["messages"][-1].text
 
     checked = ["agent-docs MCP (get_file_contents / search_code)"]
     if route == "ownership":
