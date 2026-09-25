@@ -8,6 +8,7 @@ Pattern mirrored from oncall-crewai's k8s_agent/server.py.
 import logging
 import os
 
+import httpx
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
@@ -20,6 +21,43 @@ from homelab_agent.executor import HomelabAgentExecutor
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
+
+
+def _build_request_handler() -> DefaultRequestHandler:
+    """Build the A2A request handler.
+
+    Under kagent (KAGENT_URL present), back it with kagent's DB-persisting
+    task store so conversation tasks are recorded in the controller's Postgres
+    and the kagent UI can replay past conversations. Without a KAgentTaskStore
+    the a2a-sdk only keeps tasks in-process, so the UI shows the session but no
+    messages (list-tasks-db count:0). Locally (no KAGENT_URL) — and on any
+    wiring failure — fall back to the in-memory store so dev/tests stay
+    hermetic. Same configured-or-degrade contract as the checkpointer/store.
+    """
+    executor = HomelabAgentExecutor()
+    if os.getenv("KAGENT_URL"):
+        try:
+            from kagent.core import KAgentConfig
+            from kagent.core.a2a import KAgentRequestContextBuilder, KAgentTaskStore
+
+            config = KAgentConfig()
+            client = httpx.AsyncClient(base_url=config.url)
+            task_store = KAgentTaskStore(client)
+            return DefaultRequestHandler(
+                agent_executor=executor,
+                task_store=task_store,
+                request_context_builder=KAgentRequestContextBuilder(task_store=task_store),
+            )
+        except Exception as exc:  # partial env, unreachable controller, etc.
+            logger.warning(
+                "kagent task store unavailable (%s); tasks will not persist to the "
+                "kagent UI (using in-memory store)",
+                exc,
+            )
+    return DefaultRequestHandler(
+        agent_executor=executor,
+        task_store=InMemoryTaskStore(),
+    )
 
 
 def _build_agent_card() -> AgentCard:
@@ -91,10 +129,7 @@ def create_app() -> FastAPI:
     async def health():
         return JSONResponse({"status": "healthy", "agent": "homelab-agent"})
 
-    handler = DefaultRequestHandler(
-        agent_executor=HomelabAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-    )
+    handler = _build_request_handler()
     a2a_app = A2AStarletteApplication(
         agent_card=_build_agent_card(),
         http_handler=handler,

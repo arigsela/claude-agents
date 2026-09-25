@@ -278,3 +278,52 @@ class TestStreaming:
             artifact_event.artifact.parts[0].root.text
             == "cert-manager issues certs via Argo CD."
         )
+
+
+class TestTaskStorePersistence:
+    """The kagent-DB task store is what makes the UI replay past conversations."""
+
+    def test_falls_back_to_inmemory_without_kagent_url(self, monkeypatch):
+        monkeypatch.delenv("KAGENT_URL", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+        import homelab_agent.server as srv
+
+        monkeypatch.setattr(srv, "HomelabAgentExecutor", MagicMock())
+        from a2a.server.tasks import InMemoryTaskStore
+
+        handler = srv._build_request_handler()
+        assert isinstance(handler.task_store, InMemoryTaskStore)
+
+    def test_uses_kagent_task_store_under_kagent(self, monkeypatch):
+        monkeypatch.setenv("KAGENT_URL", "http://kagent-controller.kagent:8080")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+        import homelab_agent.server as srv
+        import kagent.core as core
+        import kagent.core.a2a as a2a_mod
+
+        monkeypatch.setattr(srv, "HomelabAgentExecutor", MagicMock())
+        monkeypatch.setattr(
+            core, "KAgentConfig", MagicMock(return_value=MagicMock(url="http://kagent:8080"))
+        )
+        fake_store = MagicMock()
+        kts = MagicMock(return_value=fake_store)
+        monkeypatch.setattr(a2a_mod, "KAgentTaskStore", kts)
+        monkeypatch.setattr(a2a_mod, "KAgentRequestContextBuilder", MagicMock())
+
+        handler = srv._build_request_handler()
+        kts.assert_called_once()
+        assert handler.task_store is fake_store
+
+    def test_degrades_to_inmemory_when_kagent_wiring_fails(self, monkeypatch):
+        # KAGENT_URL present but KAgentConfig blows up -> must not raise, fall back.
+        monkeypatch.setenv("KAGENT_URL", "http://kagent:8080")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+        import homelab_agent.server as srv
+        import kagent.core as core
+
+        monkeypatch.setattr(srv, "HomelabAgentExecutor", MagicMock())
+        monkeypatch.setattr(core, "KAgentConfig", MagicMock(side_effect=ValueError("no env")))
+        from a2a.server.tasks import InMemoryTaskStore
+
+        handler = srv._build_request_handler()
+        assert isinstance(handler.task_store, InMemoryTaskStore)

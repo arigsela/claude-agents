@@ -12,7 +12,7 @@ def test_defaults_point_at_cluster_services(monkeypatch):
     ):
         monkeypatch.delenv(var, raising=False)
     s = Settings.from_env()
-    assert s.model_name == "claude-sonnet-4-6"
+    assert s.model_name == "claude-sonnet-5"
     assert s.router_model_name == "claude-haiku-4-5-20251001"
     assert s.agent_docs_mcp_url == "http://agent-docs-mcp.kagent:3000/mcp"
     assert s.backstage_mcp_url == (
@@ -25,11 +25,11 @@ def test_defaults_point_at_cluster_services(monkeypatch):
 
 
 def test_env_overrides_defaults(monkeypatch):
-    monkeypatch.setenv("MODEL_NAME", "claude-sonnet-5")
+    monkeypatch.setenv("MODEL_NAME", "claude-opus-5")
     monkeypatch.setenv("K8S_READER_A2A_URL", "http://localhost:9999")
     monkeypatch.setenv("BACKSTAGE_MCP_TOKEN", "sekrit")
     s = Settings.from_env()
-    assert s.model_name == "claude-sonnet-5"
+    assert s.model_name == "claude-opus-5"
     assert s.k8s_reader_a2a_url == "http://localhost:9999"
     assert s.backstage_mcp_token == "sekrit"
 
