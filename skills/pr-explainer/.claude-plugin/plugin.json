@@ -1,0 +1,6 @@
+{
+  "name": "pr-explainer",
+  "version": "0.1.0",
+  "description": "Explain a Kubernetes GitOps PR without reading code: rendered-manifest resource map, before/after, risk callouts and must-read hunks, published as a private HTML page.",
+  "author": { "name": "Arisela" }
+}
