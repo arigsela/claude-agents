@@ -1,0 +1,6 @@
+{
+  "name": "review-retro",
+  "version": "0.1.0",
+  "description": "Retro of a /code-review session: what it missed versus later fixes, why (cited from the transcript), what it cost, and concrete edits to the reviewer.",
+  "author": { "name": "Arisela" }
+}

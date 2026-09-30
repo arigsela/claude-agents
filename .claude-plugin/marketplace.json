@@ -98,6 +98,11 @@
       "name": "pr-explainer",
       "source": "./skills/pr-explainer",
       "description": "Explain a GitOps PR without reading code: rendered-manifest resource map, before/after, risk callouts and must-read hunks as a private HTML page."
+    },
+    {
+      "name": "review-retro",
+      "source": "./skills/review-retro",
+      "description": "Retro of a /code-review session: misses versus later fixes, cited causes, token cost, and proposed reviewer edits."
     }
   ]
 }

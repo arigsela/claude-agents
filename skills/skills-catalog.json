@@ -181,6 +181,16 @@
         "type": "local",
         "ref": "skills/pr-explainer"
       }
+    },
+    "review-retro": {
+      "name": "review-retro",
+      "version": "0.1.0",
+      "path": "./review-retro",
+      "installedAt": "2026-09-30T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/review-retro"
+      }
     }
   },
   "registries": {}
