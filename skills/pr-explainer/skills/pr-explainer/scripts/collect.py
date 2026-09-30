@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pyyaml>=6", "pathspec>=0.12"]
+# dependencies = ["pyyaml>=6", "pathspec>=0.12,<1"]
 # ///
 """pr-explainer: collect deterministic facts about a PR into <out>/facts.json and <out>/diff.patch.
 
@@ -223,7 +223,8 @@ def render_app(root: Path, app_file: str, app: dict, work: Path,
 
 
 def res_key(doc: dict, default_ns: str) -> tuple[str, str, str]:
-    md = doc.get("metadata") or {}
+    md = doc.get("metadata")
+    md = md if isinstance(md, dict) else {}
     ns = "" if doc.get("kind") in CLUSTER_SCOPED else (md.get("namespace") or default_ns)
     return (str(doc.get("kind")), ns, str(md.get("name", "?")))
 
@@ -260,12 +261,16 @@ def find_lines(root: Path, file: str | None, kind: str, name: str) -> list[int] 
     return None
 
 
+def _d(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def pod_spec(doc: dict) -> tuple[dict, dict]:
-    spec = doc.get("spec") or {}
+    spec = _d(doc.get("spec"))
     if doc.get("kind") == "CronJob":
-        spec = ((spec.get("jobTemplate") or {}).get("spec") or {})
-    template = spec.get("template") or {}
-    return template.get("spec") or {}, (template.get("metadata") or {}).get("labels") or {}
+        spec = _d(_d(spec.get("jobTemplate")).get("spec"))
+    template = _d(spec.get("template"))
+    return _d(template.get("spec")), _d(_d(template.get("metadata")).get("labels"))
 
 
 def build_edges(docs: dict[tuple, dict]) -> list[tuple[tuple, tuple, str]]:
@@ -277,10 +282,10 @@ def build_edges(docs: dict[tuple, dict]) -> list[tuple[tuple, tuple, str]]:
     def find(kind, name, ns=None):
         return [c for c in by_kind_name.get((kind, name), []) if ns is None or c[1] in (ns, "")]
 
-    edges = []
-    for k, d in docs.items():
+    def doc_edges(k, d):
+        edges = []
         kind, ns, _ = k
-        spec = d.get("spec") or {}
+        spec = _d(d.get("spec"))
         if kind == "Service" and spec.get("selector"):
             for wk, wd in docs.items():
                 if wk[0] in WORKLOADS and wk[1] == ns:
@@ -334,6 +339,14 @@ def build_edges(docs: dict[tuple, dict]) -> list[tuple[tuple, tuple, str]]:
                         refs.append(("ConfigMap", vf["configMapKeyRef"].get("name")))
             for rk, rn in refs:
                 edges += [(k, t, "mounts") for t in find(rk, rn, ns)]
+        return edges
+
+    edges = []
+    for k, d in docs.items():
+        try:
+            edges += doc_edges(k, d)
+        except (AttributeError, TypeError, KeyError):
+            continue  # wrong-shaped manifest: adds no edges
     return list(dict.fromkeys(edges))
 
 
@@ -356,6 +369,16 @@ def matched_glob(path: str, globs: list[str]) -> str | None:
         if not g.startswith("!") and pathspec.PathSpec.from_lines("gitwildmatch", [g]).match_file(path):
             return g
     return None
+
+
+def trusted_comments(comments: list[dict], login: str) -> list[dict]:
+    """Only the authenticated user's own comments and Bot comments may feed triage/Atlantis parsing."""
+    out = []
+    for c in comments:
+        u = c.get("user") or {}
+        if u.get("type") == "Bot" or (login and u.get("login") == login):
+            out.append(c)
+    return out
 
 
 def read_policy(trees: Trees) -> dict | None:
@@ -396,12 +419,12 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         afile, adoc = h or b
         ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
         entry = {"app": name, "application_file": afile,
-                 "source_kind": source_kind(trees.head if h else trees.base, adoc),
-                 "render": "rendered", "render_note": ""}
+                 "source_kind": "unknown", "render": "rendered", "render_note": ""}
         try:
+            entry["source_kind"] = source_kind(trees.head if h else trees.base, adoc)
             bdocs, bload, bnotes = render_app(trees.base, b[0], b[1], trees.dir, repo) if b else ([], set(), [])
             hdocs, hload, hnotes = render_app(trees.head, h[0], h[1], trees.dir, repo) if h else ([], set(), [])
-        except (RuntimeError, OSError, yaml.YAMLError, KeyError) as err:
+        except Exception as err:
             entry["render"], entry["render_note"] = "source-diff", f"{type(err).__name__}: {err}"
             apps_out.append(entry)
             continue  # this app's files fall through to non_manifest_changes
@@ -494,7 +517,7 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     for n in nm:
         if pat := matched_glob(n["file"], read_globs):
             rule = f"always_read.paths ({pat})"
-            candidates.setdefault(("file", rule), []).append({"ref": n["id"], "rule": rule, "callout": "always read"})
+            candidates.setdefault(("file", n["file"], rule), []).append({"ref": n["id"], "rule": rule, "callout": "always read"})
     for t in tf:
         candidates.setdefault(("terraform", ""), []).append(
             {"ref": t["id"], "rule": "always_read.paths (terraform/**)", "callout": "infrastructure change"})
@@ -528,6 +551,7 @@ def main() -> int:
     pr = json.loads(sh("gh", "api", f"repos/{repo}/pulls/{args.pr}"))
     files = gh_pages(f"repos/{repo}/pulls/{args.pr}/files?per_page=100")
     comments = gh_pages(f"repos/{repo}/issues/{args.pr}/comments?per_page=100")
+    comments = trusted_comments(comments, sh("gh", "api", "user", "--jq", ".login").strip())
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "diff.patch").write_text(sh("gh", "pr", "diff", str(args.pr), "-R", repo))

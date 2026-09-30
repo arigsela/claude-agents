@@ -131,7 +131,9 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
                             f'<span class="sev">{esc(mask(c.get("severity", "info")))}</span> {esc(mask(c.get("text", "")))} '
                             f'{refs(c.get("refs", []))}</li>' for c in expl.get("callouts", [])),
         "MUST_READ": "".join(f'<li>{ref_html(m.get("ref", ""))} — {esc(mask(m.get("why", "")))}</li>'
-                             for m in expl.get("must_read", [])),
+                             for m in expl.get("must_read", []))
+                     + "".join(f'<li>+{esc(h["more"])} more matching {esc(mask(h.get("rule", "")))} — see the PR\'s Files view</li>'
+                               for h in facts.get("policy_hits", []) if h.get("more")),
         "ORDER": "".join(f"<li>{ref_html(r)}</li>" for r in expl.get("reading_order", [])),
         "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in expl.get("not_covered", []))
                        or "<li>Nothing: every changed app was rendered.</li>",
@@ -146,7 +148,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--facts", required=True)
     ap.add_argument("--explainer", required=True)
-    ap.add_argument("--errors")
+    ap.add_argument("--errors", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--standalone", action="store_true")
     args = ap.parse_args()
