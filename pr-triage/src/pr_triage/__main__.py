@@ -67,9 +67,20 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--jev-model", default="jev-1.13.0")
         p.add_argument("--claude-model", default="claude-haiku-4-5")
         p.add_argument("--dry-run", action="store_true", help="print the comment; write nothing")
+    c = sub.add_parser("calibrate", help="replay triage on merged PRs vs the follow-up heuristic")
+    c.add_argument("--repo", required=True)
+    c.add_argument("--limit", type=int, default=200)
+    c.add_argument("--policy-file")
+    c.add_argument("--compare", choices=["haiku"])
+    c.add_argument("--out", default="calibration.md")
+    c.add_argument("--jev-model", default="jev-1.13.0")
+    c.add_argument("--claude-model", default="claude-haiku-4-5")
     args = ap.parse_args(argv)
     if args.cmd == "features":
         return cmd_features(args)
+    if args.cmd == "calibrate":
+        from .calibrate import cmd_calibrate
+        return cmd_calibrate(args)
     return cmd_run(args)
 
 
