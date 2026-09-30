@@ -84,6 +84,7 @@ always_read:                 # any match → review:read (Jev not called)
     - appsets/**
     - terraform/**
     - ansible/**
+    - node-config/**           # host-level k3s config (e.g. apiserver authn, #625)
     - .github/**
   kinds:                     # kind: added/removed/modified anywhere in the diff
     - ClusterRole
@@ -197,7 +198,7 @@ if decision == skip and hot_components_touched:                          skim
 ```
 
 **`claude_decide()`**
-- Model `claude-haiku-4-5-20251001`, called through the Anthropic SDK with a forced tool call returning `{decision, reason}`.
+- Model `claude-haiku-4-5` (action input `claude-model`), called through the Anthropic SDK with **structured outputs** (`output_config.format` json_schema) returning `{decision, reason}`. Forced `tool_choice` is not used, because it returns a 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1, which would break the model input.
 - Input is the same filtered state plus Jev's probabilities.
 - If it errors, the decision is `read`.
 
@@ -219,7 +220,7 @@ if decision == skip and hot_components_touched:                          skim
   **Next:** `/pr-explainer 650` · `/code-review 650`        (skim/read only)
   <details><summary>Signals</summary> decided_by, P(skip/skim/read), flags,
   size_bucket, components, hot components </details>
-  <sub>pr-triage <action sha> · jev-1.13.0 · claude-haiku-4-5-20251001 · policy @ <base sha></sub>
+  <sub>pr-triage <action sha> · jev-1.13.0 · claude-haiku-4-5 · policy @ <base sha></sub>
   ```
 - **Degraded mode:** used when Jev fails after 1 retry (5 s timeout), when a secret is missing, or for a fork PR. The run keeps the rules-only decision, or sets `read` if the rules did not decide. The comment says `triage degraded: <reason>`. The job still exits 0.
 - **Other errors:** a `gh` API error exits non-zero, so the check goes red and the label is left unchanged. That is visible, and nothing blocks on it.
@@ -231,7 +232,7 @@ if decision == skip and hot_components_touched:                          skim
 1. Fetch the last N merged PRs and their files and patches, then label each one with §4.
 2. **Time split to avoid leakage.** The older half computes `hot_components`: components with rate ≥ 0.40 and ≥ 3 PRs. The newer half is the evaluation set.
 3. Run rules → Jev → decision on every evaluation PR, against the policy at current `main` plus the fresh `hot_components`.
-4. `--compare haiku` also runs a Claude-only backend on the same state, answering the same questions through a forced tool call.
+4. `--compare haiku` also runs a Claude-only backend on the same state, answering the same questions through structured outputs.
 
 **Report**
 - Follow-up PRs labeled `skip`: count and share. This is the key safety number.
@@ -467,7 +468,7 @@ Each phase ships on its own.
   - Entries in `.claude-plugin/marketplace.json` and `skills/skills-catalog.json`, and a row in `skills/README.md`.
   - No legacy top-level `SKILL.md` copy.
 - **A2 Jev over HTTP, not the SDK.** The research doc flags the SDK's `probabilities`/`confidence` attribute names as unverified, while the HTTP response shape is documented. The model is pinned to `jev-1.13.0`. The owner creates the key.
-- **A3 Claude model:** `claude-haiku-4-5-20251001` for triage fallback and notes, through the `anthropic` SDK with an `ANTHROPIC_API_KEY` repo secret. The skills use the session's own model.
+- **A3 Claude model:** `claude-haiku-4-5` for triage fallback and notes, as approved in the triage section. It is the action input `claude-model`, so swapping in `claude-opus-5-5` (the Anthropic SDK default) or `claude-sonnet-5-5` is one line. It goes through the `anthropic` SDK with structured outputs and an `ANTHROPIC_API_KEY` repo secret. The skills use the session's own model.
 - **A4 Thresholds:** starting values come from TypeSafe's default confidence bands and the asymmetric-cost rule. Calibration tunes them.
 - **A5 Policy read from the base branch** by triage, and from the local checkout by the skills.
 - **A6 Labels only.** Triage never blocks, approves or merges.
