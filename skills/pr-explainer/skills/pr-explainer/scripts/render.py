@@ -35,8 +35,17 @@ STANDALONE_TAIL = '''
 '''
 
 
+SECRET_VALUE_RE = re.compile(
+    r"(?i)((?:password|passwd|token|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)(\S{8,})")
+
+
 def esc(value) -> str:
     return html.escape(str(value), quote=True)
+
+
+def mask(value) -> str:
+    """Mask secret-looking values in model text; apply before esc()."""
+    return SECRET_VALUE_RE.sub(r"\1[REDACTED]", str(value))
 
 
 def label(text: str) -> str:
@@ -113,18 +122,18 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
         "PR_TITLE": esc(pr["title"]),
         "HEADER": header,
         "BANNER": banner,
-        "TLDR": esc(expl.get("tldr", "")),
+        "TLDR": esc(mask(expl.get("tldr", ""))),
         "MERMAID": esc(mermaid(facts)),
-        "BEHAVIOR": "".join(f'<tr><td>{esc(b.get("app", ""))}</td><td>{esc(b.get("before", ""))}</td>'
-                            f'<td>{esc(b.get("after", ""))}</td><td>{refs(b.get("refs", []))}</td></tr>'
+        "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'
+                            f'<td>{esc(mask(b.get("after", "")))}</td><td>{refs(b.get("refs", []))}</td></tr>'
                             for b in expl.get("behavior_changes", [])),
         "CALLOUTS": "".join(f'<li class="{SEVERITY_CLASS.get(c.get("severity"), "sev-info")}">'
-                            f'<span class="sev">{esc(c.get("severity", "info"))}</span> {esc(c.get("text", ""))} '
+                            f'<span class="sev">{esc(mask(c.get("severity", "info")))}</span> {esc(mask(c.get("text", "")))} '
                             f'{refs(c.get("refs", []))}</li>' for c in expl.get("callouts", [])),
-        "MUST_READ": "".join(f'<li>{ref_html(m.get("ref", ""))} — {esc(m.get("why", ""))}</li>'
+        "MUST_READ": "".join(f'<li>{ref_html(m.get("ref", ""))} — {esc(mask(m.get("why", "")))}</li>'
                              for m in expl.get("must_read", [])),
         "ORDER": "".join(f"<li>{ref_html(r)}</li>" for r in expl.get("reading_order", [])),
-        "NOT_COVERED": "".join(f"<li>{esc(n)}</li>" for n in expl.get("not_covered", []))
+        "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in expl.get("not_covered", []))
                        or "<li>Nothing: every changed app was rendered.</li>",
     }
     page = (Path(__file__).resolve().parent.parent / "assets" / "template.html").read_text()
@@ -143,7 +152,14 @@ def main() -> int:
     args = ap.parse_args()
     facts = json.loads(Path(args.facts).read_text())
     expl = json.loads(Path(args.explainer).read_text())
-    errors = json.loads(Path(args.errors).read_text()) if args.errors and Path(args.errors).exists() else []
+    errors = []
+    if args.errors:
+        try:
+            errors = json.loads(Path(args.errors).read_text())
+            if not isinstance(errors, list):
+                raise ValueError("not a list")
+        except Exception:
+            errors = ["verify did not complete (errors file missing or invalid)"]
     page = render(facts, expl, errors)
     Path(args.out).write_text(STANDALONE_HEAD + page + STANDALONE_TAIL if args.standalone else page)
     print(f"render: wrote {args.out}")

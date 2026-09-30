@@ -11,7 +11,10 @@ import re
 import subprocess
 import sys
 
-MARKER_RE = re.compile(r"<!-- pr-explainer url=(\S+) sha=(\S+) -->")
+MARKER_RE = re.compile(r"^<!-- pr-explainer url=(\S+) sha=(\S+) -->")
+
+
+URL_PREFIX = "https://claude.ai/"
 
 
 def gh(*args: str, stdin: str | None = None) -> str:
@@ -34,13 +37,21 @@ def main() -> int:
     ap.add_argument("--url")
     ap.add_argument("--sha")
     args = ap.parse_args()
-    existing = next((c for c in comments(args.repo, args.pr) if MARKER_RE.search(c.get("body") or "")), None)
+    if not args.get_url:
+        if not (args.url and args.sha):
+            sys.exit("post_comment: --url and --sha are required to post")
+        if not args.url.startswith(URL_PREFIX):
+            sys.exit(f"post_comment: refusing --url that does not start with {URL_PREFIX}")
+    login = gh("api", "user", "--jq", ".login").strip()
+    existing = next((c for c in comments(args.repo, args.pr)
+                     if (c.get("user") or {}).get("login") == login
+                     and MARKER_RE.match(c.get("body") or "")), None)
     if args.get_url:
         if existing:
-            print(MARKER_RE.search(existing["body"]).group(1))
+            url = MARKER_RE.match(existing["body"]).group(1)
+            if url.startswith(URL_PREFIX):
+                print(url)
         return 0
-    if not (args.url and args.sha):
-        sys.exit("post_comment: --url and --sha are required to post")
     body = (f"<!-- pr-explainer url={args.url} sha={args.sha} -->\n"
             f"📖 Explainer for `{args.sha[:7]}`: {args.url} (private link)")
     payload = json.dumps({"body": body})

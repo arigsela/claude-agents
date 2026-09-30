@@ -64,15 +64,18 @@ def main() -> int:
     ap.add_argument("--explainer", required=True)
     ap.add_argument("--errors-out", required=True)
     args = ap.parse_args()
-    with open(args.facts) as fh:
-        facts = json.load(fh)
     try:
-        with open(args.explainer) as fh:
-            expl = json.load(fh)
-    except json.JSONDecodeError as err:
-        errors = [f"explainer.json is not valid JSON: {err}"]
-    else:
-        errors = verify(facts, expl)
+        with open(args.facts) as fh:
+            facts = json.load(fh)
+        try:
+            with open(args.explainer) as fh:
+                expl = json.load(fh)
+        except json.JSONDecodeError as err:
+            errors = [f"explainer.json is not valid JSON: {err}"]
+        else:
+            errors = verify(facts, expl)
+    except Exception as err:  # never crash silently
+        errors = [f"verify crashed: {type(err).__name__}: {err}"]
     with open(args.errors_out, "w") as fh:
         json.dump(errors, fh, indent=2)
     print("verify: OK" if not errors else "verify: FAILED\n" + "\n".join(f"- {e}" for e in errors))
