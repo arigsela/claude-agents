@@ -14,7 +14,7 @@ EXCERPT_CAP = 32_000
 BODY_CAP = 2_000
 IMAGE_BUMP_MAX_LINES = 4
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
-KIND_LINE_RE = re.compile(r"^[+-]\s*kind:\s*([A-Za-z0-9]+)\s*$")
+KIND_LINE_RE = re.compile(r"^[+-]kind:\s*([A-Za-z0-9]+)\s*$")
 DOC_KIND_RE = re.compile(r"^kind:\s*([A-Za-z0-9]+)")
 IMAGE_LINE_RE = re.compile(r"^[+-]\s*(?:-\s*)?(?:image|tag):\s*\S+\s*$")
 K3S_RE = re.compile(r"v\d+\.\d+\.\d+\+k3s\d+")
@@ -169,8 +169,7 @@ def extract_features(pr: dict, files: list[dict], policy: Policy, fetch: Fetch) 
             if status == "modified" and lines and all(IMAGE_LINE_RE.match(line) for line in lines):
                 image_files.append(path)
                 image_lines += len(lines)
-            if (status == "modified" and path.endswith((".yaml", ".yml"))
-                    and not any(KIND_LINE_RE.match(line) for line in lines)):
+            if status in ("modified", "renamed") and path.endswith((".yaml", ".yml")):
                 head_text = fetch(path, head_sha)
                 if head_text:
                     kinds |= _kinds_in_hunks(head_text, patch)
