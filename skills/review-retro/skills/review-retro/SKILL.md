@@ -64,6 +64,13 @@ listed, otherwise `$(mktemp -d)`.
    - `agents[].final_text` is the subagent's handback report when present.
    - Coverage marks ranged, errored or truncated Reads as `partial`.
    - `findings` are parsed only from the `## Code review` section, with full text.
+   - `reviews[].output_ref` is null when the review output was not found: say so, and do not
+     treat the review as having flagged nothing. `output_source` is `terminal` or `pr-comment`.
+   - `session_continues_after_review` and `other_reviews_in_session` mark a session total that
+     covers more than this review: when either is set, report the cost-state total as an upper
+     bound and say why.
+   - Truncation flags (`agents[].final_text_truncated`, follow-up `files[].patch_truncated`): when
+     set, open the cited ref or the full patch before concluding a miss.
    - The review's own posted comment (body starting `## Code review`) is excluded from
      `human_comments`.
 
@@ -110,7 +117,10 @@ listed, otherwise `$(mktemp -d)`.
 7. **Report.** Write it to `~/.claude/review-retros/<owner>-<repo>/<YYYY-MM-DD>-pr<N>.md` using the
    template below. Print the Verdict and the Proposals in chat and ask which proposals to apply.
    Apply only the approved ones: on a branch, with a PR in the target repo. Use the
-   `git-commit-pr` skill if it is available.
+   `git-commit-pr` skill if it is available. Apply in a fresh worktree from origin/main of the
+   target repo. The PR contains only the approved diff and a short rationale: no transcript
+   excerpts, local paths, memory contents or report text. Check the PR body against the
+   secret-value regex `(?i)((?:password|passwd|token|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)(\S{8,})` before creating it.
 
 ## Sweep (`--since <Nd>`, N ≤ 30)
 
@@ -126,7 +136,7 @@ listed, otherwise `$(mktemp -d)`.
 2. Find sessions for all of them in one call:
 
    ```
-   find_sessions.py --repo <R> --pr a --pr b ...
+   uv run --script <base>/scripts/find_sessions.py --repo <R> --pr a --pr b ...
    ```
 
 3. For reviewed PRs:

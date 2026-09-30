@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,9 @@ TRUNC_RE = re.compile(r"(?i)(output too large|truncated|tool-results/)")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
 REVIEW_HEADER = "## Code review"
 PATCH_CAP = 8000
+FINAL_CAP = 12000
+CMD_RE = re.compile(r"<command-name>/(?:code-review|code-review:code-review)</command-name>")
+SKILL_NAMES = {"code-review", "code-review:code-review"}
 MARKERS = ("<!-- pr-triage -->", "<!-- pr-explainer")
 
 
@@ -53,6 +57,31 @@ def blocks(rec: dict) -> list[dict]:
     if isinstance(content, str):
         return [{"type": "text", "text": content}]
     return [b for b in content or [] if isinstance(b, dict)]
+
+
+def is_human_prompt(rec: dict) -> bool:
+    if rec.get("type") != "user" or rec.get("isMeta"):
+        return False
+    if (rec.get("origin") or {}).get("kind") == "task-notification":
+        return False
+    return not any(b.get("type") == "tool_result" for b in blocks(rec))
+
+
+def pr_comment_body(cmd: str) -> str | None:
+    """Best-effort body text of a `gh pr comment ... --body/-b <text>` command."""
+    if "gh pr comment" not in cmd:
+        return None
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        toks = []
+    for i, t in enumerate(toks):
+        if t in ("--body", "-b") and i + 1 < len(toks):
+            return toks[i + 1]
+        if t.startswith("--body="):
+            return t[len("--body="):]
+    i = cmd.find(REVIEW_HEADER)  # heredoc / unparsable: take the text from the header on
+    return cmd[i:] if i >= 0 else None
 
 
 def result_text(block: dict) -> str:
@@ -118,9 +147,10 @@ def summarize(path: Path, recs, changed: list[str], start: int = 1, end: int | N
         tokens["output"] += u.get("output_tokens", 0)
         tokens["cache_read"] += u.get("cache_read_input_tokens", 0)
         tokens["cache_write"] += u.get("cache_creation_input_tokens", 0)
+    final = (handback or (texts[-1] if texts else (0, "")))[1]
     summary = {"tool_calls": len(tool_uses), "files_seen": sorted(seen), "files_partial": sorted(partial - seen),
                "tokens_approx": tokens, "started": started, "ended": ended,
-               "final_text": (handback or (texts[-1] if texts else (0, "")))[1][:4000],
+               "final_text": final[:FINAL_CAP], "final_text_truncated": len(final) > FINAL_CAP,
                "final_text_ref": (f"{path}:{(handback or texts[-1])[0]}" if (handback or texts) else None)}
     return summary, set(tool_uses), results
 
@@ -163,13 +193,43 @@ def parse_findings(text: str, ref: str) -> list[dict]:
 
 def review(session: Path, start: int, changed: list[str]) -> dict:
     recs = load(session)
-    end_ln, output = recs[-1][0] if recs else start, None
+    last_ln = recs[-1][0] if recs else start
+    end_ln, output, source = last_ln, None, None
     for ln, rec in recs:
-        if ln > start and rec.get("type") == "assistant":
+        if ln <= start:
+            continue
+        if is_human_prompt(rec):
+            end_ln = ln - 1  # window ends at the next human prompt
+            break
+        if rec.get("type") == "assistant":
             hit = next((b["text"] for b in blocks(rec) if b.get("type") == "text" and REVIEW_HEADER in b.get("text", "")), None)
             if hit:
-                end_ln, output = ln, hit
+                end_ln, output, source = ln, hit, "terminal"
                 break
+    if output is None:  # fall back to a `gh pr comment` inside the window
+        for ln, rec in recs:
+            if ln <= start or ln > end_ln:
+                continue
+            if rec.get("type") == "assistant":
+                for b in blocks(rec):
+                    if b.get("type") == "tool_use" and b.get("name") == "Bash":
+                        body = pr_comment_body(str((b.get("input") or {}).get("command", "")))
+                        if body and REVIEW_HEADER in body:
+                            end_ln, output, source = ln, body, "pr-comment"
+                            break
+            if output:
+                break
+    continues = any(ln > end_ln and rec.get("type") == "assistant" and (rec.get("message") or {}).get("usage")
+                    for ln, rec in recs)
+    others = 0
+    for ln, rec in recs:
+        if start <= ln <= end_ln:
+            continue
+        if rec.get("type") == "user" and CMD_RE.search("\n".join(b.get("text", "") for b in blocks(rec))):
+            others += 1
+        elif rec.get("type") == "assistant":
+            others += sum(1 for b in blocks(rec) if b.get("type") == "tool_use" and b.get("name") == "Skill"
+                          and str((b.get("input") or {}).get("skill", "")) in SKILL_NAMES)
     main_sum, main_tools, results = summarize(session, recs, changed, start, end_ln)
     agents = []
     sub_dir = session.with_suffix("") / "subagents"
@@ -182,7 +242,7 @@ def review(session: Path, start: int, changed: list[str]) -> dict:
         results += r
         agents.append({"id": af.stem, "type": meta.get("agentType"), "description": meta.get("description"),
                        **{k: s[k] for k in ("tool_calls", "files_seen", "files_partial", "tokens_approx",
-                                            "final_text", "final_text_ref")}})
+                                            "final_text", "final_text_truncated", "final_text_ref")}})
     seen = set(main_sum["files_seen"]).union(*[a["files_seen"] for a in agents])
     partial = set(main_sum["files_partial"]).union(*[a["files_partial"] for a in agents]) - seen
     cost = next((r for _, r in reversed(recs) if r.get("type") == "cost-state"), None)
@@ -190,6 +250,9 @@ def review(session: Path, start: int, changed: list[str]) -> dict:
         "session": str(session),
         "window": {"start_line": start, "end_line": end_ln, "started": main_sum["started"], "ended": main_sum["ended"]},
         "output_ref": f"{session}:{end_ln}" if output else None,
+        "output_source": source,
+        "session_continues_after_review": continues,
+        "other_reviews_in_session": others,
         "findings": parse_findings(output, f"{session}:{end_ln}") if output else [],
         "coverage": {p: "seen" if p in seen else "partial" if p in partial else "unseen" for p in changed},
         "main": {"tool_calls": main_sum["tool_calls"], "tokens_approx": main_sum["tokens_approx"]},
@@ -223,7 +286,8 @@ def main() -> int:
         qfiles = gh_pages(f"repos/{args.repo}/pulls/{q['number']}/files?per_page=100")
         case["followups"].append({"number": q["number"], "title": q["title"], "merged_at": q["mergedAt"],
                                   "shared_components": sorted(me["comps"] & q["comps"]),
-                                  "files": [{"path": f["filename"], "patch": (f.get("patch") or "")[:PATCH_CAP]}
+                                  "files": [{"path": f["filename"], "patch": (f.get("patch") or "")[:PATCH_CAP],
+                                             "patch_truncated": len(f.get("patch") or "") > PATCH_CAP}
                                             for f in qfiles]})
     ends = [r["window"]["ended"] for r in case["reviews"] if r["window"]["ended"]]
     review_end = max(parse_ts(e) for e in ends) if ends else None

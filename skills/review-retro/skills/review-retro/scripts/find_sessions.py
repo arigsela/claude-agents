@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 
 PROJECTS = Path.home() / ".claude" / "projects"
-CMD_RE = re.compile(r"<command-name>/(?:[\w-]+:)?code-review</command-name>")
+CMD_RE = re.compile(r"<command-name>/(?:code-review|code-review:code-review)</command-name>")
+SKILL_NAMES = {"code-review", "code-review:code-review"}
 ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 NUM_RE = re.compile(r"(?<!--threshold )(?<![\d.])(\d{1,6})(?![\d.])")
 GH_PR_RE = re.compile(r"gh pr (?:diff|view)\s+(\d+)")
@@ -51,6 +52,17 @@ def repo_matches(repo: str | None, cwd: str | None, context: str) -> bool:
     return bool(cwd) and not Path(cwd).exists() and Path(cwd).name == repo.split("/")[-1]
 
 
+def is_human_prompt(rec: dict) -> bool:
+    """A real human turn: user record, not a tool_result, not isMeta, not a task-notification."""
+    if rec.get("type") != "user" or rec.get("isMeta"):
+        return False
+    if (rec.get("origin") or {}).get("kind") == "task-notification":
+        return False
+    content = (rec.get("message") or {}).get("content")
+    return not (isinstance(content, list)
+                and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content))
+
+
 def text_of(content) -> str:
     if isinstance(content, str):
         return content
@@ -62,7 +74,8 @@ def scan(path: Path, prs: set[int], repo: str | None) -> list[dict]:
     armed = False  # gh fallback: only after a code-review invocation that named no PR number
     with path.open(errors="replace") as fh:
         for lineno, line in enumerate(fh, start=1):
-            if meta["first_prompt"] is not None and "code-review" not in line and "gh pr" not in line:
+            if (meta["first_prompt"] is not None and "code-review" not in line and "gh pr" not in line
+                    and '"type":"user"' not in line and '"type": "user"' not in line):
                 continue
             try:
                 rec = json.loads(line)
@@ -76,6 +89,8 @@ def scan(path: Path, prs: set[int], repo: str | None) -> list[dict]:
                 text = text_of(msg.get("content"))
                 if meta["first_prompt"] is None and text.strip() and "tool_result" not in line:
                     meta["first_prompt"] = text.strip()[:200]
+                if not CMD_RE.search(text) and is_human_prompt(rec):
+                    armed = False  # the next human prompt disarms the gh fallback
                 if CMD_RE.search(text):
                     args = (ARGS_RE.search(text) or [None, ""])[1]
                     nums = NUM_RE.findall(args)
@@ -86,7 +101,7 @@ def scan(path: Path, prs: set[int], repo: str | None) -> list[dict]:
                     if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
                     inp = b.get("input") or {}
-                    if b.get("name") == "Skill" and str(inp.get("skill", "")).split(":")[-1] == "code-review":
+                    if b.get("name") == "Skill" and str(inp.get("skill", "")) in SKILL_NAMES:
                         args = str(inp.get("args", ""))
                         nums = NUM_RE.findall(args)
                         armed = not nums
