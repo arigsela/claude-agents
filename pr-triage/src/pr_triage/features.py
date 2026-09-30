@@ -8,7 +8,7 @@ from typing import Callable
 import yaml
 
 from .policy import Policy, component_of
-from .redact import redact_patch
+from .redact import redact_patch, redact_text
 
 EXCERPT_CAP = 32_000
 BODY_CAP = 2_000
@@ -17,10 +17,28 @@ HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
 KIND_LINE_RE = re.compile(r"^[+-]kind:\s*([A-Za-z0-9]+)\s*$")
 DOC_KIND_RE = re.compile(r"^kind:\s*([A-Za-z0-9]+)")
 IMAGE_LINE_RE = re.compile(r"^[+-]\s*(?:-\s*)?(?:image|tag):\s*\S+\s*$")
+IMAGE_VALUE_RE = re.compile(r"^([+-])\s*(?:-\s*)?image:\s*(\S+)\s*$")
 K3S_RE = re.compile(r"v\d+\.\d+\.\d+\+k3s\d+")
 APP_FILE_RE = re.compile(r"^base-apps/[^/]+\.ya?ml$")
 SOURCE_FIELDS = ("repoURL", "chart", "targetRevision", "path", "helm", "directory")
 SPEC_FIELDS = ("destination", "syncPolicy", "ignoreDifferences")
+
+def _image_repo(ref: str) -> str:
+    ref = ref.strip("\"'")
+    if "@" in ref:
+        ref = ref.split("@", 1)[0]
+    head, sep, tail = ref.rpartition(":")
+    return head if sep and "/" not in tail else ref
+
+
+def same_image_repos(lines: list[str]) -> bool:
+    """Removed and added `image:` lines must name the same repositories (tag/digest change only)."""
+    removed, added = [], []
+    for line in lines:
+        if m := IMAGE_VALUE_RE.match(line):
+            (removed if m.group(1) == "-" else added).append(_image_repo(m.group(2)))
+    return sorted(removed) == sorted(added)
+
 
 Fetch = Callable[[str, str], "str | None"]  # (path, ref) -> file text, or None if absent
 
@@ -45,14 +63,15 @@ class Features:
     def jev_state(self) -> dict:
         """The only PR data sent to Jev/Claude: named buckets, no raw counts (Jev is weak at math)."""
         return {
-            "title": self.title,
-            "body": self.body,
+            "title": redact_text(self.title),
+            "body": redact_text(self.body),
             "size": self.size_bucket,
             "components": self.components,
             "hot_components_touched": self.hot_components_touched,
             "kinds_changed": self.kinds_changed,
             "application_changes": self.application_changes,
             "signals": self.signals,
+            "patchless_files": self.patchless_files,
             "diff_excerpt": self.diff_excerpt,
         }
 
@@ -161,12 +180,18 @@ def extract_features(pr: dict, files: list[dict], policy: Policy, fetch: Fetch) 
         prev = f.get("previous_filename")
         if patch is None:
             patchless.append(path)
+            if path.endswith((".yaml", ".yml")):
+                # No diff available: take every top-level kind from the head (base, if removed) version.
+                text = fetch(prev or path, base_sha) if status == "removed" else fetch(path, head_sha)
+                if text:
+                    kinds |= {m.group(1) for line in text.splitlines() if (m := DOC_KIND_RE.match(line))}
         else:
             lines = changed_lines(patch)
             kinds |= {m.group(1) for line in lines if (m := KIND_LINE_RE.match(line))}
             if any(K3S_RE.search(line) for line in lines):
                 signals.add("k3s_version_change")
-            if status == "modified" and lines and all(IMAGE_LINE_RE.match(line) for line in lines):
+            if status == "modified" and lines and all(IMAGE_LINE_RE.match(line) for line in lines) \
+                    and same_image_repos(lines):
                 image_files.append(path)
                 image_lines += len(lines)
             if status in ("modified", "renamed") and path.endswith((".yaml", ".yml")):

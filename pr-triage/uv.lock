@@ -247,7 +247,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=1.9.0" },
-    { name = "pathspec", specifier = ">=1.1.1" },
+    { name = "pathspec", specifier = ">=0.12,<2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 

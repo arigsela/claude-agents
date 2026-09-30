@@ -14,14 +14,20 @@ def _safe(text: str) -> str:
     return text.replace("@", "@​")  # model/PR text must not @-mention anyone
 
 
+def _line(text: str, cap: int = 300) -> str:
+    """Model-written text: one line, bounded, so it cannot inject markdown structure."""
+    text = " ".join(text.split())
+    return text if len(text) <= cap else text[: cap - 1] + "…"
+
+
 def render_comment(pr_number: int, features: Features, decision: Decision,
                    note: list[str], versions: dict[str, str]) -> str:
     lines = [MARKER, f"### {EMOJI[decision.label]} {LABELS[decision.label][0]}",
-             f"**Why:** {_safe('; '.join(decision.reasons))}"]
+             f"**Why:** {_safe('; '.join(_line(r) for r in decision.reasons))}"]
     if decision.degraded_reason:
         lines.append(f"> triage degraded: {_safe(decision.degraded_reason)}")
     if note:
-        lines += ["**What to look at:**", *[f"- {_safe(b)}" for b in note]]
+        lines += ["**What to look at:**", *[f"- {_safe(_line(b))}" for b in note]]
     if decision.label in ("skim", "read"):
         lines.append(f"**Next:** `/pr-explainer {pr_number}` · `/code-review {pr_number}`")
     signals = [f"decided_by: {decision.decided_by}",

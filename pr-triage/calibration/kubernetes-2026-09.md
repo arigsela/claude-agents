@@ -86,3 +86,24 @@ hot_components:
   tests/eval-corpus: 1.0
   tests/node-config: 1.0
 ```
+
+## Applied (Ruling 8)
+
+Deployed thresholds: `read_if_p_read_gte: 0.30`, `read_if_any_flag_gte: 0.70`, `skip_if_p_skip_gte: 0.90`, `escalate_if_confidence_lt: 0.50`.
+The sweep's suggested 0.20/0.80 was not applied: it buys 1 percentage point of skip share for one follow-up in skip.
+Deployed hot components: the 26 entries from the suggested patch above (the "Hot components (train half)" line lists only the 4 evaluated here).
+
+Follow-up rate by assigned label (evaluated half, 100 PRs):
+
+| label | PRs | follow-ups | rate |
+|---|---|---|---|
+| skip | 8 | 0 | 0/8 |
+| skim | 22 | 11 | 11/22 |
+| read | 70 | 32 | 32/70 |
+
+Caveats:
+- 0 follow-ups in skip over 43 follow-ups gives a 95% upper bound of about 7% (rule of three: 3/43), so the ≤5% target is not statistically established.
+- Recent PRs are right-censored: they have had less than 72 h to accrue a follow-up, which understates follow-up rates for the newest PRs.
+- The deployed hot components (26) differ from the 4 evaluated in the train half, so the evaluated labels are not exactly what production will produce.
+- Skip share of 8% misses the spec §10 target of ≥ 20%. Keeping the conservative thresholds is an explicit owner decision.
+- Re-calibrate after about 4 weeks of live operation.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import asdict
 
@@ -14,6 +15,23 @@ from .features import extract_features
 from .pipeline import make_fetch, policy_text, triage_pr
 from .policy import load_policy
 from .rules import apply_rules
+
+
+def _action_ref() -> str:
+    ref = os.environ.get("PR_TRIAGE_REF")
+    if ref is None:
+        return "local"
+    if ref:
+        return ref
+    path = os.environ.get("GITHUB_ACTION_PATH", "")
+    for up in (1, 2):  # composite action in a subdir: <checkout>/<sha>/pr-triage
+        d = path.rstrip("/")
+        for _ in range(up):
+            d = os.path.dirname(d)
+        cand = os.path.basename(d)
+        if re.fullmatch(r"[0-9a-f]{7,40}", cand):
+            return cand[:12]
+    return "unknown"
 
 
 def cmd_features(args) -> int:
@@ -42,7 +60,7 @@ def cmd_run(args) -> int:
                                decision.label, decision.reasons)
         except ClaudeError as err:
             print(f"pr-triage: note skipped: {err}", file=sys.stderr)
-    versions = {"action": os.environ.get("PR_TRIAGE_REF", "local"), "jev": args.jev_model,
+    versions = {"action": _action_ref(), "jev": args.jev_model,
                 "claude": args.claude_model,
                 "policy": "local file" if args.policy_file else policy_ref[:7]}
     body = render_comment(args.pr, features, decision, note, versions)

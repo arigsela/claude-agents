@@ -24,11 +24,14 @@ def apply_rules(features: Features, files: list[dict], policy: Policy) -> RuleRe
     if reasons:
         return RuleResult("read", reasons)
 
-    def skippable(path: str) -> bool:
-        return bool(policy.always_skip_paths.match_file(path)
-                    or (policy.image_tag_bump_only and path in features.image_bump_files))
+    def skippable(f: dict) -> bool:
+        # Both the new and the pre-rename path must qualify (a rename out of a code dir is not docs-only).
+        paths = [p for p in (f["filename"], f.get("previous_filename")) if p]
+        return all(policy.always_skip_paths.match_file(p)
+                   or (policy.image_tag_bump_only and p == f["filename"] and p in features.image_bump_files)
+                   for p in paths)
 
-    if files and all(skippable(f["filename"]) for f in files):
+    if files and all(skippable(f) for f in files):
         kinds = []
         if any(policy.always_skip_paths.match_file(f["filename"]) for f in files):
             kinds.append("docs/markdown")
