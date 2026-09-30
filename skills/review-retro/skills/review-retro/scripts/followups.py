@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -44,8 +45,14 @@ def parse_ts(value: str) -> datetime:
 
 
 def merged_prs(repo: str, limit: int = 500) -> list[dict]:
-    out = subprocess.run(["gh", "pr", "list", "-R", repo, "--state", "merged", "--limit", str(limit),
-                          "--json", "number,title,mergedAt,files"], capture_output=True, text=True, check=True).stdout
+    try:
+        out = subprocess.run(["gh", "pr", "list", "-R", repo, "--state", "merged", "--limit", str(limit),
+                              "--json", "number,title,mergedAt,files"],
+                             capture_output=True, text=True, check=True).stdout
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"followups: gh failed: {(e.stderr or '').strip() or e}")
+    except FileNotFoundError as e:
+        sys.exit(f"followups: gh failed: {e}")
     prs = json.loads(out)
     for p in prs:
         p["merged"] = parse_ts(p["mergedAt"])
@@ -71,6 +78,13 @@ def main() -> int:
     group.add_argument("--pr", type=int)
     group.add_argument("--since", help="window like 14d (max 30d: transcript retention)")
     args = ap.parse_args()
+    if args.since is not None:
+        m = re.fullmatch(r"(\d+)d", args.since)
+        if not m or int(m.group(1)) < 1:
+            ap.error(f"--since must be <positive int>d (e.g. 14d), got {args.since!r}")
+        requested = int(m.group(1))
+        if requested > MAX_SINCE_DAYS:
+            print(f"followups: --since {requested}d capped to {MAX_SINCE_DAYS}d (transcript retention)", file=sys.stderr)
     prs = merged_prs(args.repo)
     if args.pr:
         me = next((p for p in prs if p["number"] == args.pr), None)
@@ -79,7 +93,7 @@ def main() -> int:
         print(json.dumps({"pr": me["number"], "merged_at": me["mergedAt"],
                           "followups": [brief(q, me) for q in followups_for(me, prs)]}, indent=2))
         return 0
-    days = min(int(args.since.rstrip("d")), MAX_SINCE_DAYS)
+    days = min(requested, MAX_SINCE_DAYS)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     print(json.dumps([{"pr": p["number"], "title": p["title"], "merged_at": p["mergedAt"],
                        "followups": [brief(q, p) for q in followups_for(p, prs)]}
