@@ -1,0 +1,56 @@
+<title>{{TITLE}}</title>
+<style>
+  :root { --bg:#ffffff; --fg:#0f172a; --muted:#475569; --card:#f8fafc; --border:#e2e8f0;
+          --accent:#2563eb; --high:#dc2626; --med:#b45309; --info:#2563eb; --banner:#fef2f2; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827;
+      --border:#1f2937; --accent:#60a5fa; --high:#f87171; --med:#fbbf24; --info:#60a5fa; --banner:#3f1d1d;
+      color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827;
+    --border:#1f2937; --accent:#60a5fa; --high:#f87171; --med:#fbbf24; --info:#60a5fa; --banner:#3f1d1d;
+    color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:24px 16px 48px; overflow-wrap:anywhere; }
+  h1 { font-size:1.35rem; margin:0 0 4px; text-wrap:balance; }
+  h2 { font-size:1.05rem; margin:28px 0 8px; }
+  .meta { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; }
+  th, td { border-bottom:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
+  a { color:var(--accent); }
+  a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .pill { border:1px solid var(--border); border-radius:999px; padding:1px 8px; }
+  .banner { background:var(--banner); border:1px solid var(--high); border-radius:10px; padding:10px 14px; margin:12px 0; }
+  ul.callouts { list-style:none; padding:0; }
+  ul.callouts li { padding:6px 0; border-bottom:1px solid var(--border); }
+  .sev { display:inline-block; min-width:64px; font-weight:600; text-transform:uppercase; font-size:.75rem; }
+  .sev-high .sev { color:var(--high); } .sev-med .sev { color:var(--med); } .sev-info .sev { color:var(--info); }
+  pre.mermaid { margin:0; background:transparent; }
+</style>
+<main>
+  <h1>{{PR_TITLE}}</h1>
+  <div class="meta">{{HEADER}}</div>
+  {{BANNER}}
+  <h2>TL;DR</h2>
+  <div class="card">{{TLDR}}</div>
+  <h2>Resource map</h2>
+  <div class="card scroll"><pre class="mermaid">{{MERMAID}}</pre></div>
+  <p class="meta">green added · amber modified · red removed · grey unchanged context</p>
+  <h2>Before → after</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>App</th><th>Before</th><th>After</th><th>Refs</th></tr></thead>
+    <tbody>{{BEHAVIOR}}</tbody>
+  </table></div>
+  <h2>Risk callouts</h2>
+  <ul class="callouts">{{CALLOUTS}}</ul>
+  <h2>You still need to read</h2>
+  <ol>{{MUST_READ}}</ol>
+  <h2>Suggested reading order</h2>
+  <ol>{{ORDER}}</ol>
+  <h2>Not covered by this page</h2>
+  <ul>{{NOT_COVERED}}</ul>
+</main>
