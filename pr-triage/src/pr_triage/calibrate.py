@@ -34,7 +34,7 @@ def hot_components(prs: list[MergedPR], followups: dict[int, list[int]]) -> dict
 
 def relabel(rec: dict, t: Thresholds) -> str:
     """Decision for a stored record under other thresholds (no API calls)."""
-    if rec["by"] in ("rules", "degraded") or rec["jev"] is None:
+    if rec["by"] == "rules" or rec["jev"] is None:
         return rec["label"]
     label, _ = classify(rec["jev"], t)
     if label == "escalate":
@@ -122,17 +122,23 @@ def render_report(args, prs, train, test, followups, policy, records) -> str:
                 f"- Follow-up PRs Claude-only would skip: {fu_skip}"]
     out += ["", "## Threshold sweep (offline, same Jev answers)", "",
             "| read_if_p_read_gte | skip_if_p_skip_gte | follow-ups in skip | skip share |", "|---|---|---|---|"]
-    best = (policy.thresholds, m)
-    for r_t in READ_GRID:
-        for s_t in SKIP_GRID:
-            t = replace(policy.thresholds, read_if_p_read_gte=r_t, skip_if_p_skip_gte=s_t)
-            mm = metrics(records, [relabel(r, t) for r in records])
-            out.append(f"| {r_t:.2f} | {s_t:.2f} | {mm['fu_skip']} ({pct(mm['fu_skip'], mm['followups'])}) | "
-                       f"{mm['skip_share']:.0%} |")
-            safe = mm["followups"] == 0 or mm["fu_skip"] / mm["followups"] <= 0.05
-            if safe and mm["skip_share"] > best[1]["skip_share"]:
-                best = (t, mm)
-    patch = {"thresholds": vars(best[0]), "hot_components": hot_components(prs, followups)}
-    out += ["", "## Suggested policy patch (all PRs for hot components; best safe thresholds)", "",
+    best, best_share = None, -1.0
+    candidates = [policy.thresholds] + [replace(policy.thresholds, read_if_p_read_gte=r_t, skip_if_p_skip_gte=s_t)
+                                        for r_t in READ_GRID for s_t in SKIP_GRID]
+    for t in candidates:
+        mm = metrics(records, [relabel(r, t) for r in records])
+        if t is not policy.thresholds:
+            out.append(f"| {t.read_if_p_read_gte:.2f} | {t.skip_if_p_skip_gte:.2f} | "
+                       f"{mm['fu_skip']} ({pct(mm['fu_skip'], mm['followups'])}) | {mm['skip_share']:.0%} |")
+        safe = mm["followups"] == 0 or mm["fu_skip"] / mm["followups"] <= 0.05
+        if safe and mm["skip_share"] > best_share:
+            best, best_share = t, mm["skip_share"]
+    out += ["", "Escalations without a stored Claude answer count as read (conservative).", ""]
+    if best is None:
+        best = policy.thresholds
+        out += ["> WARNING: no threshold combination met the ≤ 5% follow-up-skip target; "
+                "tighten always_read instead of relying on these thresholds.", ""]
+    patch = {"thresholds": vars(best), "hot_components": hot_components(prs, followups)}
+    out += ["## Suggested policy patch (all PRs for hot components; best safe thresholds)", "",
             "```yaml", yaml.safe_dump(patch, sort_keys=False).rstrip(), "```", ""]
     return "\n".join(out)
