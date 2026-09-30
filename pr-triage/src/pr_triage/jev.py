@@ -1,6 +1,7 @@
 """Jev (TypeSafe) System One client over plain HTTPS. Spec §5.4, assumption A2 (HTTP, not SDK)."""
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -59,9 +60,10 @@ def parse_response(data: dict) -> JevAnswers:
         probs = {k: float(att["probabilities"][k]) for k in ATTENTION}
         conf = float(att["confidence"])
         flags = {k: float(data["answers"][k]["noul"]) for k in FLAGS}
-    except (KeyError, TypeError, ValueError) as err:
+        tokens = int((data.get("usage") or {}).get("input_tokens", 0))
+    except (KeyError, TypeError, ValueError, AttributeError) as err:
         raise JevError(f"unexpected Jev response shape: {err!r}") from err
-    return JevAnswers(probs, conf, flags, int((data.get("usage") or {}).get("input_tokens", 0)))
+    return JevAnswers(probs, conf, flags, tokens)
 
 
 def ask_jev(state: dict, *, model: str, api_key: str | None = None,
@@ -82,6 +84,10 @@ def ask_jev(state: dict, *, model: str, api_key: str | None = None,
             if err.code < 500 and err.code != 429:
                 break  # auth/validation errors will not fix themselves
         except (urllib.error.URLError, TimeoutError) as err:
+            last = repr(err)
+        except JevError:
+            raise
+        except (ValueError, OSError, http.client.HTTPException) as err:
             last = repr(err)
         if attempt < retries:
             time.sleep(1.0)

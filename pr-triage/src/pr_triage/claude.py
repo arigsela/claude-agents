@@ -73,7 +73,13 @@ def _structured(client: anthropic.Anthropic, model: str, prompt: str, schema: di
     text = next((b.text for b in resp.content if b.type == "text"), None)
     if text is None:
         raise ClaudeError("response had no text block")
-    return json.loads(text)
+    try:
+        out = json.loads(text)
+    except json.JSONDecodeError as err:
+        raise ClaudeError(f"response was not valid JSON: {err}") from err
+    if not isinstance(out, dict):
+        raise ClaudeError("response JSON was not an object")
+    return out
 
 
 def claude_decide(client: anthropic.Anthropic, model: str, state: dict, jev: dict | None) -> tuple[str, str]:
@@ -83,6 +89,8 @@ def claude_decide(client: anthropic.Anthropic, model: str, state: dict, jev: dic
     if jev:
         prompt += f"<classifier_scores>{json.dumps(jev)}</classifier_scores>\n"
     out = _structured(client, model, prompt, DECISION_SCHEMA)
+    if out.get("decision") not in ("skip", "skim", "read") or not isinstance(out.get("reason"), str):
+        raise ClaudeError(f"malformed decision response: {out!r}")
     return out["decision"], out["reason"]
 
 
@@ -93,4 +101,6 @@ def claude_note(client: anthropic.Anthropic, model: str, state: dict, decision: 
               "(file and the specific setting), most important first. No preamble.\n\n"
               f"<pr>{json.dumps(state)}</pr>")
     out = _structured(client, model, prompt, NOTE_SCHEMA)
-    return [b.strip() for b in out["bullets"] if b.strip()][:4]
+    if not isinstance(out.get("bullets"), list):
+        raise ClaudeError(f"malformed note response: {out!r}")
+    return [b.strip() for b in out["bullets"] if isinstance(b, str) and b.strip()][:4]
