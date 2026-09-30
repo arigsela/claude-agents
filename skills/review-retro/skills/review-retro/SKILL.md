@@ -131,9 +131,15 @@ listed, otherwise `$(mktemp -d)`.
 
 3. For reviewed PRs:
    - **One PR:** do the single-PR steps 3–5 yourself.
-   - **Several:** dispatch one general-purpose subagent per PR, in parallel. Give each this file's
-     single-PR steps 3–5 and its session hits, and have it return its report section. Aggregate
-     the sections yourself.
+   - **Several:** dispatch one general-purpose subagent per PR, in parallel. Each dispatch prompt
+     must include, verbatim:
+     - (a) the four Ground rules above;
+     - (b) single-PR steps 3–5 with the concrete script paths (`uv run --script <base>/scripts/...`);
+     - (c) that PR's session hits (path + line from the `find_sessions.py` output);
+     - (d) the Misses, Coverage, Findings and Cost & process sections of the report template.
+
+     Each subagent returns only its report section. Aggregate the sections yourself. Re-check that
+     every returned finding has a citation, and drop any that do not.
 4. Reviewed PRs with no follow-ups and no human comments become "clean" rows, with cost only.
 5. Build an aggregate cause table and deduplicated proposals (at most 5), and write
    `<YYYY-MM-DD>-sweep.md`.
