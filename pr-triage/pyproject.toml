@@ -1,0 +1,17 @@
+[project]
+name = "pr-triage"
+version = "0.1.0"
+description = "Label homelab PRs review:skip|skim|read (rules + Jev + Claude)"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.9.0",
+    "pathspec>=0.12,<2",
+    "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pr_triage"]
