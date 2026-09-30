@@ -1,37 +1,19 @@
-"""CLI: python -m pr_triage features ..."""
+"""CLI: python -m pr_triage {features,run,calibrate}."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 
 from . import gh
+from .claude import ClaudeError, claude_note, make_client
+from .comment import apply_label, render_comment, upsert_comment
 from .features import extract_features
+from .pipeline import make_fetch, policy_text, triage_pr
 from .policy import load_policy
 from .rules import apply_rules
-
-POLICY_PATH = ".github/review-policy.yaml"
-
-
-def policy_text(repo: str, ref: str, policy_file: str | None) -> str:
-    if policy_file:
-        with open(policy_file) as fh:
-            return fh.read()
-    text = gh.get_file(repo, POLICY_PATH, ref)
-    if text is None:
-        sys.exit(f"pr-triage: {POLICY_PATH} not found at {ref} (pass --policy-file)")
-    return text
-
-
-def make_fetch(repo: str):
-    cache: dict[tuple[str, str], str | None] = {}
-
-    def fetch(path: str, ref: str) -> str | None:
-        if (path, ref) not in cache:
-            cache[(path, ref)] = gh.get_file(repo, path, ref)
-        return cache[(path, ref)]
-    return fetch
 
 
 def cmd_features(args) -> int:
@@ -46,16 +28,49 @@ def cmd_features(args) -> int:
     return 0
 
 
+def cmd_run(args) -> int:
+    pr = gh.get_pr(args.repo, args.pr)
+    policy_ref = args.policy_ref or pr["base"]["sha"]
+    policy = load_policy(policy_text(args.repo, policy_ref, args.policy_file))
+    files = gh.get_pr_files(args.repo, args.pr)
+    features, decision = triage_pr(args.repo, pr, files, policy,
+                                   jev_model=args.jev_model, claude_model=args.claude_model)
+    note: list[str] = []
+    if decision.label in ("skim", "read"):
+        try:
+            note = claude_note(make_client(), args.claude_model, features.jev_state(),
+                               decision.label, decision.reasons)
+        except ClaudeError as err:
+            print(f"pr-triage: note skipped: {err}", file=sys.stderr)
+    versions = {"action": os.environ.get("PR_TRIAGE_REF", "local"), "jev": args.jev_model,
+                "claude": args.claude_model,
+                "policy": "local file" if args.policy_file else policy_ref[:7]}
+    body = render_comment(args.pr, features, decision, note, versions)
+    if args.dry_run:
+        print(body)
+        return 0
+    upsert_comment(args.repo, args.pr, body)
+    apply_label(args.repo, args.pr, decision.label)
+    print(f"pr-triage: #{args.pr} -> review:{decision.label} ({decision.decided_by})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="pr_triage")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("features", help="print deterministic features + rule result for one PR")
-    p.add_argument("--repo", required=True)
-    p.add_argument("--pr", type=int, required=True)
-    p.add_argument("--policy-ref")
-    p.add_argument("--policy-file")
+    for name in ("features", "run"):
+        p = sub.add_parser(name)
+        p.add_argument("--repo", required=True)
+        p.add_argument("--pr", type=int, required=True)
+        p.add_argument("--policy-ref", help="commit to read the policy from (default: PR base SHA)")
+        p.add_argument("--policy-file", help="local policy file (before it is merged)")
+        p.add_argument("--jev-model", default="jev-1.13.0")
+        p.add_argument("--claude-model", default="claude-haiku-4-5")
+        p.add_argument("--dry-run", action="store_true", help="print the comment; write nothing")
     args = ap.parse_args(argv)
-    return cmd_features(args)
+    if args.cmd == "features":
+        return cmd_features(args)
+    return cmd_run(args)
 
 
 if __name__ == "__main__":
