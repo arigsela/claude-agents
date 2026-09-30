@@ -32,6 +32,7 @@ Each skill is a standalone Claude Code plugin. Add the marketplace, then install
 | [creating-implementation-plans](./creating-implementation-plans/) | 1.0.0 | development | Create detailed implementation plans with phased task breakdown |
 | [executing-implementation-plans](./executing-implementation-plans/) | 1.0.0 | development | Execute approved plans with phase-based checkpoints and testing |
 | [pr-explainer](./pr-explainer/) | 0.1.0 | development | Grounded HTML explainer (resource map, risks, must-read hunks) for GitOps PRs |
+| [review-retro](./review-retro/) | 0.1.0 | development | Retro of a /code-review session against later fixes: misses, causes, cost, proposals |
 
 ## Legacy CLI
 
