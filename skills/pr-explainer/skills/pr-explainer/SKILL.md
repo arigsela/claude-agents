@@ -42,6 +42,11 @@ The scripts live in `scripts/` next to this file (this skill's base directory, `
 Use a work directory `<W>`: this session's scratchpad if the system prompt lists one, otherwise
 `$(mktemp -d)`.
 
+Placeholders: `<R>` is the `--repo` argument if given, otherwise `pr.repo` from `<W>/facts.json`.
+`<N>` is the PR number. `<head_sha>` is `pr.head_sha` from `facts.json`. `<artifact-url>` is the
+URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 always pass
+`--repo <R>` to `post_comment.py`.
+
 1. **Collect**
 
    ```
@@ -75,7 +80,7 @@ Use a work directory `<W>`: this session's scratchpad if the system prompt lists
    | `callouts` | `high` for every `policy_hits` entry. `medium` for resources with a `risk`. `info` for anything else worth knowing. Always add `refs`. |
    | `must_read` | Every `policy_hits[].ref` (required; `verify.py` enforces it), plus non-manifest files that change behaviour, such as scripts. `why` says exactly what to check. |
    | `reading_order` | IDs in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. If you deviate, explain why in an `info` callout. |
-   | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. |
+   | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. The `policy` note when no review policy was found. |
 
 3. **Verify**
 
@@ -109,7 +114,9 @@ Use a work directory `<W>`: this session's scratchpad if the system prompt lists
       authenticated user's own marker comment.
 
    3. If it prints a URL, call Artifact `read` on it, then Artifact publish with that `url` and
-      `file_path=<W>/pr-<N>.html`, so the same link updates.
+      `file_path=<W>/pr-<N>.html`, so the same link updates. If the `read` fails, or the publish
+      with that `url` fails (deleted artifact, no access), publish as a new Artifact (step 5.4)
+      instead of stopping.
    4. Otherwise, call Artifact publish with `file_path=<W>/pr-<N>.html`, `icon: "diagram"` and
       `description: "Explainer for <R>#<N>"`.
    5. If the Artifact tool is unavailable, re-run step 4 with `--standalone` (adds a doctype and
@@ -121,6 +128,8 @@ Use a work directory `<W>`: this session's scratchpad if the system prompt lists
    ```
    uv run --script <base>/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha>
    ```
+
+   Use the URL returned by the final publish (new or updated), never the old one if they differ.
 
 7. **Report.** Send one short message: the link, the triage label (if any), the number of
    changed resources and must-read items, and everything in `not_covered`.

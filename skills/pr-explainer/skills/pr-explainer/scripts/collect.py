@@ -358,7 +358,7 @@ def matched_glob(path: str, globs: list[str]) -> str | None:
     return None
 
 
-def read_policy(trees: Trees) -> dict:
+def read_policy(trees: Trees) -> dict | None:
     """Policy from the local checkout (spec §3), else the base worktree, else the head worktree."""
     roots = []
     try:
@@ -369,11 +369,13 @@ def read_policy(trees: Trees) -> dict:
         f = root / POLICY_PATH
         if f.exists():
             return yaml.safe_load(f.read_text()) or {}
-    return {}
+    return None
 
 
 def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees: Trees) -> dict:
     policy = read_policy(trees)
+    policy_found = policy is not None
+    policy = policy or {}
     read = policy.get("always_read") or {}
     read_kinds, read_globs = set(read.get("kinds") or []), read.get("paths") or []
     callouts = policy.get("risk_callouts") or {}
@@ -459,6 +461,8 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     edges_out = [{"from": ids[a], "to": ids[b2], "type": t} for a, b2, t in edges if a in ids and b2 in ids]
 
     tf, nm, notes = [], [], []
+    if not policy_found:
+        notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no always-read checks were applied."})
     tf_files = [f for f in files if f["filename"].startswith("terraform/")]
     plans = [c for c in comments if ATLANTIS_RE.search(c.get("body") or "")]
     if tf_files and plans:
