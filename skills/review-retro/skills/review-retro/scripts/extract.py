@@ -74,6 +74,8 @@ def summarize(path: Path, recs, changed: list[str], start: int = 1, end: int | N
     """Per-transcript activity inside [start, end]. Returns (summary, tool_use ids, tool results)."""
     tool_uses: dict[str, tuple[str, dict]] = {}
     seen, partial, usage, texts, results = set(), set(), {}, [], []
+    pending_reads: dict[str, tuple[str, bool]] = {}
+    handback = None
     started = ended = None
     for ln, rec in recs:
         if ln < start or (end is not None and ln > end):
@@ -88,8 +90,13 @@ def summarize(path: Path, recs, changed: list[str], start: int = 1, end: int | N
                 if b.get("type") == "tool_use":
                     tool_uses[b.get("id")] = (b.get("name"), b.get("input") or {})
                     if b.get("name") == "Read":
-                        fp = str((b.get("input") or {}).get("file_path", ""))
-                        seen.update(p for p in changed if fp == p or fp.endswith("/" + p))
+                        inp = b.get("input") or {}
+                        ranged = inp.get("offset") is not None or inp.get("limit") is not None
+                        pending_reads[b.get("id")] = (str(inp.get("file_path", "")), ranged)
+                    elif b.get("name") == "SubagentHandback":
+                        msg = (b.get("input") or {}).get("message")
+                        if isinstance(msg, str) and msg.strip():
+                            handback = (ln, msg)
                 elif b.get("type") == "text" and b.get("text", "").strip():
                     texts.append((ln, b["text"]))
         elif rec.get("type") == "user":
@@ -99,6 +106,10 @@ def summarize(path: Path, recs, changed: list[str], start: int = 1, end: int | N
                 name, _ = tool_uses.get(b.get("tool_use_id"), ("?", {}))
                 text = result_text(b)
                 results.append({"tool": name, "chars": len(text), "ref": f"{path}:{ln}"})
+                if b.get("tool_use_id") in pending_reads:
+                    fp, ranged = pending_reads.pop(b["tool_use_id"])
+                    rbucket = partial if (ranged or b.get("is_error") or TRUNC_RE.search(text)) else seen
+                    rbucket.update(p for p in changed if fp == p or fp.endswith("/" + p))
                 bucket = partial if TRUNC_RE.search(text) else seen
                 bucket.update(p for p in changed if f"diff --git a/{p} b/{p}" in text or (name == "Grep" and p in text))
     tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
@@ -109,21 +120,45 @@ def summarize(path: Path, recs, changed: list[str], start: int = 1, end: int | N
         tokens["cache_write"] += u.get("cache_creation_input_tokens", 0)
     summary = {"tool_calls": len(tool_uses), "files_seen": sorted(seen), "files_partial": sorted(partial - seen),
                "tokens_approx": tokens, "started": started, "ended": ended,
-               "final_text": texts[-1][1][:4000] if texts else "",
-               "final_text_ref": f"{path}:{texts[-1][0]}" if texts else None}
+               "final_text": (handback or (texts[-1] if texts else (0, "")))[1][:4000],
+               "final_text_ref": (f"{path}:{(handback or texts[-1])[0]}" if (handback or texts) else None)}
     return summary, set(tool_uses), results
 
 
 def parse_findings(text: str, ref: str) -> list[dict]:
-    items, current = [], None
-    for line in text.splitlines():
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if l.strip().startswith(REVIEW_HEADER)), None)
+    if start is None:
+        return []
+    section = []
+    for l in lines[start + 1:]:
+        if l.startswith("## "):
+            break
+        section.append(l)
+    items, current, pending_blank = [], None, False
+    for line in section:
         if m := ITEM_RE.match(line):
-            current = {"n": int(m.group(1)), "text": m.group(2).strip(), "links": [], "transcript_ref": ref}
+            current = {"n": int(m.group(1)), "parts": [m.group(2).strip()], "links": [], "transcript_ref": ref}
             items.append(current)
-        elif current and (link := LINK_RE.search(line)):
-            current["links"].append({"file": link.group(1),
-                                     "lines": [int(link.group(2)), int(link.group(3) or link.group(2))]})
-    return items
+            pending_blank = False
+            rest = m.group(2)
+        elif current is None:
+            continue
+        elif not line.strip():
+            pending_blank = True
+            continue
+        elif line.lstrip().startswith("#"):
+            current = None
+            continue
+        else:
+            rest = line
+            current["parts"].append(line.strip())
+        if current is not None:
+            for link in LINK_RE.finditer(rest):
+                current["links"].append({"file": link.group(1),
+                                         "lines": [int(link.group(2)), int(link.group(3) or link.group(2))]})
+    return [{"n": it["n"], "text": " ".join(it["parts"]).strip(), "links": it["links"],
+             "transcript_ref": it["transcript_ref"]} for it in items]
 
 
 def review(session: Path, start: int, changed: list[str]) -> dict:
@@ -198,7 +233,8 @@ def main() -> int:
     for kind, items, ts_key in sources:
         for c in items:
             body = c.get("body") or ""
-            if (c.get("user") or {}).get("type") == "Bot" or not body.strip() or any(m in body for m in MARKERS):
+            if ((c.get("user") or {}).get("type") == "Bot" or not body.strip() or any(m in body for m in MARKERS)
+                    or body.strip().startswith(REVIEW_HEADER)):
                 continue
             if review_end and c.get(ts_key) and parse_ts(c[ts_key]) <= review_end:
                 continue
