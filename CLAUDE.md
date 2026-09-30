@@ -14,6 +14,8 @@ This file provides guidance for Claude Code when working with this repository.
 | **k8s-monitor/** | Multi-Agent + Claude SDK | Long-context monitoring, trend detection, Slack alerts |
 | **oncall-agent-api/** | FastAPI + Anthropic API | HTTP API, Slack /oncall, GitOps PRs, incident memory |
 | **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
+| **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
+| **skills/pr-explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps PR explainer (Artifact); retro of /code-review sessions |
 
 ## Quick Commands
 
@@ -28,6 +30,11 @@ cd k8s-monitor && ./start.sh          # Continuous monitoring
 # OnCall Agent API
 cd oncall-agent-api && source venv/bin/activate && uvicorn src.api.api_server:app --reload --port 8000
 curl http://localhost:8000/docs       # Interactive docs
+
+# PR Triage (needs TYPESAFE_API_KEY and ANTHROPIC_API_KEY)
+uv run --project pr-triage python -m pr_triage features --repo arigsela/kubernetes --pr 650
+uv run --project pr-triage python -m pr_triage run --repo arigsela/kubernetes --pr 650 --dry-run
+uv run --project pr-triage python -m pr_triage calibrate --repo arigsela/kubernetes --limit 200 --out pr-triage/calibration/<name>.md
 
 # Tests
 pytest tests/ -v                      # Run tests
@@ -54,6 +61,12 @@ pytest tests/ -v                      # Run tests
 4. **MCP Server Development** (youtube-mcp)
    - Custom MCP server implementations
 
+5. **Risk-Based PR Triage** (pr-triage, pr-explainer, review-retro)
+   - Deterministic policy rules first, then Jev for a calibrated decision, then Claude only when Jev is unsure
+   - The policy is read at the PR's base commit; every failure falls back to `review:read`
+   - Skills produce grounded facts with scripts; the model only writes text that is verified before use
+   - The workflow in arigsela/kubernetes pins the action by commit SHA, so bump it after changing `pr-triage/`
+
 ## Code Quality
 
 ```bash
@@ -68,3 +81,5 @@ pytest tests/ -v          # Test
 - `*/.claude/agents/*.md` - Subagent definitions
 - `*/src/` - Source code
 - `*/tests/` - Test suites
+- `pr-triage/calibration/*.md` - Triage calibration reports (re-run after changing thresholds, questions or the Jev model)
+- `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` - PR review toolkit design, with its plan under `docs/superpowers/plans/`
