@@ -68,10 +68,39 @@ oncall-agent-api/
 
 ---
 
-### Claude Code Skills ⭐⭐
-> Plugin marketplace with 17 reusable skills
+### PR Review Toolkit ⭐⭐⭐
+> Triage, explain and learn from AI-authored pull requests
 
-**What I Built**: Marketplace of 17 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
+**What I Built**: Three pieces for a GitOps repo where an AI agent opens around 77 PRs a week:
+- a GitHub Action that labels every PR `review:skip`, `review:skim` or `review:read`;
+- a skill that turns a GitOps PR into a grounded, diagram-first explainer;
+- a skill that runs a retro of a `/code-review` session against the fixes that followed.
+
+| Skill | Implementation |
+|-------|----------------|
+| **Risk-Based PR Triage** | Composite action: policy rules, then one Jev (TypeSafe) decision request, then Claude Haiku only when Jev is unsure. Posts a label and a sticky comment; failures fall back to `review:read` |
+| **Policy as Code** | `review-policy.yaml` is read at the PR's base commit, so a PR can't loosen its own triage |
+| **Calibration** | Replays triage on 200 merged PRs against a follow-up-fix proxy, with time-split hot components and an offline threshold sweep |
+| **Grounded Explainers** | Renders Argo CD apps (directory, Helm, kustomize) at merge-base and head and builds a deterministic resource graph. The model writes only text keyed to fact IDs, and the result is verified before publishing |
+| **Session Retrospectives** | Parses Claude Code transcripts (subagents, cost-state, file coverage) and classifies each missed issue, with transcript citations |
+
+**Technologies**: `Anthropic API` `Structured Outputs` `Jev (TypeSafe)` `GitHub Actions` `uv` `Helm` `Mermaid` `Claude Code Plugins`
+
+```
+pr-triage/                    # GitHub composite action + Python package
+├── action.yml
+├── src/pr_triage/            # features, rules, jev, claude, decide, comment, calibrate
+└── calibration/              # calibration reports
+skills/pr-explainer/          # /pr-explainer <PR>
+skills/review-retro/          # /review-retro <PR> | --since 14d
+```
+
+---
+
+### Claude Code Skills ⭐⭐
+> Plugin marketplace with 19 reusable skills
+
+**What I Built**: Marketplace of 19 Claude Code plugin skills spanning architecture, development workflows, and DevOps patterns. Each skill is a standalone Claude Code plugin that can be installed directly from GitHub.
 
 | Skill | Implementation |
 |-------|----------------|
@@ -82,7 +111,7 @@ oncall-agent-api/
 
 **Technologies**: `Claude Code Plugins` `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
 
-**Available Skills (17)**:
+**Available Skills (19)**:
 | Skill | Category | Description |
 |-------|----------|-------------|
 | architecture-diagrams | documentation | Mermaid, PlantUML, C4 system diagrams |
@@ -102,6 +131,8 @@ oncall-agent-api/
 | crewai-testing-observability | learning | CrewAI testing, event listeners, fingerprinting, prompt customization, and multimodal files |
 | crewai-tool-development | learning | CrewAI custom tools (BaseTool, @tool), async tools, MCP integration, and built-in tools catalog |
 | crewai-memory-knowledge | learning | CrewAI unified memory (scopes, slices, scoring) and knowledge (RAG sources, embedders) |
+| pr-explainer | development | Grounded HTML explainer for GitOps PRs: rendered-manifest resource map, risks, must-read hunks |
+| review-retro | development | Retro of a /code-review session against later fixes: misses, causes, cost, proposals |
 
 #### Install Skills from the Marketplace
 
@@ -180,6 +211,9 @@ open http://localhost:8000/docs        # Interactive Swagger UI
 # Skills Marketplace - List and manage skills
 ./skills/skill-cli.sh list
 ./skills/skill-cli.sh info code-review
+
+# PR Triage - dry-run one PR (needs TYPESAFE_API_KEY and ANTHROPIC_API_KEY)
+uv run --project pr-triage python -m pr_triage run --repo arigsela/kubernetes --pr 650 --dry-run
 ```
 
 ---
