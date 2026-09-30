@@ -79,13 +79,17 @@ version: 1
 always_read:                 # any match → review:read (Jev not called)
   paths:                     # gitignore-style globs, matched against changed paths
     - base-apps/dex/**
+    - base-apps/dex.yaml
     - base-apps/cluster-rbac/**
+    - base-apps/cluster-rbac.yaml
     - base-apps/admission-policies/**
+    - base-apps/admission-policies.yaml
     - appsets/**
     - terraform/**
     - ansible/**
     - node-config/**           # host-level k3s config (e.g. apiserver authn, #625)
     - .github/**
+    - "!**/*.md"             # docs inside those directories are not "read" on their own
   kinds:                     # kind: added/removed/modified anywhere in the diff
     - ClusterRole
     - ClusterRoleBinding
@@ -152,7 +156,8 @@ Two copies implement it: `pr_triage/followups.py` and `review-retro/scripts/foll
   - `concurrency: pr-triage-${{ github.event.pull_request.number }}` with cancel-in-progress.
   - It is not a required check.
 - **Step:** `uses: arigsela/claude-agents/pr-triage@<sha>`, with inputs `pr-number`, `repo`, `policy-ref` (base SHA) and `mode` (`label`).
-- **Secrets:** `TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY`. A fork PR gets no secrets, so it runs in degraded mode (§5.6).
+- **Secrets:** `TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY`.
+- **Skipped PRs:** fork PRs (their token is read-only, so the run could not label them anyway) and drafts until `ready_for_review`.
 - **Composite action:** installs `uv`, then runs `uv run --project $GITHUB_ACTION_PATH python -m pr_triage run …`.
   - Package: `pr-triage/pyproject.toml`.
   - Dependencies: `anthropic`, `pyyaml`, `pathspec`.
@@ -222,7 +227,7 @@ if decision == skip and hot_components_touched:                          skim
   size_bucket, components, hot components </details>
   <sub>pr-triage <action sha> · jev-1.13.0 · claude-haiku-4-5 · policy @ <base sha></sub>
   ```
-- **Degraded mode:** used when Jev fails after 1 retry (5 s timeout), when a secret is missing, or for a fork PR. The run keeps the rules-only decision, or sets `read` if the rules did not decide. The comment says `triage degraded: <reason>`. The job still exits 0.
+- **Degraded mode:** used when Jev fails after 1 retry (5 s timeout) or when a secret is missing. The run keeps the rules-only decision, or sets `read` if the rules did not decide. The comment says `triage degraded: <reason>`. The job still exits 0.
 - **Other errors:** a `gh` API error exits non-zero, so the check goes red and the label is left unchanged. That is visible, and nothing blocks on it.
 
 ### 5.7 Calibration CLI (not a test suite)
@@ -259,7 +264,7 @@ if decision == skip and hot_components_touched:                          skim
 skills/pr-explainer/.claude-plugin/plugin.json
 skills/pr-explainer/README.md
 skills/pr-explainer/skills/pr-explainer/SKILL.md
-skills/pr-explainer/skills/pr-explainer/scripts/{collect.py,render.py,verify.py}
+skills/pr-explainer/skills/pr-explainer/scripts/{collect.py,render.py,verify.py,post_comment.py}
 skills/pr-explainer/skills/pr-explainer/assets/template.html
 ```
 Scripts run as `uv run --script` with inline dependencies (`pyyaml`).
@@ -289,7 +294,7 @@ Resources are keyed by `(apiVersion kind, namespace, name)`. Comparing base and 
 | `binds` | (Cluster)RoleBinding → Role/ClusterRole and → ServiceAccount subjects |
 | `produces` | ExternalSecret → target Secret name |
 | `mounts` | Workload → Secret, ConfigMap or PVC, via volumes and envFrom/valueFrom |
-| `owns` | Application → each of its resources |
+| `owns` | Application → each of its resources. This is drawn as subgraph membership, not as arrows. |
 
 The graph includes every changed resource plus unchanged neighbours one hop away, which are drawn grey. The cap is 40 nodes; beyond that, nodes are collapsed per app.
 
@@ -300,7 +305,8 @@ The graph includes every changed resource plus unchanged neighbours one hop away
 - `edges[]`.
 - `non_manifest_changes[]`.
 - `terraform[]`: `{id, address, action, source}`.
-- `policy_hits[]`: `{ref, rule, callout}`.
+- `policy_hits[]`: `{ref, rule, callout, more?}`. At most 5 hits per (app, rule); `more` counts the rest.
+- `notes[]`: `{key, text}`, e.g. Terraform changed but no Atlantis plan was found. Each `key` must appear in `not_covered`.
 
 ### 6.3 Narrate (the session model → `explainer.json`)
 The model reads `facts.json` plus diff excerpts for the referenced hunks, and writes **text only**, keyed by fact IDs:
