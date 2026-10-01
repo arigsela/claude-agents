@@ -99,6 +99,10 @@ Launch 4 independent review agents simultaneously using the Task tool:
 - Use git blame to understand context
 - Check if changes break established patterns
 - Analyze commit history for relevant context
+- For deleted files and removed lines, check whether a still-true operational step or
+  gotcha is dropped rather than moved: `git log -S'<phrase>'` for why it was added, then grep
+  the PR head for where it went. A step added by a fix or incident commit and missing
+  at head is a finding.
 
 ```bash
 # Git blame for context
@@ -131,6 +135,13 @@ Score each found issue on a 0-100 scale:
 
 Remove issues scoring below threshold (default: 80).
 
+Exception: keep a **verified doc defect** under `### Docs` when it scores at least 50. That is
+a step or claim in a doc this PR adds or changes that the repo at the PR head disproves, that
+contradicts another doc or manifest changed in the same PR, or an operational step the PR
+deletes without carrying it anywhere. A doc step can't earn the runtime or security points,
+so without this exception it tops out near 50 and is always dropped.
+List everything else dropped, with its score, under `Below threshold:` so a human can overrule it.
+
 **Common false positives to exclude:**
 - Pre-existing issues not introduced in this PR
 - Code that looks like a bug but functions correctly
@@ -153,7 +164,20 @@ Found N issues:
 https://github.com/OWNER/REPO/blob/SHA/PATH#LSTART-LEND
 
 2. [Next issue...]
+
+### Docs
+
+3. [Verified doc defect] ([what at the PR head disproves it])
+
+https://github.com/OWNER/REPO/blob/SHA/PATH#LSTART-LEND
+
+Below threshold:
+- [Dropped issue] (score NN)
 ```
+
+Number the `### Docs` items in the same sequence as the issues above them; they are kept
+findings. Write `Below threshold:` items as bullets, never numbered, because they were not kept.
+Omit either section when it is empty.
 
 **Link format requirements:**
 - Use full commit SHA, not abbreviated
