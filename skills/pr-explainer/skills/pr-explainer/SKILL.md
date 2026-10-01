@@ -1,6 +1,6 @@
 ---
 name: pr-explainer
-description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, before→after table, risk callouts, and the hunks a human must still read. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
+description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, before→after table, risk callouts, and the hunks a human must still read. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
 version: "0.3.0"
 model: claude-opus-5-5
 author:
