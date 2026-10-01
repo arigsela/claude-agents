@@ -5,7 +5,7 @@
 # ///
 """pr-explainer: collect deterministic facts about a PR into <out>/facts.json and <out>/diff.patch.
 
-Usage: collect.py --pr N [--repo owner/name] --out DIR   (run inside a checkout of the repo)
+Usage: collect.py --pr N [--repo owner/name] --out DIR   (--repo is required outside a checkout of the repo)
 Needs gh and git. Uses helm for Helm-sourced apps and `kubectl kustomize` for kustomize apps;
 when either is missing or fails, that app falls back to render=source-diff (spec §6.2).
 """
@@ -73,34 +73,59 @@ def gh_pages(path: str) -> list[dict]:
     return [item for page in json.loads(sh("gh", "api", "--paginate", "--slurp", path)) for item in page]
 
 
-def repo_from_origin() -> str:
-    url = sh("git", "remote", "get-url", "origin").strip()
+def repo_from_origin() -> str | None:
+    """owner/name of the current directory's origin, or None outside a GitHub checkout."""
+    try:
+        url = sh("git", "remote", "get-url", "origin").strip()
+    except (RuntimeError, FileNotFoundError):
+        return None
     m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
-    if not m:
-        sys.exit(f"collect: cannot derive owner/repo from origin {url!r}; pass --repo")
-    return m.group(1)
+    return m.group(1) if m else None
 
 
 class Trees:
-    """Detached worktrees of the PR's base and head commits."""
+    """Detached worktrees of the PR's base and head commits.
 
-    def __init__(self, pr: int, base_sha: str, head_sha: str):
-        sh("git", "fetch", "--quiet", "origin", f"pull/{pr}/head", base_sha)
-        self.merge_base = sh("git", "merge-base", base_sha, head_sha).strip()
+    Uses the current checkout when its origin is the PR's repo. Anywhere else it fetches into a
+    temporary bare repo, so the skill runs without a local clone and never fetches the wrong remote.
+    """
+
+    def __init__(self, repo: str, pr: int, base_sha: str, head_sha: str):
         self.dir = Path(tempfile.mkdtemp(prefix="pr-explainer-"))
         self.base, self.head = self.dir / "base", self.dir / "head"
+        origin = repo_from_origin()
+        if origin and origin.lower() == repo.lower():
+            self.local: Path | None = Path(sh("git", "rev-parse", "--show-toplevel").strip())
+            self.git = self.local
+            fetch = ["git", "fetch", "--quiet", "origin"]
+        else:
+            self.local = None
+            self.git = self.dir / "repo.git"
+            # Blobless: commits and trees for merge-base, file contents only for the two checkouts.
+            fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
         try:
-            sh("git", "worktree", "add", "--detach", "--quiet", str(self.base), self.merge_base)
-            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), head_sha)
+            if not self.local:
+                sh("git", "init", "--quiet", "--bare", str(self.git))
+                sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
+                # gh's token covers private repos, including the lazy blob fetches worktree add makes.
+                # The empty entry drops inherited helpers so a stale keychain credential cannot win.
+                sh("git", "config", "credential.helper", "", cwd=self.git)
+                sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
+            sh(*fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
+            self.merge_base = sh("git", "merge-base", base_sha, head_sha, cwd=self.git).strip()
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.base), self.merge_base, cwd=self.git)
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), head_sha, cwd=self.git)
         except BaseException:
             self.close()
             raise
 
     def close(self) -> None:
-        for tree in (self.base, self.head):
-            subprocess.run(["git", "worktree", "remove", "--force", str(tree)], capture_output=True)
+        if self.local:
+            for tree in (self.base, self.head):
+                subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
         shutil.rmtree(self.dir, ignore_errors=True)
-        subprocess.run(["git", "worktree", "prune"], capture_output=True)
+        if self.local:
+            subprocess.run(["git", "worktree", "prune"], cwd=self.local, capture_output=True)
 
 
 def load_docs(text: str) -> list[dict]:
@@ -400,11 +425,7 @@ def trusted_comments(comments: list[dict], login: str) -> list[dict]:
 
 def read_policy(trees: Trees) -> dict | None:
     """Policy from the local checkout (spec §3), else the base worktree, else the head worktree."""
-    roots = []
-    try:
-        roots.append(Path(sh("git", "rev-parse", "--show-toplevel").strip()))
-    except RuntimeError:
-        pass
+    roots = [trees.local] if trees.local else []
     for root in (*roots, trees.base, trees.head):
         f = root / POLICY_PATH
         if f.exists():
@@ -823,10 +844,12 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Collect deterministic PR facts for pr-explainer")
     ap.add_argument("--pr", type=int, required=True)
-    ap.add_argument("--repo", help="owner/name (default: origin of the current checkout)")
+    ap.add_argument("--repo", help="owner/name (default: origin of the current checkout; required elsewhere)")
     ap.add_argument("--out", required=True, help="work directory for facts.json and diff.patch")
     args = ap.parse_args()
     repo = args.repo or repo_from_origin()
+    if not repo:
+        sys.exit("collect: the current directory is not a GitHub checkout; pass --repo owner/name")
     pr = json.loads(sh("gh", "api", f"repos/{repo}/pulls/{args.pr}"))
     files = gh_pages(f"repos/{repo}/pulls/{args.pr}/files?per_page=100")
     comments = gh_pages(f"repos/{repo}/issues/{args.pr}/comments?per_page=100")
@@ -834,7 +857,7 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "diff.patch").write_text(sh("gh", "pr", "diff", str(args.pr), "-R", repo))
-    trees = Trees(args.pr, pr["base"]["sha"], pr["head"]["sha"])
+    trees = Trees(repo, args.pr, pr["base"]["sha"], pr["head"]["sha"])
     try:
         facts = collect(repo, pr, files, comments, trees)
     finally:
