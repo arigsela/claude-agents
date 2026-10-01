@@ -37,7 +37,8 @@ def strings(obj):
 
 
 def verify(facts: dict, expl: dict) -> list[str]:
-    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform") for x in facts[key]}
+    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows")
+             for x in facts.get(key) or []}
     ids = set(index)
     comments = {c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")}
     errors = []

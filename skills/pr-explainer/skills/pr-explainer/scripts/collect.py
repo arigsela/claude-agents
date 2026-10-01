@@ -63,6 +63,13 @@ TF_BLOCK_RE = re.compile(r'^(resource|data)\s+"([^"]+)"\s+"([^"]+)"\s*\{', re.M)
 TF_TOP_RE = re.compile(r"^(resource|data|variable|output|locals|module|provider|terraform|moved|import|removed|check)\b", re.M)
 MAX_CHANGED_PATHS = 10
 MAX_HITS_PER_APP_RULE = 5
+# GitHub runs only files directly in this directory; copies elsewhere (docs/examples/...) are text.
+WORKFLOW_DIR = ".github/workflows/"
+# Workflow-level keys that change how every job runs, compared as one element each.
+WORKFLOW_SETTINGS = ("name", "run-name", "permissions", "env", "concurrency", "defaults")
+# Events whose inputs/outputs/secrets form a caller-facing interface, compared per entry.
+WORKFLOW_INTERFACE_EVENTS = ("workflow_call", "workflow_dispatch")
+WORKFLOW_ELEMENT_ORDER = {"setting": 0, "trigger": 1, "input": 2, "output": 3, "secret": 4, "job": 5}
 
 
 def sh(*args: str, cwd: Path | None = None) -> str:
@@ -758,6 +765,164 @@ def terraform_facts(files: list[dict], comments: list[dict], trees: Trees,
     return tf, edges, summaries, plan_notes(plans, head_sha)
 
 
+def is_workflow(path: str) -> bool:
+    rest = path.removeprefix(WORKFLOW_DIR)
+    return path.startswith(WORKFLOW_DIR) and "/" not in rest and rest.endswith((".yml", ".yaml"))
+
+
+def workflow_triggers(doc: dict) -> dict:
+    """event -> config. PyYAML reads a bare `on:` key as True; `on` may be a string, list or map."""
+    on = doc.get("on", doc.get(True))
+    if isinstance(on, str):
+        return {on: {}}
+    if isinstance(on, list):
+        return {str(e): {} for e in on}
+    return {str(k): (v if isinstance(v, dict) else {}) for k, v in (on or {}).items()} if isinstance(on, dict) else {}
+
+
+def step_map(steps) -> dict:
+    """Steps keyed by id, name or uses, so inserting one step does not mark every later step changed."""
+    out: dict[str, object] = {}
+    for i, step in enumerate(steps if isinstance(steps, list) else []):
+        s = step if isinstance(step, dict) else {}
+        key = str(s.get("id") or s.get("name") or s.get("uses") or f"step {i + 1}")
+        n, base = 2, key
+        while key in out:
+            key, n = f"{base} #{n}", n + 1
+        out[key] = step
+    return out
+
+
+def workflow_elements(doc: dict) -> dict[tuple[str, str, str], tuple[object, list[str]]]:
+    """(element, event, name) -> (value, key path for the line lookup)."""
+    out: dict[tuple[str, str, str], tuple[object, list[str]]] = {}
+    for key in WORKFLOW_SETTINGS:
+        if key in doc:
+            out[("setting", "", key)] = (doc[key], [key])
+    for event, cfg in workflow_triggers(doc).items():
+        interface = {"inputs", "outputs", "secrets"} if event in WORKFLOW_INTERFACE_EVENTS else set()
+        out[("trigger", event, event)] = ({k: v for k, v in cfg.items() if k not in interface}, ["on", event])
+        for section in sorted(interface):
+            for name, spec in (cfg.get(section) or {}).items():
+                out[(section[:-1], event, str(name))] = (spec, ["on", event, section, str(name)])
+    for name, job in (doc.get("jobs") or {}).items():
+        j = dict(job) if isinstance(job, dict) else {}
+        if "steps" in j:
+            j["steps"] = step_map(j["steps"])
+        out[("job", "", str(name))] = (j, ["jobs", str(name)])
+    return out
+
+
+def key_line(text: str, path: list[str]) -> int | None:
+    """1-based line of the last key in path, each key found nested under the one before it."""
+    lines, start, parent, found = text.splitlines(), 0, -1, None
+    for key in path:
+        pat = re.compile(r"^\s*[\"']?" + re.escape(key) + r"[\"']?\s*:")
+        for i in range(start, len(lines)):
+            stripped = lines[i].lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            depth = len(lines[i]) - len(stripped)
+            if depth <= parent:
+                return found  # left the parent block without finding the key
+            if pat.match(lines[i]):
+                found, start, parent = i + 1, i + 1, depth
+                break
+        else:
+            return found
+    return found
+
+
+def job_needs(job) -> list[str]:
+    needs = job.get("needs") if isinstance(job, dict) else None
+    return [needs] if isinstance(needs, str) else [str(n) for n in needs or []]
+
+
+def workflow_facts(files: list[dict], trees: Trees) -> tuple[list[dict], list[dict], list[dict]]:
+    """Jobs, triggers, settings and workflow_call/workflow_dispatch interface entries from comparing
+    each changed workflow at base and head, plus `needs` edges between jobs.
+
+    Unchanged jobs one `needs` hop from a changed job come along as context so the graph shows
+    what a removed or rewired job sat between.
+    """
+    out, edges, notes, failed = [], [], [], []
+    for f in files:
+        path = f["filename"]
+        if not is_workflow(path):
+            continue
+        sides = {}
+        for side, root in (("base", trees.base), ("head", trees.head)):
+            p = root / path
+            try:
+                doc = yaml.safe_load(p.read_text(errors="replace")) if p.is_file() else None
+            except yaml.YAMLError:
+                failed.append(path)
+                break
+            sides[side] = (doc if isinstance(doc, dict) else {}, p.read_text(errors="replace") if p.is_file() else "")
+        else:
+            (bdoc, btext), (hdoc, htext) = sides["base"], sides["head"]
+            base, head = workflow_elements(bdoc), workflow_elements(hdoc)
+            changed: dict[tuple, tuple[str, list[str]]] = {}
+            for k in base.keys() | head.keys():
+                if k not in base:
+                    changed[k] = ("added", [])
+                elif k not in head:
+                    changed[k] = ("removed", [])
+                elif paths := diff_paths(base[k][0], head[k][0]):
+                    changed[k] = ("modified", sorted(paths)[:MAX_CHANGED_PATHS])
+            job_edges = {(src, dst) for doc in (bdoc, hdoc) for src, job in (doc.get("jobs") or {}).items()
+                         for dst in job_needs(job)}
+            changed_jobs = {k[2] for k in changed if k[0] == "job"}
+            context = {n for a, b in job_edges for n in (a, b)
+                       if (a in changed_jobs) != (b in changed_jobs) and n not in changed_jobs}
+            keys = list(changed) + [("job", "", n) for n in sorted(context) if ("job", "", n) in head]
+
+            def line(k):
+                action = changed.get(k, ("context",))[0]
+                text, elems = (btext, base) if action == "removed" else (htext, head)
+                return key_line(text, elems[k][1]) or 0
+
+            ids = {}
+            for k in sorted(keys, key=lambda k: (WORKFLOW_ELEMENT_ORDER[k[0]], line(k), k)):
+                action, paths = changed.get(k, ("context", []))
+                value = (base if action == "removed" else head)[k][0]
+                entry = {"id": f"w{len(out) + 1}", "workflow": path, "element": k[0], "event": k[1], "name": k[2],
+                         "action": action, "changed_paths": paths, "file": path, "lines": [line(k)] if line(k) else []}
+                if k[0] == "job" and isinstance(value, dict) and value.get("uses"):
+                    entry["uses"] = str(value["uses"])
+                if k[0] == "input" and isinstance(value, dict):
+                    entry["required"] = bool(value.get("required"))
+                    entry["has_default"] = "default" in value
+                ids[k] = entry["id"]
+                out.append(entry)
+            edges += [{"from": ids[("job", "", a)], "to": ids[("job", "", b)], "type": "needs"}
+                      for a, b in sorted(job_edges) if ("job", "", a) in ids and ("job", "", b) in ids]
+    if failed:
+        notes.append({"key": "workflows", "text": "These workflow files did not parse as YAML, so their jobs were "
+                                                  "not mapped: " + ", ".join(sorted(failed)) + "."})
+    if out:
+        notes.append({"key": "actions", "text": "GitHub Actions entries come from comparing workflow YAML at base and "
+                                                "head. Expressions, matrix expansion, reusable workflows the jobs call, "
+                                                "composite actions and callers in other repositories are not resolved."})
+    return out, edges, notes
+
+
+def workflow_hit(w: dict) -> tuple[str, str] | None:
+    """(rule, callout) for an entry that always needs a human: a caller-facing interface break, or a
+    change to the GITHUB_TOKEN permissions."""
+    if w["element"] in ("input", "output", "secret") and w["event"] == "workflow_call":
+        if w["action"] == "removed":
+            return f"workflow_call {w['element']} removed", "caller interface change"
+        if w["element"] == "input" and w.get("required") and not w.get("has_default") and (
+                w["action"] == "added" or "required" in w["changed_paths"]):
+            return "workflow_call input now required", "caller interface change"
+    if w["element"] == "setting" and w["name"] == "permissions" and w["action"] != "context":
+        return "workflow permissions changed", "token permissions"
+    if w["element"] == "job" and any(p == "permissions" or p.startswith("permissions.") for p in w["changed_paths"]):
+        return "job permissions changed", "token permissions"
+    return None
+
+
 def adf_text(node, limit: int) -> str:
     """Plain text from a Jira ADF document (or a plain string), capped at limit characters."""
     if isinstance(node, str):
@@ -931,6 +1096,10 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     # variables and tfvars edits would otherwise vanish from the facts.
     tf, tf_edges, tf_plans, tf_notes = terraform_facts(files, comments, trees, pr["head"]["sha"])
     notes += tf_notes
+    # Workflow files also stay in non_manifest_changes, so a hunk the comparison cannot name
+    # (a run: script body) is still citable.
+    wf, wf_edges, wf_notes = workflow_facts(files, trees)
+    notes += wf_notes
     jira, jira_notes = jira_facts(pr)
     notes += jira_notes
     for f in files:
@@ -938,7 +1107,8 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
             nm.append({"id": f"f{len(nm) + 1}", "file": f["filename"], "status": f["status"],
                        "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
                        "hunks": hunk_ranges(f.get("patch") or "")})
-    unrendered_yaml = [n for n in nm if n["file"].endswith((".yaml", ".yml"))]
+    mapped_workflows = {w["file"] for w in wf}
+    unrendered_yaml = [n for n in nm if n["file"].endswith((".yaml", ".yml")) and n["file"] not in mapped_workflows]
     if unrendered_yaml and not affected:
         # Without this note an empty resource map looks like "nothing to render" instead of "nothing found".
         where = (f"{len(apps_base | apps_head)} Argo CD Applications were found, but none deploys them"
@@ -970,6 +1140,13 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
             candidates.setdefault(("terraform", ""), []).append(
                 {"ref": t["id"], "rule": ("terraform plan " if t["source"] == "plan-comment" else "terraform source ")
                  + t["action"], "callout": "infrastructure change"})
+    for w in wf:
+        if hit := workflow_hit(w):
+            candidates.setdefault(("workflow", w["file"], hit[0]), []).append(
+                {"ref": w["id"], "rule": hit[0], "callout": hit[1]})
+        elif w["action"] != "context" and (pat := matched_glob(w["file"], read_globs)):
+            rule = f"always_read.paths ({pat})"
+            candidates.setdefault(("workflow", w["file"], rule), []).append({"ref": w["id"], "rule": rule, "callout": "always read"})
     policy_hits = []
     for group in candidates.values():
         kept = group[:MAX_HITS_PER_APP_RULE]
@@ -985,8 +1162,9 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         "pr": {"number": pr["number"], "title": pr["title"], "url": pr["html_url"], "repo": repo,
                "base_sha": pr["base"]["sha"], "head_sha": pr["head"]["sha"],
                "merge_base": trees.merge_base},
-        "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges,
-        "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "jira": jira, "policy_hits": policy_hits, "notes": notes,
+        "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
+        "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "workflows": wf,
+        "jira": jira, "policy_hits": policy_hits, "notes": notes,
     }
 
 
@@ -1014,7 +1192,9 @@ def main() -> int:
     (out / "facts.json").write_text(json.dumps(facts, indent=2))
     changed = sum(r["action"] not in ("context", "generated") for r in facts["resources"])
     unrendered = [a["app"] for a in facts["apps"] if a["render"] != "rendered"]
-    print(f"collect: {changed} changed resources, {len(facts['terraform'])} terraform resources, {len(facts['edges'])} edges, "
+    wf_changed = sum(w["action"] != "context" for w in facts["workflows"])
+    print(f"collect: {changed} changed resources, {len(facts['terraform'])} terraform resources, "
+          f"{wf_changed} workflow entries, {len(facts['edges'])} edges, "
           f"{len(facts['non_manifest_changes'])} non-manifest files, {len(facts['policy_hits'])} policy hits, "
           f"unrendered apps: {unrendered or 'none'}")
     print(f"collect: plans: {[p['environment'] or p['source'] for p in facts['terraform_plans']] or 'none'}, "
