@@ -49,7 +49,8 @@ IAC_SUMMARY_RE = re.compile(r"\*\*Summary:\*\* (\d+) to add, (\d+) to change, (\
 IAC_COMMIT_RE = re.compile(r"commit: `([0-9a-f]{7,40})`")
 IAC_RUN_RE = re.compile(r"\[workflow run\]\((https://github\.com/[^)\s]+/actions/runs/\d+)\)")
 ACTION_RANK = {"destroy": 0, "replace": 1, "create": 2, "update": 3, "read": 4}
-JIRA_KEY_RE = re.compile(r"\bIFS-\d+\b", re.I)
+# IFS is the Infrastructure Services project; DX is the DevEx team's project, also part of EIP.
+JIRA_KEY_RE = re.compile(r"\b(?:IFS|DX)-\d+\b", re.I)
 JIRA_FIELDS = "summary,status,issuetype,description,parent,comment"
 JIRA_DESCRIPTION_CHARS = 6000
 JIRA_COMMENT_CHARS = 1500
@@ -952,7 +953,7 @@ def adf_text(node, limit: int) -> str:
 
 
 def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
-    """The IFS ticket the PR names (branch, then title, then body), read through acli.
+    """The IFS or DX ticket the PR names (branch, then title, then body), read through acli.
 
     The branch wins because CHG branch names carry the ticket by convention; a body can cite
     several tickets. Every failure degrades to a note instead of stopping the run.
@@ -962,7 +963,7 @@ def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
             key = m.group(0).upper()
             break
     else:
-        return None, [{"key": "jira", "text": "No IFS ticket key was found in the branch name, title or body."}]
+        return None, [{"key": "jira", "text": "No IFS or DX ticket key was found in the branch name, title or body."}]
     if not shutil.which("acli"):
         return None, [{"key": "jira", "text": f"{key} is referenced but acli is not installed, so the ticket was not read."}]
     try:

@@ -22,7 +22,7 @@ owner/name`): `collect.py` fetches the PR into a temporary blobless bare repo, a
 Requirements:
 - Required: `gh`, `git`, `uv`.
 - Optional: `helm`, for Helm-sourced apps (`brew install helm`).
-- Optional: `acli`, authenticated to Jira, for the IFS ticket card.
+- Optional: `acli`, authenticated to Jira, for the IFS or DX ticket card.
 - Kustomize apps use `kubectl kustomize`.
 
 Terraform/OpenTofu changes (any `.tf` file, at any depth) get their own resource map. Resources
@@ -42,7 +42,7 @@ required input, and a `permissions` change are always-read policy hits, because 
 or change what the job token can do. Expressions, matrix expansion, the reusable workflows a job
 calls, composite actions and callers in other repositories are not resolved.
 
-If the branch name, title or body names an IFS ticket (branch first), `collect.py` reads it with
+If the branch name, title or body names an IFS or DX ticket (branch first), `collect.py` reads it with
 `acli jira workitem view` and the page adds a Ticket card: the ticket's intent and each ask marked
 covered, respected (a scope limit the PR keeps), done outside this PR (cited from a ticket
 comment), not covered or unclear, with the reason for anything not covered. Without `acli`, or without a key, the
