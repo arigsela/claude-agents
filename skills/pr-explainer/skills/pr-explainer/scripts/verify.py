@@ -10,10 +10,17 @@ import json
 import re
 import sys
 
+import ref_groups
+
 # The prose must come from one pinned model; managed settings can silently ignore a skill's
 # model override, so the narrator states its model and a mismatch marks the page unverified.
 NARRATOR_MODEL = "claude-opus-5-5"
-TICKET_STATUSES = {"covered", "not_covered", "unclear"}
+# covered: the diff delivers it. respected: a scope limit or constraint the diff does not break.
+# out_of_band: done outside this PR, cited from a ticket comment (j*). not_covered / unclear: neither.
+TICKET_STATUSES = {"covered", "respected", "out_of_band", "not_covered", "unclear"}
+# Refs that differ in one place render as one group; more groups than this per row means the
+# narrator is listing evidence instead of pointing at it.
+MAX_REF_GROUPS = 6
 SECRET_VALUE_RE = re.compile(
     r"(?i)((?:password|passwd|token|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)(\S{8,})")
 
@@ -30,15 +37,25 @@ def strings(obj):
 
 
 def verify(facts: dict, expl: dict) -> list[str]:
-    ids = {x["id"] for key in ("resources", "non_manifest_changes", "terraform") for x in facts[key]}
+    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform") for x in facts[key]}
+    ids = set(index)
+    comments = {c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")}
     errors = []
+
+    def check_groups(where: str, refs: list[str]) -> None:
+        n = len(ref_groups.group([ref_groups.entry(index.get(r) or comments.get(r), r) for r in refs]))
+        if n > MAX_REF_GROUPS:
+            errors.append(f"{where} cites {n} ref groups (max {MAX_REF_GROUPS}); cite one representative per pattern")
+
     if not str(expl.get("tldr", "")).strip():
         errors.append("tldr is empty")
     for section in ("behavior_changes", "callouts"):
+        allowed = ids | set(comments) if section == "callouts" else ids
         for i, item in enumerate(expl.get(section, [])):
             for ref in item.get("refs", []):
-                if ref not in ids:
+                if ref not in allowed:
                     errors.append(f"{section}[{i}] references unknown id {ref!r}")
+            check_groups(f"{section}[{i}]", item.get("refs", []))
     must = set()
     for i, item in enumerate(expl.get("must_read", [])):
         if item.get("ref") not in ids:
@@ -65,11 +82,19 @@ def verify(facts: dict, expl: dict) -> list[str]:
     if ticket and not facts.get("jira"):
         errors.append("explainer has a ticket section but facts.jira is null")
     for i, item in enumerate((ticket or {}).get("criteria", [])):
-        if item.get("status") not in TICKET_STATUSES:
-            errors.append(f"ticket.criteria[{i}] status {item.get('status')!r} is not one of {sorted(TICKET_STATUSES)}")
-        for ref in item.get("refs", []):
-            if ref not in ids:
+        status, refs = item.get("status"), item.get("refs", [])
+        if status not in TICKET_STATUSES:
+            errors.append(f"ticket.criteria[{i}] status {status!r} is not one of {sorted(TICKET_STATUSES)}")
+        for ref in refs:
+            if ref not in ids and ref not in comments:
                 errors.append(f"ticket.criteria[{i}] references unknown id {ref!r}")
+        if status == "covered" and not any(r in ids for r in refs):
+            errors.append(f"ticket.criteria[{i}] is covered but cites no change from the PR")
+        if status == "out_of_band" and not any(r in comments for r in refs):
+            errors.append(f"ticket.criteria[{i}] is out_of_band but cites no ticket comment (j*)")
+        if status != "covered" and not str(item.get("reason", "")).strip():
+            errors.append(f"ticket.criteria[{i}] is {status} but has no reason")
+        check_groups(f"ticket.criteria[{i}]", refs)
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
         errors.append("explainer text contains a secret-looking value")
     return errors

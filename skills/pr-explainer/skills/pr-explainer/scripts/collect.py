@@ -20,12 +20,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 import pathspec
 import yaml
 
 POLICY_PATH = ".github/review-policy.yaml"
+# Applications under these directories are templated (Helm templates/, vendored charts/), not applied as written.
+APP_SKIP_DIRS = {".git", "node_modules", "templates", "charts", "vendor"}
 MANIFEST_SUFFIXES = (".yaml", ".yml", ".json")
 WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Rollout", "Job", "CronJob"}
 CLUSTER_SCOPED = {
@@ -140,22 +143,115 @@ def load_docs(text: str) -> list[dict]:
     return docs
 
 
-def applications(root: Path) -> dict[str, tuple[str, dict]]:
-    """Application name -> (repo-relative file, doc) for base-apps/*.yaml in a worktree."""
-    apps: dict[str, tuple[str, dict]] = {}
-    for f in sorted((root / "base-apps").glob("*.y*ml")):
+def find_applications(root: Path) -> list[tuple[str, str, dict]]:
+    """(name, repo-relative file, doc) for every Argo CD Application manifest in a worktree.
+
+    Repos keep Applications in different places (base-apps/, argo/<env>/, ...), so the whole tree
+    is searched. Helm templates/ and vendored charts/ are skipped: Applications there are
+    templated, not applied as written.
+    """
+    found = []
+    for f in sorted(root.rglob("*")):
+        rel = f.relative_to(root)
+        if f.suffix not in (".yaml", ".yml") or not f.is_file() or APP_SKIP_DIRS & set(rel.parts[:-1]):
+            continue
         try:
-            docs = load_docs(f.read_text())
+            text = f.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "Application" not in text:
+            continue
+        try:
+            docs = load_docs(text)
         except yaml.YAMLError:
             continue
         for d in docs:
-            if d.get("kind") == "Application":
-                apps[d["metadata"]["name"]] = (str(f.relative_to(root)), d)
-    return apps
+            md, spec = d.get("metadata"), d.get("spec")
+            if (d.get("kind") == "Application" and str(d.get("apiVersion", "")).startswith("argoproj.io/")
+                    and isinstance(md, dict) and md.get("name") and isinstance(spec, dict)):
+                found.append((str(md["name"]), str(rel), d))
+    return found
 
 
-def source_kind(root: Path, app: dict) -> str:
-    src = app["spec"].get("source") or {}
+def applications(base: list[tuple[str, str, dict]], head: list[tuple[str, str, dict]]) -> tuple[dict, dict, bool]:
+    """App id -> (file, doc) for base and head, and whether Applications span several directories.
+
+    The id is metadata.name, qualified with the file's directory when one name appears in several
+    files (one Application per environment directory), and with the whole path if that still
+    collides. Qualification uses both sides so an app keeps one id across base and head.
+    """
+    names = Counter(n for n, _, _ in {(n, f, "") for n, f, _ in base + head})
+    dir_ids = Counter(f"{Path(f).parent}/{n}" for n, f, _ in {(n, f, "") for n, f, _ in base + head})
+
+    def app_id(name: str, file: str) -> str:
+        if names[name] == 1:
+            return name
+        qualified = f"{Path(file).parent}/{name}"
+        return qualified if dir_ids[qualified] == 1 else f"{file}:{name}"
+
+    dirs = {str(Path(f).parent) for _, f, _ in base + head}
+    return ({app_id(n, f): (f, d) for n, f, d in base}, {app_id(n, f): (f, d) for n, f, d in head}, len(dirs) > 1)
+
+
+def app_sources(app: dict) -> list[dict]:
+    """spec.sources (multi-source) or spec.source, as a list."""
+    spec = app.get("spec") or {}
+    if isinstance(spec.get("sources"), list):
+        return [s for s in spec["sources"] if isinstance(s, dict)]
+    return [spec["source"]] if isinstance(spec.get("source"), dict) else []
+
+
+def same_repo(url: str | None, repo: str) -> bool:
+    url = (url or "").lower().rstrip("/")
+    url = url[:-4] if url.endswith(".git") else url
+    return url.endswith("/" + repo.lower()) or url.endswith(":" + repo.lower())
+
+
+def value_file(root: Path, src: dict, refs: dict[str, dict], vf: str, repo: str) -> Path | None:
+    """Worktree path of a helm valueFile, or None when it lives in another repository.
+
+    "$<ref>/path" resolves through the multi-source source named <ref>; a plain name is relative
+    to the source's own path. Raises when the path escapes the worktree.
+    """
+    if vf.startswith("$"):
+        ref, _, rest = vf[1:].partition("/")
+        if ref not in refs or not same_repo(refs[ref].get("repoURL"), repo):
+            return None
+        p = root / (refs[ref].get("path") or "") / rest
+    elif src.get("path") and not src.get("chart"):
+        p = root / src["path"] / vf
+    else:
+        return None
+    p = Path(os.path.normpath(p))
+    if not p.is_relative_to(root):
+        raise RuntimeError(f"valueFile outside the repository: {vf}")
+    return p
+
+
+def watched_files(root: Path, app: dict, repo: str) -> tuple[list[str], set[str]]:
+    """(source directories, value files) in this repo that the Application renders from."""
+    sources = app_sources(app)
+    refs = {s["ref"]: s for s in sources if s.get("ref")}
+    dirs, files = [], set()
+    for src in sources:
+        if src.get("path") and not src.get("chart") and (not src.get("repoURL") or same_repo(src["repoURL"], repo)):
+            dirs.append(src["path"].strip("/"))
+        for vf in (src.get("helm") or {}).get("valueFiles") or []:
+            try:
+                p = value_file(root, src, refs, str(vf), repo)
+            except RuntimeError:
+                continue
+            if p:
+                files.add(str(p.relative_to(root)))
+    return dirs, files
+
+
+def app_source_kind(root: Path, app: dict) -> str:
+    kinds = [source_kind(root, s) for s in app_sources(app) if s.get("chart") or s.get("path")]
+    return ", ".join(dict.fromkeys(kinds)) or "unknown"
+
+
+def source_kind(root: Path, src: dict) -> str:
     if src.get("chart"):
         return "helm"
     path = src.get("path")
@@ -177,8 +273,7 @@ def expand_braces(pattern: str) -> list[str]:
             for p in expand_braces(pattern[:m.start()] + alt + pattern[m.end():])]
 
 
-def dir_manifests(root: Path, app: dict) -> tuple[list[tuple[dict, str]], set[str]]:
-    src = app["spec"]["source"]
+def dir_manifests(root: Path, src: dict) -> tuple[list[tuple[dict, str]], set[str]]:
     base = root / src["path"]
     opts = src.get("directory") or {}
     candidates = base.rglob("*") if opts.get("recurse") else base.glob("*")
@@ -203,28 +298,41 @@ def dir_manifests(root: Path, app: dict) -> tuple[list[tuple[dict, str]], set[st
     return out, loaded
 
 
-def helm_docs(root: Path, app: dict, work: Path) -> list[dict]:
+def helm_docs(root: Path, app: dict, src: dict, refs: dict[str, dict], work: Path,
+              repo: str) -> tuple[list[dict], list[str]]:
     helm = os.environ.get("HELM_BIN", "helm")  # HELM_BIN=/nonexistent simulates a missing helm
     if not shutil.which(helm):
         raise RuntimeError("helm not installed (brew install helm)")
     spec = app["spec"]
-    src = spec["source"]
     h = src.get("helm") or {}
+    notes = []
     name = h.get("releaseName") or app["metadata"]["name"]
     ns = (spec.get("destination") or {}).get("namespace") or "default"
     if src.get("chart"):
-        repo = src["repoURL"]
-        chart = ([src["chart"], "--repo", repo] if repo.startswith(("http://", "https://"))
-                 else [f"oci://{repo.rstrip('/')}/{src['chart']}"])
+        chart_repo = src["repoURL"]
+        chart = ([src["chart"], "--repo", chart_repo] if chart_repo.startswith(("http://", "https://"))
+                 else [f"oci://{chart_repo.rstrip('/')}/{src['chart']}"])
         chart += ["--version", str(src["targetRevision"])]
     else:
-        chart = [str(root / src["path"])]
+        chart_dir = root / src["path"]
+        chart = [str(chart_dir)]
+        chart_meta = yaml.safe_load((chart_dir / "Chart.yaml").read_text()) or {}
+        if chart_meta.get("dependencies") and not (chart_dir / "charts").is_dir():
+            # A wrapper chart's dependencies are not committed; Argo CD fetches them the same way.
+            sh(helm, "dependency", "build", str(chart_dir))
     cmd = [helm, "template", name, *chart, "--namespace", ns]
     if not h.get("skipCrds"):
         cmd.append("--include-crds")
+    if h.get("skipSchemaValidation"):
+        cmd.append("--skip-schema-validation")
     for vf in h.get("valueFiles") or []:
-        if src.get("path"):
-            cmd += ["-f", str(root / src["path"] / vf)]
+        p = value_file(root, src, refs, str(vf), repo)
+        if p is None:
+            notes.append(f"valueFile {vf} not applied (another repository or a chart-repo source)")
+        elif p.is_file():
+            cmd += ["-f", str(p)]
+        elif not h.get("ignoreMissingValueFiles"):
+            raise RuntimeError(f"valueFile missing: {p.relative_to(root)}")
     for key in ("values", "valuesObject"):
         if h.get(key):
             value = h[key] if isinstance(h[key], str) else yaml.safe_dump(h[key])
@@ -234,41 +342,60 @@ def helm_docs(root: Path, app: dict, work: Path) -> list[dict]:
             cmd += ["-f", tmp.name]
     for prm in h.get("parameters") or []:
         cmd += ["--set-string" if prm.get("forceString") else "--set", f"{prm['name']}={prm['value']}"]
-    return load_docs(sh(*cmd))
+    return load_docs(sh(*cmd)), notes
 
 
-def render_app(root: Path, app_file: str, app: dict, work: Path,
-               repo: str) -> tuple[list[tuple[dict, str]], set[str] | None, list[str]]:
-    """Returns (docs with their source file, files actually loaded or None for 'all', render notes)."""
-    src = app["spec"].get("source") or {}
+def render_source(root: Path, app_file: str, app: dict, src: dict, refs: dict[str, dict], work: Path,
+                  repo: str) -> tuple[list[tuple[dict, str]], set[str] | None, list[str]]:
     if not src.get("chart") and src.get("path"):
-        url = (src.get("repoURL") or "").lower().rstrip("/")
-        url = url[:-4] if url.endswith(".git") else url
-        if url and repo.lower() not in url:
+        if src.get("repoURL") and not same_repo(src["repoURL"], repo):
             raise RuntimeError("source is another repository")
         if not (root / src["path"]).is_dir():
             raise RuntimeError("source path missing")
-    kind = source_kind(root, app)
+    kind = source_kind(root, src)
     if kind == "directory":
-        docs, loaded = dir_manifests(root, app)
+        docs, loaded = dir_manifests(root, src)
         return docs, loaded, []
     if kind == "kustomize":
         if not shutil.which("kubectl"):
             raise RuntimeError("kubectl not installed")
         return [(d, src["path"]) for d in load_docs(sh("kubectl", "kustomize", str(root / src["path"])))], None, []
     if kind in ("helm", "helm-local"):
-        notes = []
-        if (src.get("helm") or {}).get("valueFiles") and not src.get("path"):
-            notes.append("valueFiles not applied (chart-repo source)")
-        return [(d, app_file) for d in helm_docs(root, app, work)], None, notes
+        docs, notes = helm_docs(root, app, src, refs, work, repo)
+        return [(d, app_file) for d in docs], None, notes
     raise RuntimeError(f"unsupported Application source ({kind})")
 
 
-def res_key(doc: dict, default_ns: str) -> tuple[str, str, str]:
+def render_app(root: Path, app_file: str, app: dict, work: Path,
+               repo: str) -> tuple[list[tuple[dict, str]], set[str] | None, list[str]]:
+    """Returns (docs with their source file, files actually loaded or None for 'all', render notes).
+
+    Multi-source Applications render every chart or path source, as Argo CD does; a ref-only
+    source just supplies $<ref> value files.
+    """
+    sources = app_sources(app)
+    refs = {s["ref"]: s for s in sources if s.get("ref")}
+    renderable = [s for s in sources if s.get("chart") or s.get("path")]
+    if not renderable:
+        raise RuntimeError("no chart or path source")
+    docs: list[tuple[dict, str]] = []
+    loaded: set[str] | None = set()
+    notes: list[str] = []
+    for src in renderable:
+        d, ld, n = render_source(root, app_file, app, src, refs, work, repo)
+        docs += d
+        notes += n
+        loaded = None if loaded is None or ld is None else loaded | ld
+    return docs, loaded, notes
+
+
+def res_key(doc: dict, default_ns: str, scope: str = "") -> tuple[str, str, str, str]:
+    """(kind, namespace, name, scope). scope is the Application's directory when Applications span
+    several directories (one per environment), so one object in two clusters stays two resources."""
     md = doc.get("metadata")
     md = md if isinstance(md, dict) else {}
     ns = "" if doc.get("kind") in CLUSTER_SCOPED else (md.get("namespace") or default_ns)
-    return (str(doc.get("kind")), ns, str(md.get("name", "?")))
+    return (str(doc.get("kind")), ns, str(md.get("name", "?")), scope)
 
 
 def diff_paths(a, b, prefix: str = "") -> list[str]:
@@ -326,7 +453,7 @@ def build_edges(docs: dict[tuple, dict]) -> list[tuple[tuple, tuple, str]]:
 
     def doc_edges(k, d):
         edges = []
-        kind, ns, _ = k
+        kind, ns = k[0], k[1]
         spec = _d(d.get("spec"))
         if kind == "Service" and spec.get("selector"):
             for wk, wd in docs.items():
@@ -684,14 +811,18 @@ def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
     f = data.get("fields") or {}
     parent = f.get("parent") or None
     comments = ((f.get("comment") or {}).get("comments") or [])[-JIRA_MAX_COMMENTS:]
-    return {"key": key, "source": source,
-            "url": f"https://{site.group(1)}/browse/{key}" if site else None,
+    url = f"https://{site.group(1)}/browse/{key}" if site else None
+    # j* ids let the explainer cite a comment as evidence for work done outside the PR.
+    comments_out = [{"id": f"j{i}", "author": (c.get("author") or {}).get("displayName"),
+                     "created": (c.get("created") or "")[:10],
+                     "url": f"{url}?focusedCommentId={c['id']}" if url and c.get("id") else url,
+                     "body": adf_text(c.get("body") or "", JIRA_COMMENT_CHARS)} for i, c in enumerate(comments, start=1)]
+    return {"key": key, "source": source, "url": url,
             "summary": f.get("summary"), "status": (f.get("status") or {}).get("name"),
             "type": (f.get("issuetype") or {}).get("name"),
             "parent": {"key": parent.get("key"), "summary": (parent.get("fields") or {}).get("summary")} if parent else None,
             "description": adf_text(f.get("description") or "", JIRA_DESCRIPTION_CHARS),
-            "comments": [{"author": (c.get("author") or {}).get("displayName"), "created": (c.get("created") or "")[:10],
-                          "body": adf_text(c.get("body") or "", JIRA_COMMENT_CHARS)} for c in comments]}, []
+            "comments": comments_out}, []
 
 
 def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees: Trees) -> dict:
@@ -702,12 +833,19 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     read_kinds, read_globs = set(read.get("kinds") or []), read.get("paths") or []
     callouts = policy.get("risk_callouts") or {}
 
-    apps_base, apps_head = applications(trees.base), applications(trees.head)
+    found_base, found_head = find_applications(trees.base), find_applications(trees.head)
+    apps_base, apps_head, scoped = applications(found_base, found_head)
     changed = [f["filename"] for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
+    watched = {name: watched_files(trees.head if name in apps_head else trees.base, doc, repo)
+               for name, (_, doc) in {**apps_base, **apps_head}.items()}
+    # A values file in a shared chart directory affects only the apps that list it, not every app
+    # rendering that chart (one values file per environment).
+    all_value_files = set().union(*(vf for _, vf in watched.values()))
     affected: dict[str, list[str]] = {}
     for name, (afile, doc) in {**apps_base, **apps_head}.items():
-        src_path = ((doc["spec"].get("source") or {}).get("path") or "").rstrip("/")
-        hits = [p for p in changed if p == afile or (src_path and p.startswith(src_path + "/"))]
+        dirs, vfiles = watched[name]
+        hits = [p for p in changed if p == afile or p in vfiles
+                or (any(p.startswith(d + "/") for d in dirs) and p not in all_value_files)]
         if hits:
             affected[name] = hits
 
@@ -717,10 +855,11 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         b, h = apps_base.get(name), apps_head.get(name)
         afile, adoc = h or b
         ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
+        scope = str(Path(afile).parent) if scoped else ""
         entry = {"app": name, "application_file": afile,
                  "source_kind": "unknown", "render": "rendered", "render_note": ""}
         try:
-            entry["source_kind"] = source_kind(trees.head if h else trees.base, adoc)
+            entry["source_kind"] = app_source_kind(trees.head if h else trees.base, adoc)
             bdocs, bload, bnotes = render_app(trees.base, b[0], b[1], trees.dir, repo) if b else ([], set(), [])
             hdocs, hload, hnotes = render_app(trees.head, h[0], h[1], trees.dir, repo) if h else ([], set(), [])
         except Exception as err:
@@ -734,12 +873,12 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
             handled.update(p for p in affected[name] if p in bload | hload or p == afile)
         for side, docs, univ in (("base", bdocs, base_univ), ("head", hdocs, head_univ)):
             for d, f in docs:
-                k = res_key(d, ns)
+                k = res_key(d, ns, scope)
                 univ[k], owner[k] = d, name
                 where.setdefault(k, {})[side] = f
         for side, pair, univ in (("base", b, base_univ), ("head", h, head_univ)):
             if pair:  # the Application object itself, so spec-only edits (syncPolicy, ...) show up
-                k = res_key(pair[1], "argo-cd")
+                k = res_key(pair[1], "argo-cd", scope)
                 univ[k], owner[k] = pair[1], name
                 where.setdefault(k, {})[side] = pair[0]
         apps_out.append(entry)
@@ -760,12 +899,15 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     for k, d in list(universe.items()):
         if k[0] == "ExternalSecret":
             target = ((d.get("spec") or {}).get("target") or {}).get("name") or k[2]
-            sk = ("Secret", k[1], target)
+            sk = ("Secret", k[1], target, k[3])
             if sk not in universe:
                 universe[sk] = {"kind": "Secret", "metadata": {"name": target, "namespace": k[1]}}
                 owner[sk] = owner.get(k)
                 generated.add(sk)
-    edges = build_edges(universe)
+    by_scope: dict[str, dict[tuple, dict]] = {}
+    for k, d in universe.items():
+        by_scope.setdefault(k[3], {})[k] = d
+    edges = [e for part in by_scope.values() for e in build_edges(part)]
     neighbors = {b2 for a, b2, _ in edges if a in changes} | {a for a, b2, _ in edges if b2 in changes}
     order = sorted(changes, key=lambda k: (owner.get(k) or "", k)) + sorted(n for n in neighbors if n not in changes)
 
@@ -776,7 +918,7 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         loc = where.get(k, {})
         side = "base" if action == "removed" else "head"
         file = loc.get(side) or loc.get("head") or loc.get("base")
-        resources.append({"id": ids[k], "app": owner.get(k), "kind": k[0], "namespace": k[1], "name": k[2],
+        resources.append({"id": ids[k], "app": owner.get(k), "scope": k[3], "kind": k[0], "namespace": k[1], "name": k[2],
                           "action": action, "changed_paths": paths, "file": file,
                           "lines": find_lines(trees.base if side == "base" else trees.head, file, k[0], k[2]),
                           "risk": callouts.get(k[0])})
@@ -796,6 +938,13 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
             nm.append({"id": f"f{len(nm) + 1}", "file": f["filename"], "status": f["status"],
                        "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
                        "hunks": hunk_ranges(f.get("patch") or "")})
+    unrendered_yaml = [n for n in nm if n["file"].endswith((".yaml", ".yml"))]
+    if unrendered_yaml and not affected:
+        # Without this note an empty resource map looks like "nothing to render" instead of "nothing found".
+        where = (f"{len(apps_base | apps_head)} Argo CD Applications were found, but none deploys them"
+                 if apps_base or apps_head else "no Argo CD Application manifest was found in the repository")
+        notes.append({"key": "apps", "text": f"{len(unrendered_yaml)} changed YAML files were not rendered: {where}. "
+                                             "They are summarized from the raw diff."})
 
     candidates: dict[tuple, list[dict]] = {}
     for r in resources:
