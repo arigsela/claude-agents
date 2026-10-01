@@ -20,6 +20,9 @@ from pathlib import Path
 MAX_NODES = 40
 NODE_CLASS = {"added": "added", "modified": "modified", "removed": "removed",
               "context": "context", "generated": "context"}
+# Plan actions from a plan comment, then source-level actions from the no-plan block comparison.
+TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "destroy": "removed", "read": "context",
+            "added": "added", "modified": "modified", "removed": "removed"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
 STANDALONE_HEAD = ('<!doctype html>\n<meta charset="utf-8">\n'
                    '<meta name="viewport" content="width=device-width, initial-scale=1">\n')
@@ -52,6 +55,12 @@ def label(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9 ._:/-]", " ", str(text))[:60].strip() or "?"
 
 
+def tf_label(t: dict) -> str:
+    """type · name, with a for_each key or count index in parentheses: aws_x · y (search)."""
+    index = re.search(r'\[("?)([^\]"]*)\1\]$', t["address"])
+    return f'{label(t["type"])} · {label(t["name"])}' + (f" ({label(index.group(2))})" if index else "")
+
+
 def mermaid(facts: dict) -> str:
     res = facts["resources"]
     if len(res) > MAX_NODES:
@@ -76,6 +85,23 @@ def mermaid(facts: dict) -> str:
         shown = {r["id"] for r in res}
         lines += [f'  {e["from"]} -->|{e["type"]}| {e["to"]}' for e in facts["edges"]
                   if e["from"] in shown and e["to"] in shown]
+    tf = facts.get("terraform") or []
+    if len(tf) > MAX_NODES:  # collapse per action
+        for action in sorted({t["action"] for t in tf}):
+            ts = [t for t in tf if t["action"] == action]
+            types = ", ".join(sorted({t["type"] for t in ts}))
+            lines.append(f'  tg_{action}["terraform · {len(ts)} {action} · {label(types)}"]:::{TF_CLASS[action]}')
+    elif tf:
+        by_file: dict[str, list[dict]] = {}
+        for t in tf:
+            by_file.setdefault(t.get("file") or "plan", []).append(t)
+        for i, (file, ts) in enumerate(sorted(by_file.items())):
+            lines.append(f'  subgraph tf{i}["{label(file)}"]')
+            lines += [f'    {t["id"]}["{tf_label(t)}<br/>{t["action"]}"]:::{TF_CLASS[t["action"]]}' for t in ts]
+            lines.append("  end")
+        tf_ids = {t["id"] for t in tf}
+        lines += [f'  {e["from"]} -->|{e["type"]}| {e["to"]}' for e in facts["edges"]
+                  if e["from"] in tf_ids and e["to"] in tf_ids]
     lines += ["  classDef added fill:#dcfce7,stroke:#16a34a,color:#052e16",
               "  classDef modified fill:#fef3c7,stroke:#d97706,color:#451a03",
               "  classDef removed fill:#fee2e2,stroke:#dc2626,color:#450a0a,stroke-dasharray:4 3",
@@ -103,7 +129,8 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
         url = f'{pr["url"]}/files#diff-{hashlib.sha256(path.encode()).hexdigest()}'
         start = (item.get("lines") or [None])[0] or ((item.get("hunks") or [[None]])[0][0])
         if start:
-            url += f"R{start}"
+            # A removed block's line number is on the base side of the diff.
+            url += f'{"L" if item.get("action") in ("removed", "destroy") else "R"}{start}'
         return f'<a href="{esc(url)}">{esc(text)}</a>'
 
     def refs(ids: list[str]) -> str:

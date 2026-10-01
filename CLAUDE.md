@@ -15,7 +15,7 @@ This file provides guidance for Claude Code when working with this repository.
 | **oncall-agent-api/** | FastAPI + Anthropic API | HTTP API, Slack /oncall, GitOps PRs, incident memory |
 | **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
 | **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
-| **skills/pr-explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps PR explainer (Artifact); retro of /code-review sessions |
+| **skills/pr-explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact); retro of /code-review sessions |
 
 ## Quick Commands
 

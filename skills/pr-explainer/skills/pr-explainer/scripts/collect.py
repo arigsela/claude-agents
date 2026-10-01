@@ -41,6 +41,10 @@ ATLANTIS_RE = re.compile(r"^\s*# (\S+) (will be created|will be updated in-place
 TF_ACTIONS = {"will be created": "create", "will be updated in-place": "update", "must be replaced": "replace",
               "will be destroyed": "destroy", "will be read during apply": "read"}
 TRIAGE_RE = re.compile(r"<!-- pr-triage -->\s*\n###\s*\S+\s*(review:\w+)\s*\n\*\*Why:\*\*\s*(.*)")
+TF_SUFFIXES = (".tf", ".tfvars", ".tf.json", ".terraform.lock.hcl")
+PLAN_TOTALS_RE = re.compile(r"^Plan: (\d+) to add, (\d+) to change, (\d+) to destroy\.", re.M)
+TF_BLOCK_RE = re.compile(r'^(resource|data)\s+"([^"]+)"\s+"([^"]+)"\s*\{', re.M)
+TF_TOP_RE = re.compile(r"^(resource|data|variable|output|locals|module|provider|terraform|moved|import|removed|check)\b", re.M)
 MAX_CHANGED_PATHS = 10
 MAX_HITS_PER_APP_RULE = 5
 
@@ -395,6 +399,137 @@ def read_policy(trees: Trees) -> dict | None:
     return None
 
 
+def tf_dir(path: str | Path) -> str:
+    """The Terraform root a file belongs to: its directory, "" for the repo root."""
+    parent = str(Path(path).parent)
+    return "" if parent == "." else parent
+
+
+def tf_block_list(root: Path, dirs: set[str] | None = None) -> list[tuple[str, str, int, str]]:
+    """(address, file, line, body) for each resource/data block in the *.tf files under root.
+
+    A block runs to the next top-level block keyword; tofu fmt keeps those at column 0. Comment
+    lines are dropped so an address named only in prose does not become a dependency edge.
+    dirs, when given, limits the scan to those directories (relative to root, "" for the root).
+    """
+    out = []
+    for f in sorted(root.rglob("*.tf")):
+        rel = f.relative_to(root)
+        if ".terraform" in f.parts or (dirs is not None and tf_dir(rel) not in dirs):
+            continue
+        text = f.read_text(errors="replace")
+        starts = sorted(m.start() for m in TF_TOP_RE.finditer(text))
+        for m in TF_BLOCK_RE.finditer(text):
+            end = next((s for s in starts if s > m.start()), len(text))
+            body = "\n".join(l for l in text[m.end():end].splitlines() if not l.lstrip().startswith(("#", "//")))
+            addr = f"{m.group(2)}.{m.group(3)}" if m.group(1) == "resource" else f"data.{m.group(2)}.{m.group(3)}"
+            out.append((addr, str(rel), text.count("\n", 0, m.start()) + 1, body))
+    return out
+
+
+def tf_blocks(root: Path) -> dict[str, tuple[str, int, str]]:
+    """address -> (file, line, body); the last block wins when two roots share an address."""
+    return {addr: (file, line, body) for addr, file, line, body in tf_block_list(root)}
+
+
+def tf_reference_edges(groups: dict, bodies: dict) -> list[dict]:
+    """Edges src -> dst where src's block body names dst's address.
+
+    groups maps a key (an address, or (dir, address) when several roots are scanned) to the
+    fact IDs that share that block; bodies maps the same key to the block body. for_each and
+    count give one plan entry per instance but one block, so edges attach to every instance.
+    """
+    edges = []
+    for src, src_ids in groups.items():
+        if src not in bodies:
+            continue
+        for dst, dst_ids in groups.items():
+            same_root = not isinstance(src, tuple) or src[0] == dst[0]
+            addr = dst[1] if isinstance(dst, tuple) else dst
+            if dst != src and same_root and re.search(r"(?<![\w.])" + re.escape(addr) + r"(?![\w])", bodies[src]):
+                edges += [{"from": a, "to": b, "type": "references"} for a in src_ids for b in dst_ids]
+    return edges
+
+
+def terraform_source_facts(tf_files: list[dict], trees: Trees) -> tuple[list[dict], list[dict], list[dict]]:
+    """Resources from comparing resource/data blocks at base and head, for PRs without a plan comment.
+
+    Only the root directories that hold a changed .tf file are compared, keyed by (dir, address)
+    so a block moved between files in one root is not reported. Actions are source-level
+    (added | modified | removed), never plan results.
+    """
+    dirs = {tf_dir(f["filename"]) for f in tf_files if f["filename"].endswith(".tf")}
+    note = {"key": "terraform", "text": "No plan comment was found, so Terraform resources come from comparing "
+                                        "resource and data blocks at base and head. Their actions are source-level "
+                                        "(added, modified, removed), not plan results: count/for_each instances, module "
+                                        "internals, moved/import/removed blocks, variable/local-driven changes and "
+                                        "forced replacements are not resolved."}
+    if not dirs:
+        return [], [], [{"key": "terraform", "text": "No plan comment was found and only .tfvars, .tf.json or lock "
+                                                     "files changed; no Terraform resources were derived."}]
+
+    def norm(body: str) -> str:
+        return "\n".join(l.strip() for l in body.splitlines() if l.strip())
+
+    def index(root: Path) -> dict:
+        return {(tf_dir(file), addr): (file, line, body) for addr, file, line, body in tf_block_list(root, dirs)}
+
+    base, head = index(trees.base), index(trees.head)
+    tf = []
+    for key in sorted(base.keys() | head.keys(), key=lambda k: (head.get(k) or base[k])[:2]):
+        if key not in base:
+            action, side = "added", head
+        elif key not in head:
+            action, side = "removed", base
+        elif norm(base[key][2]) != norm(head[key][2]):
+            action, side = "modified", head
+        else:
+            continue
+        file, line, _ = side[key]
+        address = key[1]
+        rtype, _, rname = address.removeprefix("data.").partition(".")
+        tf.append({"id": f"t{len(tf) + 1}", "address": address, "action": action, "source": "source-diff",
+                   "type": rtype, "name": rname, "file": file, "lines": [line]})
+    groups = {(tf_dir(t["file"]), t["address"]): [t["id"]] for t in tf}
+    bodies = {k: v[2] for k, v in head.items()}
+    return tf, tf_reference_edges(groups, bodies), [note]
+
+
+def terraform_facts(files: list[dict], comments: list[dict], trees: Trees) -> tuple[list[dict], list[dict], dict | None, list[dict]]:
+    """Resources from the newest plan comment, edges from head-side references, and plan totals.
+
+    Detection is by file suffix, not directory, because OpenTofu roots often sit at the repo root.
+    Without a plan comment, resources fall back to a base/head block comparison.
+    """
+    tf_files = [f for f in files if f["filename"].endswith(TF_SUFFIXES)]
+    plans = [c for c in comments if ATLANTIS_RE.search(c.get("body") or "")]
+    if not tf_files:
+        return [], [], None, []
+    if not plans:
+        tf, edges, notes = terraform_source_facts(tf_files, trees)
+        return tf, edges, None, notes
+    body = plans[-1]["body"]
+    seen: dict[str, str] = {}  # a comment can repeat the plan (one block per workspace); first wins
+    for m in ATLANTIS_RE.finditer(body):
+        seen.setdefault(m.group(1), TF_ACTIONS[m.group(2)])
+    blocks = tf_blocks(trees.head)
+    tf = []
+    for i, (address, action) in enumerate(seen.items(), start=1):
+        base = re.sub(r"\[[^\]]*\]", "", address)
+        file, line, _ = blocks.get(base, (None, None, ""))
+        rtype, _, rname = base.removeprefix("data.").partition(".")
+        tf.append({"id": f"t{i}", "address": address, "action": action, "source": "plan-comment",
+                   "type": rtype, "name": rname, "file": file, "lines": [line] if line else None})
+    by_base: dict[str, list[str]] = {}
+    for t in tf:
+        by_base.setdefault(re.sub(r"\[[^\]]*\]", "", t["address"]), []).append(t["id"])
+    edges = tf_reference_edges(by_base, {addr: body for addr, (_, _, body) in blocks.items()})
+    totals = None
+    if m := list(PLAN_TOTALS_RE.finditer(body))[-1:]:
+        totals = dict(zip(("add", "change", "destroy"), map(int, m[0].groups())))
+    return tf, edges, totals, []
+
+
 def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees: Trees) -> dict:
     policy = read_policy(trees)
     policy_found = policy is not None
@@ -486,16 +621,10 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     tf, nm, notes = [], [], []
     if not policy_found:
         notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no always-read checks were applied."})
-    tf_files = [f for f in files if f["filename"].startswith("terraform/")]
-    plans = [c for c in comments if ATLANTIS_RE.search(c.get("body") or "")]
-    if tf_files and plans:
-        for m in ATLANTIS_RE.finditer(plans[-1]["body"]):
-            tf.append({"id": f"t{len(tf) + 1}", "address": m.group(1), "action": TF_ACTIONS[m.group(2)],
-                       "source": "atlantis-plan"})
-        handled.update(f["filename"] for f in tf_files if f["filename"].endswith((".tf", ".tfvars")))
-    elif tf_files:
-        notes.append({"key": "terraform", "text": "Terraform files changed but no Atlantis plan comment was "
-                                                  "found; they appear as source-diff files only."})
+    # .tf files stay in non_manifest_changes: a plan lists only changed resources, so locals,
+    # variables and tfvars edits would otherwise vanish from the facts.
+    tf, tf_edges, tf_totals, tf_notes = terraform_facts(files, comments, trees)
+    notes += tf_notes
     for f in files:
         if f["filename"] not in handled:
             nm.append({"id": f"f{len(nm) + 1}", "file": f["filename"], "status": f["status"],
@@ -519,8 +648,13 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
             rule = f"always_read.paths ({pat})"
             candidates.setdefault(("file", n["file"], rule), []).append({"ref": n["id"], "rule": rule, "callout": "always read"})
     for t in tf:
-        candidates.setdefault(("terraform", ""), []).append(
-            {"ref": t["id"], "rule": "always_read.paths (terraform/**)", "callout": "infrastructure change"})
+        # Replacing or destroying infrastructure (a removed resource block destroys it unless a
+        # moved or removed block says otherwise) always needs a human; other entries only
+        # when the repo's own policy globs claim the file.
+        if t["action"] in ("replace", "destroy") or (t["action"] == "removed" and not t["address"].startswith("data.")) or (t["file"] and matched_glob(t["file"], read_globs)):
+            candidates.setdefault(("terraform", ""), []).append(
+                {"ref": t["id"], "rule": ("terraform plan " if t["source"] == "plan-comment" else "terraform source ")
+                 + t["action"], "callout": "infrastructure change"})
     policy_hits = []
     for group in candidates.values():
         kept = group[:MAX_HITS_PER_APP_RULE]
@@ -536,8 +670,8 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         "pr": {"number": pr["number"], "title": pr["title"], "url": pr["html_url"], "repo": repo,
                "base_sha": pr["base"]["sha"], "head_sha": pr["head"]["sha"],
                "merge_base": trees.merge_base},
-        "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out,
-        "non_manifest_changes": nm, "terraform": tf, "policy_hits": policy_hits, "notes": notes,
+        "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges,
+        "non_manifest_changes": nm, "terraform": tf, "terraform_plan": tf_totals, "policy_hits": policy_hits, "notes": notes,
     }
 
 
@@ -563,7 +697,7 @@ def main() -> int:
     (out / "facts.json").write_text(json.dumps(facts, indent=2))
     changed = sum(r["action"] not in ("context", "generated") for r in facts["resources"])
     unrendered = [a["app"] for a in facts["apps"] if a["render"] != "rendered"]
-    print(f"collect: {changed} changed resources, {len(facts['edges'])} edges, "
+    print(f"collect: {changed} changed resources, {len(facts['terraform'])} terraform resources, {len(facts['edges'])} edges, "
           f"{len(facts['non_manifest_changes'])} non-manifest files, {len(facts['policy_hits'])} policy hits, "
           f"unrendered apps: {unrendered or 'none'}")
     print(f"collect: wrote {out / 'facts.json'} and {out / 'diff.patch'}")

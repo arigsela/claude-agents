@@ -17,6 +17,11 @@ Requirements:
 - Optional: `helm`, for Helm-sourced apps (`brew install helm`).
 - Kustomize apps use `kubectl kustomize`.
 
+Terraform/OpenTofu changes (any `.tf` file, at any depth) get their own resource map. Resources
+come from the newest plan comment on the PR (`# <address> will be created` lines). Without one,
+`collect.py` compares the `resource` and `data` blocks at base and head in each changed root and
+marks them added, modified or removed. Those are source-level changes, not plan results.
+
 Apps that cannot be rendered are listed under "Not covered".
 
 Design: `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` §6.

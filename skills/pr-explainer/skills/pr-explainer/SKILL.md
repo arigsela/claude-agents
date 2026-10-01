@@ -1,7 +1,7 @@
 ---
 name: pr-explainer
-description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, before→after table, risk callouts, and the hunks a human must still read. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
-version: "0.1.0"
+description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from a plan comment, or a base/head block comparison when there is none), builds a deterministic resource map, and publishes a private HTML page with a TL;DR, before→after table, risk callouts, and the hunks a human must still read. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
+version: "0.2.0"
 author:
   name: "Arisela"
 tags: [pull-request, gitops, argocd, kubernetes, diagram, review]
@@ -79,10 +79,10 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    | Field | What to write |
    |---|---|
    | `tldr` | 2–3 plain sentences: what changes, for which app, and the operator-visible effect. No code. |
-   | `behavior_changes` | One row per app whose behaviour changes, in operator terms. For example: "startup probe gives up after 1 s" → "after 5 s". `refs` are resource IDs. |
+   | `behavior_changes` | One row per app whose behaviour changes, in operator terms. For example: "startup probe gives up after 1 s" → "after 5 s". `refs` are resource IDs: `r*` for Kubernetes resources, `t*` for Terraform/OpenTofu resources. A `t*` with `source: plan-comment` carries a plan action (create, update, replace, destroy, read); one with `source: source-diff` carries a source-level action (added, modified, removed) from comparing blocks at base and head, so never describe it as a plan result. |
    | `callouts` | `high` for every `policy_hits` entry. `medium` for resources with a `risk`. `info` for anything else worth knowing. Always add `refs`. |
    | `must_read` | Every `policy_hits[].ref` (required; `verify.py` enforces it), plus non-manifest files that change behaviour, such as scripts. `why` says exactly what to check. |
-   | `reading_order` | IDs in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. If you deviate, explain why in an `info` callout. |
+   | `reading_order` | IDs in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. Terraform `t*` resources go in dependency order from `edges` (a resource after the ones it references). If you deviate, explain why in an `info` callout. |
    | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. The `policy` note when no review policy was found. |
 
 3. **Verify**
