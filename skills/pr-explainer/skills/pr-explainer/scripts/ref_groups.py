@@ -17,6 +17,8 @@ def entry(item: dict | None, rid: str) -> tuple[str, list[str], set[int]]:
     segs = segments(item, rid)
     if not item or "created" in item:
         allowed: set[int] = set()
+    elif "element" in item:  # GitHub Actions: vary on the input, output or job name
+        allowed = {1}
     elif "kind" in item or "address" in item:
         allowed = {2} if "kind" in item else {1}
         allowed &= set(range(len(segs))) if len(segs) > 1 else set()
@@ -37,6 +39,8 @@ def segments(item: dict | None, rid: str) -> list[str]:
         if m:
             return [m.group(1) + m.group(2), m.group(3), m.group(2) + m.group(4) + f" ({m.group(5)})"]
         return [f'{item["address"]} ({item["action"]})']
+    if "element" in item:  # GitHub Actions entry: input enableAurora (removed) · java-deploy.yaml
+        return [f'{item["element"]} ', item["name"], f' ({item["action"]}) · {item["workflow"].rsplit("/", 1)[-1]}']
     if "created" in item:  # ticket comment
         return [f'ticket comment {item["created"]}', " · ", item.get("author") or "unknown author"]
     out: list[str] = []

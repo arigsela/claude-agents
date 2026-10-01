@@ -305,6 +305,7 @@ The graph includes every changed resource plus unchanged neighbours one hop away
 - `edges[]`.
 - `non_manifest_changes[]`.
 - `terraform[]`: `{id, address, action, source}`.
+- `workflows[]`: `{id, workflow, element: setting|trigger|input|output|secret|job, event, name, action, changed_paths, file, lines, uses?, required?, has_default?}`, from comparing each changed file directly under `.github/workflows/` at base and head. `needs` adds `edges[]` of type `needs` (dependent → job it waits for), drawn in run order. Removed `workflow_call` inputs/outputs/secrets, newly required inputs and `permissions` changes are policy hits.
 - `policy_hits[]`: `{ref, rule, callout, more?}`. At most 5 hits per (app, rule); `more` counts the rest.
 - `notes[]`: `{key, text}`, e.g. Terraform changed but no Atlantis plan was found. Each `key` must appear in `not_covered`.
 

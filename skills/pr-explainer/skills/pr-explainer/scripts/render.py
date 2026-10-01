@@ -95,6 +95,50 @@ def res_groups(res: list[dict]) -> list[list[dict]]:
     return list(groups.values())
 
 
+def workflow_lines(facts: dict) -> list[str]:
+    """One subgraph per workflow file: a node per job, wired by `needs` in run order, and one node
+    per (element, action) for settings, triggers, inputs, outputs and secrets, which have no edges."""
+    wf = facts.get("workflows") or []
+    if not wf:
+        return []
+    jobs = [w for w in wf if w["element"] == "job"]
+    lines, node_of = [], {}
+    by_file: dict[str, list[str]] = {}
+    if len(jobs) > MAX_NODES:  # collapse jobs per (file, action)
+        groups: dict[tuple, list[dict]] = {}
+        for w in jobs:
+            groups.setdefault((w["file"], w["action"]), []).append(w)
+        for i, ((file, action), ws) in enumerate(sorted(groups.items())):
+            by_file.setdefault(file, []).append(f'    wj{i}["{len(ws)} jobs {action}"]:::{NODE_CLASS[action]}')
+    else:
+        for w in jobs:
+            node_of[w["id"]] = w["id"]
+            calls = f'<br/>uses {label(w["uses"].rsplit("/", 1)[-1])}' if w.get("uses") else ""
+            by_file.setdefault(w["file"], []).append(
+                f'    {w["id"]}["job · {label(w["name"])}{calls}<br/>{w["action"]}"]:::{NODE_CLASS[w["action"]]}')
+    rest: dict[tuple, list[dict]] = {}
+    for w in wf:
+        if w["element"] != "job":
+            rest.setdefault((w["file"], w["element"], w["action"]), []).append(w)
+    for i, ((file, element, action), ws) in enumerate(sorted(rest.items(), key=lambda kv: kv[0])):
+        text = f'{element} · {label(ws[0]["name"])}' if len(ws) == 1 else f"{len(ws)} {element}s"
+        by_file.setdefault(file, []).append(f'    wg{i}["{text}<br/>{action}"]:::{NODE_CLASS[action]}')
+    for i, (file, nodes) in enumerate(sorted(by_file.items())):
+        lines.append(f'  subgraph wf{i}["{label(file)}"]')
+        lines += nodes
+        lines.append("  end")
+    seen: set[tuple[str, str]] = set()
+    for e in facts["edges"]:
+        if e["type"] != "needs":
+            continue
+        # "from needs to" means "to" runs first, so the arrow follows run order.
+        src, dst = node_of.get(e["to"]), node_of.get(e["from"])
+        if src and dst and (src, dst) not in seen:
+            seen.add((src, dst))
+            lines.append(f"  {src} --> {dst}")
+    return lines
+
+
 def mermaid(facts: dict) -> str:
     res = facts["resources"]
     groups = res_groups(res)
@@ -158,6 +202,7 @@ def mermaid(facts: dict) -> str:
             if src and dst and src != dst and (src, dst, e["type"]) not in seen:
                 seen.add((src, dst, e["type"]))
                 lines.append(edge_line(e, src, dst))
+    lines += workflow_lines(facts)
     lines += ["  classDef added fill:#dcfce7,stroke:#16a34a,color:#052e16",
               "  classDef modified fill:#fef3c7,stroke:#d97706,color:#451a03",
               "  classDef removed fill:#fee2e2,stroke:#dc2626,color:#450a0a,stroke-dasharray:4 3",
@@ -167,7 +212,8 @@ def mermaid(facts: dict) -> str:
 
 def render(facts: dict, expl: dict, errors: list[str]) -> str:
     pr = facts["pr"]
-    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform") for x in facts[key]}
+    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows")
+             for x in facts.get(key) or []}
     index.update({c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")})
 
     def ref_url(item: dict) -> str | None:

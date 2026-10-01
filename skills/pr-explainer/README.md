@@ -34,6 +34,14 @@ characters of the plan, so large plans map only some resources). Without a plan 
 `collect.py` compares the `resource` and `data` blocks at base and head in each changed root and
 marks them added, modified or removed. Those are source-level changes, not plan results.
 
+GitHub Actions workflow changes (files directly under `.github/workflows/`) get their own map
+too. `collect.py` compares each changed workflow at base and head: jobs drawn in run order from
+`needs`, plus grouped nodes for `workflow_call`/`workflow_dispatch` inputs, outputs and secrets,
+triggers and workflow-level settings. A removed `workflow_call` input, output or secret, a newly
+required input, and a `permissions` change are always-read policy hits, because they break callers
+or change what the job token can do. Expressions, matrix expansion, the reusable workflows a job
+calls, composite actions and callers in other repositories are not resolved.
+
 If the branch name, title or body names an IFS ticket (branch first), `collect.py` reads it with
 `acli jira workitem view` and the page adds a Ticket card: the ticket's intent and each ask marked
 covered, respected (a scope limit the PR keeps), done outside this PR (cited from a ticket
