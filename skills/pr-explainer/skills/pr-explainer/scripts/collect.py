@@ -36,8 +36,21 @@ CLUSTER_SCOPED = {
     "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
 }
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
-ATLANTIS_RE = re.compile(r"^\s*# (\S+) (will be created|will be updated in-place|must be replaced|"
-                         r"will be destroyed|will be read during apply)", re.M)
+# A resource header in plain-text plan output. Addresses can hold spaces inside for_each keys, and
+# tainted or deposed objects carry a qualifier between the address and the action.
+PLAN_LINE_RE = re.compile(r"^\s*# (.+?)(?: \(deposed object \w+\))?(?: is tainted, so)? (will be created|"
+                          r"will be updated in-place|must be replaced|will be destroyed|will be read during apply)[ \t\r]*$", re.M)
+# chg-opentofu-workflows opentofu-pr-plan.yaml posts one comment per environment, edited in place.
+IAC_PLAN_MARKER_RE = re.compile(r"<!-- iac-pr-plan:([\w.-]+) -->")
+IAC_SUMMARY_RE = re.compile(r"\*\*Summary:\*\* (\d+) to add, (\d+) to change, (\d+) to destroy, (\d+) to replace\.")
+IAC_COMMIT_RE = re.compile(r"commit: `([0-9a-f]{7,40})`")
+IAC_RUN_RE = re.compile(r"\[workflow run\]\((https://github\.com/[^)\s]+/actions/runs/\d+)\)")
+ACTION_RANK = {"destroy": 0, "replace": 1, "create": 2, "update": 3, "read": 4}
+JIRA_KEY_RE = re.compile(r"\bIFS-\d+\b", re.I)
+JIRA_FIELDS = "summary,status,issuetype,description,parent,comment"
+JIRA_DESCRIPTION_CHARS = 6000
+JIRA_COMMENT_CHARS = 1500
+JIRA_MAX_COMMENTS = 5
 TF_ACTIONS = {"will be created": "create", "will be updated in-place": "update", "must be replaced": "replace",
               "will be destroyed": "destroy", "will be read during apply": "read"}
 TRIAGE_RE = re.compile(r"<!-- pr-triage -->\s*\n###\s*\S+\s*(review:\w+)\s*\n\*\*Why:\*\*\s*(.*)")
@@ -376,7 +389,7 @@ def matched_glob(path: str, globs: list[str]) -> str | None:
 
 
 def trusted_comments(comments: list[dict], login: str) -> list[dict]:
-    """Only the authenticated user's own comments and Bot comments may feed triage/Atlantis parsing."""
+    """Only the authenticated user's own comments and Bot comments may feed triage/plan parsing."""
     out = []
     for c in comments:
         u = c.get("user") or {}
@@ -495,39 +508,169 @@ def terraform_source_facts(tf_files: list[dict], trees: Trees) -> tuple[list[dic
     return tf, tf_reference_edges(groups, bodies), [note]
 
 
-def terraform_facts(files: list[dict], comments: list[dict], trees: Trees) -> tuple[list[dict], list[dict], dict | None, list[dict]]:
-    """Resources from the newest plan comment, edges from head-side references, and plan totals.
+def parse_plan(body: str, environment: str | None, source: str) -> dict:
+    """One plan comment: resource entries, totals, and the commit and run it came from."""
+    entries: dict[str, str] = {}  # a comment can repeat the plan (one block per workspace); first wins
+    for m in PLAN_LINE_RE.finditer(body):
+        entries.setdefault(m.group(1), TF_ACTIONS[m.group(2)])
+    totals = None
+    if m := IAC_SUMMARY_RE.search(body):
+        totals = dict(zip(("add", "change", "destroy", "replace"), map(int, m.groups())))
+    elif m := list(PLAN_TOTALS_RE.finditer(body))[-1:]:
+        totals = dict(zip(("add", "change", "destroy"), map(int, m[0].groups())))
+    commit, run = IAC_COMMIT_RE.search(body), IAC_RUN_RE.search(body)
+    failed = "plan **failed**" in body
+    return {"environment": environment, "source": source, "entries": entries, "totals": totals,
+            "status": "failed" if failed else "no-changes" if totals and not any(totals.values()) else "changes",
+            "commit": commit.group(1) if commit else None, "run_url": run.group(1) if run else None}
+
+
+def plan_comments(comments: list[dict]) -> list[dict]:
+    """Every environment's iac-pr-plan comment, or else the newest Atlantis-style plan comment."""
+    by_env: dict[str, str] = {}
+    for c in comments:
+        if m := IAC_PLAN_MARKER_RE.search(c.get("body") or ""):
+            by_env[m.group(1)] = c["body"]
+    if by_env:
+        return [parse_plan(body, env, "iac-pr-plan") for env, body in sorted(by_env.items())]
+    legacy = [c["body"] for c in comments if PLAN_LINE_RE.search(c.get("body") or "")]
+    return [parse_plan(legacy[-1], None, "atlantis")] if legacy else []
+
+
+def listed(plan: dict) -> int:
+    """Changed resources a plan comment names, counted the way its totals count them.
+
+    A "Plan: N to add, ..., N to destroy" line counts a replacement once in add and once in
+    destroy; the iac-pr-plan summary counts it once, under replace.
+    """
+    twice = plan["totals"] is not None and "replace" not in plan["totals"]
+    return sum(2 if twice and a == "replace" else 1 for a in plan["entries"].values() if a != "read")
+
+
+def plan_notes(plans: list[dict], head_sha: str) -> list[dict]:
+    """Stale, failed, and truncated plans, so the page never presents a partial plan as whole."""
+    def name(p: dict) -> str:
+        return p["environment"] or "the plan comment"
+    notes = []
+    stale = [p for p in plans if p["commit"] and not head_sha.startswith(p["commit"])]
+    if stale:
+        notes.append({"key": "plan-stale", "text": "Plan is older than the PR head (" + head_sha[:7] + ") for: "
+                      + ", ".join(f"{name(p)} at {p['commit']}" for p in stale) + ". Re-run the plan workflow."})
+    failed = [p for p in plans if p["status"] == "failed"]
+    if failed:
+        notes.append({"key": "plan-failed", "text": "Plan failed for: " + ", ".join(
+            f"{name(p)} ({p['run_url'] or 'no run link'})" for p in failed) + "; its resources are not mapped."})
+    truncated = [p for p in plans if p["status"] == "changes" and p["totals"]
+                 and listed(p) < sum(p["totals"].values())]
+    if truncated:
+        # opentofu-pr-plan.yaml keeps only the last 60000 characters of the plan text.
+        notes.append({"key": "plan-truncated", "text": "Plan comment text is cut off, so only some changed resources "
+                      "are mapped: " + ", ".join(f"{name(p)} lists {listed(p)} of "
+                                                 f"{sum(p['totals'].values())}" for p in truncated)
+                      + ". The summary totals are complete."})
+    return notes
+
+
+def terraform_facts(files: list[dict], comments: list[dict], trees: Trees,
+                    head_sha: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Resources from plan comments, edges from head-side references, and one summary per plan.
 
     Detection is by file suffix, not directory, because OpenTofu roots often sit at the repo root.
     Without a plan comment, resources fall back to a base/head block comparison.
     """
     tf_files = [f for f in files if f["filename"].endswith(TF_SUFFIXES)]
-    plans = [c for c in comments if ATLANTIS_RE.search(c.get("body") or "")]
     if not tf_files:
-        return [], [], None, []
+        return [], [], [], []
+    plans = plan_comments(comments)
     if not plans:
         tf, edges, notes = terraform_source_facts(tf_files, trees)
-        return tf, edges, None, notes
-    body = plans[-1]["body"]
-    seen: dict[str, str] = {}  # a comment can repeat the plan (one block per workspace); first wins
-    for m in ATLANTIS_RE.finditer(body):
-        seen.setdefault(m.group(1), TF_ACTIONS[m.group(2)])
+        return tf, edges, [], notes
+    # One node per address across environments, carrying the most destructive action any plan shows.
+    merged: dict[str, dict[str, str]] = {}
+    for p in plans:
+        for address, action in p["entries"].items():
+            merged.setdefault(address, {})[p["environment"] or "default"] = action
     blocks = tf_blocks(trees.head)
     tf = []
-    for i, (address, action) in enumerate(seen.items(), start=1):
+    for i, (address, envs) in enumerate(merged.items(), start=1):
         base = re.sub(r"\[[^\]]*\]", "", address)
         file, line, _ = blocks.get(base, (None, None, ""))
         rtype, _, rname = base.removeprefix("data.").partition(".")
-        tf.append({"id": f"t{i}", "address": address, "action": action, "source": "plan-comment",
-                   "type": rtype, "name": rname, "file": file, "lines": [line] if line else None})
+        tf.append({"id": f"t{i}", "address": address, "action": min(envs.values(), key=ACTION_RANK.__getitem__),
+                   "environments": envs, "source": "plan-comment", "type": rtype, "name": rname,
+                   "file": file, "lines": [line] if line else None})
     by_base: dict[str, list[str]] = {}
     for t in tf:
         by_base.setdefault(re.sub(r"\[[^\]]*\]", "", t["address"]), []).append(t["id"])
     edges = tf_reference_edges(by_base, {addr: body for addr, (_, _, body) in blocks.items()})
-    totals = None
-    if m := list(PLAN_TOTALS_RE.finditer(body))[-1:]:
-        totals = dict(zip(("add", "change", "destroy"), map(int, m[0].groups())))
-    return tf, edges, totals, []
+    summaries = [{"environment": p["environment"], "source": p["source"], "status": p["status"],
+                  "totals": p["totals"], "listed": listed(p),
+                  "commit": p["commit"], "stale": bool(p["commit"]) and not head_sha.startswith(p["commit"]),
+                  "run_url": p["run_url"]} for p in plans]
+    return tf, edges, summaries, plan_notes(plans, head_sha)
+
+
+def adf_text(node, limit: int) -> str:
+    """Plain text from a Jira ADF document (or a plain string), capped at limit characters."""
+    if isinstance(node, str):
+        text = node
+    else:
+        out: list[str] = []
+
+        def walk(n) -> None:
+            if isinstance(n, list):
+                for child in n:
+                    walk(child)
+            elif isinstance(n, dict):
+                kind = n.get("type")
+                if kind == "text":
+                    out.append(n.get("text", ""))
+                elif kind == "hardBreak":
+                    out.append("\n")
+                elif kind == "listItem":
+                    out.append("- ")
+                walk(n.get("content", []))
+                if kind in ("paragraph", "heading", "codeBlock", "blockquote", "rule"):
+                    out.append("\n")
+        walk(node)
+        text = "".join(out)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + " [...]"
+
+
+def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
+    """The IFS ticket the PR names (branch, then title, then body), read through acli.
+
+    The branch wins because CHG branch names carry the ticket by convention; a body can cite
+    several tickets. Every failure degrades to a note instead of stopping the run.
+    """
+    for source, text in (("branch", pr["head"]["ref"]), ("title", pr["title"]), ("body", pr.get("body") or "")):
+        if m := JIRA_KEY_RE.search(text):
+            key = m.group(0).upper()
+            break
+    else:
+        return None, [{"key": "jira", "text": "No IFS ticket key was found in the branch name, title or body."}]
+    if not shutil.which("acli"):
+        return None, [{"key": "jira", "text": f"{key} is referenced but acli is not installed, so the ticket was not read."}]
+    try:
+        data = json.loads(sh("acli", "jira", "workitem", "view", key, "--json", "--fields", JIRA_FIELDS))
+    except (RuntimeError, json.JSONDecodeError) as e:
+        return None, [{"key": "jira", "text": f"{key} is referenced but could not be read with acli ({type(e).__name__})."}]
+    try:
+        site = re.search(r"Site:\s*(\S+)", sh("acli", "jira", "auth", "status"))
+    except RuntimeError:
+        site = None
+    f = data.get("fields") or {}
+    parent = f.get("parent") or None
+    comments = ((f.get("comment") or {}).get("comments") or [])[-JIRA_MAX_COMMENTS:]
+    return {"key": key, "source": source,
+            "url": f"https://{site.group(1)}/browse/{key}" if site else None,
+            "summary": f.get("summary"), "status": (f.get("status") or {}).get("name"),
+            "type": (f.get("issuetype") or {}).get("name"),
+            "parent": {"key": parent.get("key"), "summary": (parent.get("fields") or {}).get("summary")} if parent else None,
+            "description": adf_text(f.get("description") or "", JIRA_DESCRIPTION_CHARS),
+            "comments": [{"author": (c.get("author") or {}).get("displayName"), "created": (c.get("created") or "")[:10],
+                          "body": adf_text(c.get("body") or "", JIRA_COMMENT_CHARS)} for c in comments]}, []
 
 
 def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees: Trees) -> dict:
@@ -623,8 +766,10 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no always-read checks were applied."})
     # .tf files stay in non_manifest_changes: a plan lists only changed resources, so locals,
     # variables and tfvars edits would otherwise vanish from the facts.
-    tf, tf_edges, tf_totals, tf_notes = terraform_facts(files, comments, trees)
+    tf, tf_edges, tf_plans, tf_notes = terraform_facts(files, comments, trees, pr["head"]["sha"])
     notes += tf_notes
+    jira, jira_notes = jira_facts(pr)
+    notes += jira_notes
     for f in files:
         if f["filename"] not in handled:
             nm.append({"id": f"f{len(nm) + 1}", "file": f["filename"], "status": f["status"],
@@ -671,7 +816,7 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
                "base_sha": pr["base"]["sha"], "head_sha": pr["head"]["sha"],
                "merge_base": trees.merge_base},
         "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges,
-        "non_manifest_changes": nm, "terraform": tf, "terraform_plan": tf_totals, "policy_hits": policy_hits, "notes": notes,
+        "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "jira": jira, "policy_hits": policy_hits, "notes": notes,
     }
 
 
@@ -700,6 +845,8 @@ def main() -> int:
     print(f"collect: {changed} changed resources, {len(facts['terraform'])} terraform resources, {len(facts['edges'])} edges, "
           f"{len(facts['non_manifest_changes'])} non-manifest files, {len(facts['policy_hits'])} policy hits, "
           f"unrendered apps: {unrendered or 'none'}")
+    print(f"collect: plans: {[p['environment'] or p['source'] for p in facts['terraform_plans']] or 'none'}, "
+          f"ticket: {(facts['jira'] or {}).get('key') or 'none'}")
     print(f"collect: wrote {out / 'facts.json'} and {out / 'diff.patch'}")
     return 0
 

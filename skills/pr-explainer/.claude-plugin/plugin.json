@@ -1,6 +1,6 @@
 {
   "name": "pr-explainer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Explain a Kubernetes GitOps or Terraform/OpenTofu PR without reading code: rendered-manifest and Terraform resource map, before/after, risk callouts and must-read hunks, published as a private HTML page.",
   "author": { "name": "Arisela" }
 }
