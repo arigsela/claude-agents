@@ -61,6 +61,19 @@ def tf_label(t: dict) -> str:
     return f'{label(t["type"])} · {label(t["name"])}' + (f" ({label(index.group(2))})" if index else "")
 
 
+def edge_line(e: dict, src: str, dst: str) -> str:
+    # "references" is the default relationship; labelling every arrow with it only adds noise.
+    return f"  {src} --> {dst}" if e["type"] == "references" else f'  {src} -->|{e["type"]}| {dst}'
+
+
+def tf_groups(tf: list[dict]) -> list[list[dict]]:
+    """for_each/count instances of one block with the same action, so N instances draw as one node."""
+    groups: dict[tuple, list[dict]] = {}
+    for t in tf:
+        groups.setdefault((t.get("file") or "plan", t["type"], t["name"], t["action"]), []).append(t)
+    return list(groups.values())
+
+
 def mermaid(facts: dict) -> str:
     res = facts["resources"]
     if len(res) > MAX_NODES:
@@ -83,25 +96,37 @@ def mermaid(facts: dict) -> str:
                       for r in rs]
             lines.append("  end")
         shown = {r["id"] for r in res}
-        lines += [f'  {e["from"]} -->|{e["type"]}| {e["to"]}' for e in facts["edges"]
+        lines += [edge_line(e, e["from"], e["to"]) for e in facts["edges"]
                   if e["from"] in shown and e["to"] in shown]
     tf = facts.get("terraform") or []
-    if len(tf) > MAX_NODES:  # collapse per action
+    groups = tf_groups(tf)
+    if len(groups) > MAX_NODES:  # collapse per action
         for action in sorted({t["action"] for t in tf}):
             ts = [t for t in tf if t["action"] == action]
             types = ", ".join(sorted({t["type"] for t in ts}))
             lines.append(f'  tg_{action}["terraform · {len(ts)} {action} · {label(types)}"]:::{TF_CLASS[action]}')
     elif tf:
-        by_file: dict[str, list[dict]] = {}
-        for t in tf:
-            by_file.setdefault(t.get("file") or "plan", []).append(t)
-        for i, (file, ts) in enumerate(sorted(by_file.items())):
+        node_of: dict[str, str] = {}  # terraform id -> mermaid node id
+        by_file: dict[str, list[str]] = {}
+        for i, g in enumerate(groups):
+            first = g[0]
+            if len(g) == 1:
+                node, text = first["id"], tf_label(first)
+            else:
+                node, text = f"tfg{i}", f'{label(first["type"])} · {label(first["name"])} ×{len(g)}'
+            node_of.update({t["id"]: node for t in g})
+            by_file.setdefault(first.get("file") or "plan", []).append(
+                f'    {node}["{text}<br/>{first["action"]}"]:::{TF_CLASS[first["action"]]}')
+        for i, (file, nodes) in enumerate(sorted(by_file.items())):
             lines.append(f'  subgraph tf{i}["{label(file)}"]')
-            lines += [f'    {t["id"]}["{tf_label(t)}<br/>{t["action"]}"]:::{TF_CLASS[t["action"]]}' for t in ts]
+            lines += nodes
             lines.append("  end")
-        tf_ids = {t["id"] for t in tf}
-        lines += [f'  {e["from"]} -->|{e["type"]}| {e["to"]}' for e in facts["edges"]
-                  if e["from"] in tf_ids and e["to"] in tf_ids]
+        seen: set[tuple[str, str, str]] = set()
+        for e in facts["edges"]:
+            src, dst = node_of.get(e["from"]), node_of.get(e["to"])
+            if src and dst and src != dst and (src, dst, e["type"]) not in seen:
+                seen.add((src, dst, e["type"]))
+                lines.append(edge_line(e, src, dst))
     lines += ["  classDef added fill:#dcfce7,stroke:#16a34a,color:#052e16",
               "  classDef modified fill:#fef3c7,stroke:#d97706,color:#451a03",
               "  classDef removed fill:#fee2e2,stroke:#dc2626,color:#450a0a,stroke-dasharray:4 3",
