@@ -12,6 +12,11 @@ Then it publishes a private page with:
 
 It also posts the page link as a sticky PR comment.
 
+Run it from anywhere. Inside a checkout of the PR's repo, `/pr-explainer <PR>` uses that checkout
+and its `.github/review-policy.yaml`. Anywhere else, pass the repo (`/pr-explainer <PR> --repo
+owner/name`): `collect.py` fetches the PR into a temporary blobless bare repo, authenticated with
+`gh`, and deletes it afterwards.
+
 Requirements:
 - Required: `gh`, `git`, `uv`.
 - Optional: `helm`, for Helm-sourced apps (`brew install helm`).
