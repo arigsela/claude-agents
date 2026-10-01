@@ -2,6 +2,8 @@
 
 `/pr-explainer <PR>` explains a GitOps PR without reading code. It renders the changed Argo CD
 apps at the PR's base and head, so a one-line chart bump shows its real resource changes.
+Applications are found anywhere in the repo (`base-apps/`, `argo/<env>/`, ...), including
+multi-source Helm apps with `$values` files; the same app in several environments draws once.
 Then it publishes a private page with:
 
 - a TL;DR
@@ -34,7 +36,8 @@ marks them added, modified or removed. Those are source-level changes, not plan 
 
 If the branch name, title or body names an IFS ticket (branch first), `collect.py` reads it with
 `acli jira workitem view` and the page adds a Ticket card: the ticket's intent and each ask marked
-covered, not covered or unclear against the mapped resources. Without `acli`, or without a key, the
+covered, respected (a scope limit the PR keeps), done outside this PR (cited from a ticket
+comment), not covered or unclear, with the reason for anything not covered. Without `acli`, or without a key, the
 run continues and says so under "Not covered".
 
 The prose is written by Claude Opus 5.5 (`claude-opus-5-5`): the skill pins the model, delegates to

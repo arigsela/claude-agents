@@ -73,7 +73,11 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    bare repo and reads the policy from the base, then head, commit. Either way it renders the base
    side at the merge base (`pr.merge_base`). If an app
    fails to render, it is recorded as `render: source-diff` with a `render_note` that names the
-   exception type.
+   exception type. Applications are found anywhere in the repo (any `argoproj.io` `kind: Application`
+   outside Helm `templates/` and `charts/`), including multi-source ones whose `$values` files
+   live in the same repo. When one app name appears in several directories (one per environment),
+   its id is `<dir>/<name>` and its resources carry that directory as `scope`. If changed YAML
+   matched no Application, an `apps` note says so.
 
 2. **Narrate.** Read `<W>/facts.json` in full. Read `<W>/diff.patch` only for the hunks you
    cite. Write `<W>/explainer.json`:
@@ -85,19 +89,19 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
     "must_read": [{"ref": "r3", "why": "..."}],
     "reading_order": ["r5", "r3", "r1", "f1"],
     "not_covered": ["..."],
-    "ticket": {"intent": "...", "criteria": [{"text": "...", "status": "covered|not_covered|unclear", "refs": ["t2"]}]},
+    "ticket": {"intent": "...", "criteria": [{"text": "...", "status": "covered|respected|out_of_band|not_covered|unclear", "reason": "...", "refs": ["t2", "j3"]}]},
     "narrator_model": "claude-opus-5-5"}
    ```
 
    | Field | What to write |
    |---|---|
    | `tldr` | 2–3 plain sentences: what changes, for which app, and the operator-visible effect. No code. |
-   | `behavior_changes` | One row per app whose behaviour changes, in operator terms. For example: "startup probe gives up after 1 s" → "after 5 s". `refs` are resource IDs: `r*` for Kubernetes resources, `t*` for Terraform/OpenTofu resources. A `t*` with `source: plan-comment` carries a plan action (create, update, replace, destroy, read); one with `source: source-diff` carries a source-level action (added, modified, removed) from comparing blocks at base and head, so never describe it as a plan result. A plan-comment `t*` lists the action per environment in `environments`; name the environments when they differ. Take counts from `terraform_plans[].totals`, never from the number of `t*` entries: a `plan-truncated` note means the map is partial. |
-   | `callouts` | `high` for every `policy_hits` entry. `medium` for resources with a `risk`. `info` for anything else worth knowing. Always add `refs`. |
+   | `behavior_changes` | One row per app whose behaviour changes, in operator terms. For example: "startup probe gives up after 1 s" → "after 5 s". `refs` are resource IDs: `r*` for Kubernetes resources, `t*` for Terraform/OpenTofu resources. A `t*` with `source: plan-comment` carries a plan action (create, update, replace, destroy, read); one with `source: source-diff` carries a source-level action (added, modified, removed) from comparing blocks at base and head, so never describe it as a plan result. A plan-comment `t*` lists the action per environment in `environments`; name the environments when they differ. Take counts from `terraform_plans[].totals`, never from the number of `t*` entries: a `plan-truncated` note means the map is partial. Resources with a `scope` are the same app deployed per environment directory; describe the change once and name the environments. Cite one representative per pattern: the page groups refs that differ in one place (`argo/{nonprod, prod}/...`), and `verify.py` fails a row with more than 6 groups. |
+   | `callouts` | `high` for every `policy_hits` entry. `medium` for resources with a `risk`. `info` for anything else worth knowing. Always add `refs`; a callout may also cite a ticket comment (`j*`). Judge a file by what changed in it, not by which file it is: a sync-policy edit on an NLB Application is not a change to Layer 4 traffic. |
    | `must_read` | Every `policy_hits[].ref` (required; `verify.py` enforces it), plus non-manifest files that change behaviour, such as scripts. `why` says exactly what to check. |
    | `reading_order` | IDs in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. Terraform `t*` resources go in dependency order from `edges` (a resource after the ones it references). If you deviate, explain why in an `info` callout. |
    | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. The `policy` note when no review policy was found. |
-   | `ticket` | Required when `facts.jira` is set; omit it when `jira` is null. `intent`: one or two sentences on what the ticket asks for and why. `criteria`: each acceptance criterion or concrete ask from the description, with `covered` (cite the IDs that deliver it), `not_covered`, or `unclear`. Ticket comments that change scope count. Flag in a `medium` callout anything the PR does that the ticket does not ask for. |
+   | `ticket` | Required when `facts.jira` is set; omit it when `jira` is null. `intent`: one or two sentences on what the ticket asks for and why. `criteria`: each acceptance criterion or concrete ask from the description, with a `status`: `covered` (the diff delivers it; cite the `r*`/`t*`/`f*` IDs), `respected` (a scope limit or constraint, such as "Layer 4 stays out of scope", that the diff does not break), `out_of_band` (done outside this PR, for example by a script; cite the ticket comment `j*` that records it), `not_covered` (nobody has done it), or `unclear` (the evidence is ambiguous). Every status except `covered` needs a one-line `reason`. Ticket comments that change scope count. Flag in a `medium` callout anything the PR changes that the ticket does not ask for. |
    | `narrator_model` | Your exact model ID. It must be `claude-opus-5-5` (ground rule 5). |
 
 3. **Verify**
@@ -154,5 +158,5 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    Use the URL returned by the final publish (new or updated), never the old one if they differ.
 
 7. **Report.** Send one short message: the link, the triage label (if any), the number of
-   changed resources and must-read items, the ticket key and how many criteria are covered,
+   changed resources and must-read items, the ticket key and the count per criterion status,
    and everything in `not_covered`.

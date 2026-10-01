@@ -17,12 +17,17 @@ import json
 import re
 from pathlib import Path
 
+import ref_groups
+
 MAX_NODES = 40
 NODE_CLASS = {"added": "added", "modified": "modified", "removed": "removed",
               "context": "context", "generated": "context"}
 # Plan actions from a plan comment, then source-level actions from the no-plan block comparison.
 TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "destroy": "removed", "read": "context",
             "added": "added", "modified": "modified", "removed": "removed"}
+# Ticket criterion statuses as the reader sees them; verify.py owns the allowed set.
+STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "unclear",
+                "out_of_band": "done outside this PR", "respected": "respected"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
 STANDALONE_HEAD = ('<!doctype html>\n<meta charset="utf-8">\n'
                    '<meta name="viewport" content="width=device-width, initial-scale=1">\n')
@@ -74,30 +79,56 @@ def tf_groups(tf: list[dict]) -> list[list[dict]]:
     return list(groups.values())
 
 
+def base_app(r: dict) -> str:
+    """The app name without its environment directory, so one app deployed per environment groups."""
+    app, scope = r.get("app") or "other", r.get("scope") or ""
+    if scope and app.startswith(scope + "/"):
+        return app[len(scope) + 1:]
+    return app.rsplit(":", 1)[-1] if scope else app
+
+
+def res_groups(res: list[dict]) -> list[list[dict]]:
+    """The same object with the same action in several environments, so it draws as one node."""
+    groups: dict[tuple, list[dict]] = {}
+    for r in res:
+        groups.setdefault((base_app(r), r["kind"], r["namespace"], r["name"], r["action"]), []).append(r)
+    return list(groups.values())
+
+
 def mermaid(facts: dict) -> str:
     res = facts["resources"]
-    if len(res) > MAX_NODES:
+    groups = res_groups(res)
+    if len(groups) > MAX_NODES:
         res = [r for r in res if r["action"] not in ("context", "generated")]
+        groups = res_groups(res)
     lines = ["flowchart LR"]
-    if len(res) > MAX_NODES:  # collapse per (app, action)
-        groups: dict[tuple[str, str], list[dict]] = {}
+    if len(groups) > MAX_NODES:  # collapse per (app, action)
+        collapsed: dict[tuple[str, str], list[dict]] = {}
         for r in res:
-            groups.setdefault((r["app"] or "other", r["action"]), []).append(r)
-        for i, ((app, action), rs) in enumerate(sorted(groups.items())):
+            collapsed.setdefault((base_app(r), r["action"]), []).append(r)
+        for i, ((app, action), rs) in enumerate(sorted(collapsed.items())):
             kinds = ", ".join(sorted({r["kind"] for r in rs}))
             lines.append(f'  g{i}["{label(app)} · {len(rs)} {action} · {label(kinds)}"]:::{NODE_CLASS[action]}')
     else:
-        by_app: dict[str, list[dict]] = {}
-        for r in res:
-            by_app.setdefault(r["app"] or "other", []).append(r)
-        for i, (app, rs) in enumerate(sorted(by_app.items())):
+        node_of: dict[str, str] = {}  # resource id -> mermaid node id
+        by_app: dict[str, list[str]] = {}
+        for i, g in enumerate(groups):
+            first = g[0]
+            node = first["id"] if len(g) == 1 else f"rg{i}"
+            count = f" ×{len(g)}" if len(g) > 1 else ""
+            node_of.update({r["id"]: node for r in g})
+            by_app.setdefault(base_app(first), []).append(
+                f'    {node}["{label(first["kind"])} · {label(first["name"])}{count}"]:::{NODE_CLASS[first["action"]]}')
+        for i, (app, nodes) in enumerate(sorted(by_app.items())):
             lines.append(f'  subgraph s{i}["{label(app)}"]')
-            lines += [f'    {r["id"]}["{label(r["kind"])} · {label(r["name"])}"]:::{NODE_CLASS[r["action"]]}'
-                      for r in rs]
+            lines += nodes
             lines.append("  end")
-        shown = {r["id"] for r in res}
-        lines += [edge_line(e, e["from"], e["to"]) for e in facts["edges"]
-                  if e["from"] in shown and e["to"] in shown]
+        seen_edges: set[tuple[str, str, str]] = set()
+        for e in facts["edges"]:
+            src, dst = node_of.get(e["from"]), node_of.get(e["to"])
+            if src and dst and src != dst and (src, dst, e["type"]) not in seen_edges:
+                seen_edges.add((src, dst, e["type"]))
+                lines.append(edge_line(e, src, dst))
     tf = facts.get("terraform") or []
     groups = tf_groups(tf)
     if len(groups) > MAX_NODES:  # collapse per action
@@ -137,29 +168,41 @@ def mermaid(facts: dict) -> str:
 def render(facts: dict, expl: dict, errors: list[str]) -> str:
     pr = facts["pr"]
     index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform") for x in facts[key]}
+    index.update({c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")})
 
-    def ref_html(rid: str) -> str:
-        item = index.get(rid)
-        if not item:
-            return f"<code>{esc(rid)}</code>"
-        if "kind" in item:
-            text = f'{item["kind"]} {item["namespace"] + "/" if item["namespace"] else ""}{item["name"]}'
-        elif "address" in item:
-            text = f'{item["address"]} ({item["action"]})'
-        else:
-            text = item["file"]
+    def ref_url(item: dict) -> str | None:
+        if "created" in item:  # ticket comment
+            return item.get("url")
         path = item.get("file")
         if not path:
-            return esc(text)
+            return None
         url = f'{pr["url"]}/files#diff-{hashlib.sha256(path.encode()).hexdigest()}'
         start = (item.get("lines") or [None])[0] or ((item.get("hunks") or [[None]])[0][0])
         if start:
             # A removed block's line number is on the base side of the diff.
             url += f'{"L" if item.get("action") in ("removed", "destroy") else "R"}{start}'
-        return f'<a href="{esc(url)}">{esc(text)}</a>'
+        return url
+
+    def ref_link(item: dict | None, text: str) -> str:
+        url = ref_url(item) if item else None
+        return f'<a href="{esc(url)}">{esc(text)}</a>' if url else (esc(text) if item else f"<code>{esc(text)}</code>")
+
+    def ref_html(rid: str) -> str:
+        item = index.get(rid)
+        return ref_link(item, "".join(ref_groups.segments(item, rid)))
 
     def refs(ids: list[str]) -> str:
-        return " ".join(ref_html(r) for r in ids)
+        """One line per group; refs that differ in one place render as prefix{a, b, c}suffix."""
+        out = []
+        for pos, members in ref_groups.group([ref_groups.entry(index.get(r), r) for r in ids]):
+            if pos is None:
+                out.append(f'<span class="ref">{ref_html(members[0][0])}</span>')
+                continue
+            segs = members[0][1]
+            pre, core, suf = ref_groups.trim([m[1][pos] for m in members])
+            links = ", ".join(ref_link(index.get(m[0]), c) for m, c in zip(members, core))
+            out.append(f'<span class="ref">{esc("".join(segs[:pos]) + pre)}{{{links}}}{esc(suf + "".join(segs[pos + 1:]))}</span>')
+        return "".join(out)
 
     banner = ""
     if errors:
@@ -195,12 +238,14 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
             link, esc(jira.get("type") or ""),
             f'<span class="pill">{esc(jira["status"])}</span>' if jira.get("status") else "",
             f'parent {esc(parent.get("key") or "")} {esc(mask(parent.get("summary") or ""))}' if parent else "") if x)
-        criteria = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td><td>{esc(c.get("status", ""))}</td>'
-                           f'<td>{refs(c.get("refs", []))}</td></tr>' for c in ticket.get("criteria", []))
+        criteria = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td>'
+                           f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), c.get("status", "")))}</span></td>'
+                           f'<td>{esc(mask(c.get("reason", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
+                           for c in ticket.get("criteria", []))
         ticket_html = ('<h2>Ticket</h2><div class="card">'
                        f'<div class="meta">{meta}</div><p><strong>{esc(mask(jira.get("summary") or ""))}</strong></p>'
                        + (f'<p>{esc(mask(ticket["intent"]))}</p>' if ticket.get("intent") else "")
-                       + ('<div class="scroll"><table><thead><tr><th>Ticket asks for</th><th>Status</th><th>Refs</th>'
+                       + ('<div class="scroll"><table><thead><tr><th>Ticket asks for</th><th>Status</th><th>Why</th><th>Refs</th>'
                           f'</tr></thead><tbody>{criteria}</tbody></table></div>' if criteria else "")
                        + "</div>")
     subs = {
