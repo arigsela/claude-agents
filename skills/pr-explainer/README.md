@@ -15,12 +15,26 @@ It also posts the page link as a sticky PR comment.
 Requirements:
 - Required: `gh`, `git`, `uv`.
 - Optional: `helm`, for Helm-sourced apps (`brew install helm`).
+- Optional: `acli`, authenticated to Jira, for the IFS ticket card.
 - Kustomize apps use `kubectl kustomize`.
 
 Terraform/OpenTofu changes (any `.tf` file, at any depth) get their own resource map. Resources
-come from the newest plan comment on the PR (`# <address> will be created` lines). Without one,
+come from plan comments on the PR: every environment's `<!-- iac-pr-plan:<env> -->` comment from
+`chg-opentofu-workflows`' `opentofu-pr-plan.yaml`, or else the newest Atlantis-style comment
+(`# <address> will be created` lines). The page shows each plan's totals and flags plans that are
+stale (older than the PR head), failed, or cut off (the workflow keeps only the last 60000
+characters of the plan, so large plans map only some resources). Without a plan comment,
 `collect.py` compares the `resource` and `data` blocks at base and head in each changed root and
 marks them added, modified or removed. Those are source-level changes, not plan results.
+
+If the branch name, title or body names an IFS ticket (branch first), `collect.py` reads it with
+`acli jira workitem view` and the page adds a Ticket card: the ticket's intent and each ask marked
+covered, not covered or unclear against the mapped resources. Without `acli`, or without a key, the
+run continues and says so under "Not covered".
+
+The prose is written by Claude Opus 5.5 (`claude-opus-5-5`): the skill pins the model, delegates to
+an Opus subagent when managed settings block the pin, and `verify.py` marks the page unverified if
+the explainer was written by any other model. The page header names the model.
 
 Apps that cannot be rendered are listed under "Not covered".
 

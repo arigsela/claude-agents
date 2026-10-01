@@ -10,6 +10,10 @@ import json
 import re
 import sys
 
+# The prose must come from one pinned model; managed settings can silently ignore a skill's
+# model override, so the narrator states its model and a mismatch marks the page unverified.
+NARRATOR_MODEL = "claude-opus-5-5"
+TICKET_STATUSES = {"covered", "not_covered", "unclear"}
 SECRET_VALUE_RE = re.compile(
     r"(?i)((?:password|passwd|token|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)(\S{8,})")
 
@@ -53,6 +57,19 @@ def verify(facts: dict, expl: dict) -> list[str]:
     for note in facts.get("notes", []):
         if note["key"].lower() not in covered:
             errors.append(f"note {note['key']!r} is missing from not_covered")
+    if expl.get("narrator_model") != NARRATOR_MODEL:
+        errors.append(f"narrator_model is {expl.get('narrator_model')!r}; the explainer must be written by {NARRATOR_MODEL}")
+    ticket = expl.get("ticket")
+    if facts.get("jira") and not ticket:
+        errors.append(f"facts.jira has {facts['jira']['key']} but the explainer has no ticket section")
+    if ticket and not facts.get("jira"):
+        errors.append("explainer has a ticket section but facts.jira is null")
+    for i, item in enumerate((ticket or {}).get("criteria", [])):
+        if item.get("status") not in TICKET_STATUSES:
+            errors.append(f"ticket.criteria[{i}] status {item.get('status')!r} is not one of {sorted(TICKET_STATUSES)}")
+        for ref in item.get("refs", []):
+            if ref not in ids:
+                errors.append(f"ticket.criteria[{i}] references unknown id {ref!r}")
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
         errors.append("explainer text contains a secret-looking value")
     return errors

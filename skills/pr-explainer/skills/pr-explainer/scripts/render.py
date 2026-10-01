@@ -143,13 +143,49 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
     triage = facts.get("triage") or {}
     header = (f'<a href="{esc(pr["url"])}">{esc(pr["repo"])}#{pr["number"]}</a> · head '
               f'<code>{esc(pr["head_sha"][:7])}</code>'
-              + (f' · <span class="pill">{esc(triage["label"])}</span>' if triage.get("label") else ""))
+              + (f' · <span class="pill">{esc(triage["label"])}</span>' if triage.get("label") else "")
+              + f' · narrated by <code>{esc(expl.get("narrator_model") or "unknown model")}</code>')
+
+    plans = ""
+    if facts.get("terraform_plans"):
+        rows = []
+        for p in facts["terraform_plans"]:
+            t = p.get("totals") or {}
+            counts = " · ".join(f"{t[k]} to {k}" for k in ("add", "change", "destroy", "replace") if k in t) or "no summary"
+            flags = [p["status"]] + (["stale"] if p.get("stale") else []) + (
+                [f'{p["listed"]} mapped'] if t and p["listed"] < sum(t.values()) else [])
+            env = esc(p.get("environment") or p["source"])
+            link = f'<a href="{esc(p["run_url"])}">{env}</a>' if p.get("run_url") else env
+            rows.append(f'<tr><td>{link}</td><td>{esc(counts)}</td><td>{esc(", ".join(flags))}</td></tr>')
+        plans = ('<div class="scroll"><table><thead><tr><th>Plan</th><th>Summary</th><th>Status</th></tr></thead><tbody>'
+                 + "".join(rows) + "</tbody></table></div>")
+
+    ticket_html = ""
+    jira, ticket = facts.get("jira"), expl.get("ticket") or {}
+    if jira:
+        key = esc(jira["key"])
+        link = f'<a href="{esc(jira["url"])}">{key}</a>' if jira.get("url") else key
+        parent = jira.get("parent") or {}
+        meta = " · ".join(x for x in (
+            link, esc(jira.get("type") or ""),
+            f'<span class="pill">{esc(jira["status"])}</span>' if jira.get("status") else "",
+            f'parent {esc(parent.get("key") or "")} {esc(mask(parent.get("summary") or ""))}' if parent else "") if x)
+        criteria = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td><td>{esc(c.get("status", ""))}</td>'
+                           f'<td>{refs(c.get("refs", []))}</td></tr>' for c in ticket.get("criteria", []))
+        ticket_html = ('<h2>Ticket</h2><div class="card">'
+                       f'<div class="meta">{meta}</div><p><strong>{esc(mask(jira.get("summary") or ""))}</strong></p>'
+                       + (f'<p>{esc(mask(ticket["intent"]))}</p>' if ticket.get("intent") else "")
+                       + ('<div class="scroll"><table><thead><tr><th>Ticket asks for</th><th>Status</th><th>Refs</th>'
+                          f'</tr></thead><tbody>{criteria}</tbody></table></div>' if criteria else "")
+                       + "</div>")
     subs = {
         "TITLE": esc(f"PR {pr['number']} explainer"),
         "PR_TITLE": esc(pr["title"]),
         "HEADER": header,
         "BANNER": banner,
         "TLDR": esc(mask(expl.get("tldr", ""))),
+        "TICKET": ticket_html,
+        "PLANS": plans,
         "MERMAID": esc(mermaid(facts)),
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'
                             f'<td>{esc(mask(b.get("after", "")))}</td><td>{refs(b.get("refs", []))}</td></tr>'
