@@ -380,5 +380,43 @@ class ConfigAndMentionsTest(SystemFactsBase):
         self.assertTrue(any(e["type"] == "needs" for e in facts["edges"]))
 
 
+class DocsTest(SystemFactsBase):
+    def test_docs_are_stripped_capped_and_identified(self):
+        p = Path(self.tmp) / "page.md"
+        p.write_text("# Title\n<b>bold</b> text\x00 tab\there " + "x" * 30000)
+        docs, notes = facts_lib.doc_facts([str(p), str(Path(self.tmp) / "missing.md")])
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0]["id"], "d1")
+        self.assertEqual(docs[0]["title"], "Title")
+        self.assertEqual(docs[0]["source"], "file")
+        self.assertNotIn("<b>", docs[0]["text"])
+        self.assertIn("bold text", docs[0]["text"])
+        self.assertNotIn("\x00", docs[0]["text"])
+        self.assertIn("tab\there", docs[0]["text"])
+        self.assertEqual(len(docs[0]["text"]), facts_lib.DOC_CHARS)
+        self.assertTrue(docs[0]["truncated"])
+        self.assertGreater(docs[0]["chars"], facts_lib.DOC_CHARS)
+        self.assertEqual(notes[0]["key"], "docs")
+        self.assertIn("missing.md", notes[0]["text"])
+
+    def test_untitled_doc_uses_the_file_name(self):
+        p = Path(self.tmp) / "requirements.md"
+        p.write_text("\n\nmust do x\n")
+        docs, notes = facts_lib.doc_facts([str(p)])
+        self.assertEqual(docs[0]["title"], "must do x")
+        self.assertFalse(docs[0]["truncated"])
+        self.assertEqual(notes, [])
+        p.write_text("")
+        self.assertEqual(facts_lib.doc_facts([str(p)])[0][0]["title"], "requirements")
+
+    def test_collect_system_carries_docs(self):
+        repo = make_repo(self.tmp)
+        d = Path(self._tmp.name) / "doc.md"
+        d.write_text("# One-pager\nGrafana needs SSO")
+        with self.trees(repo) as t:
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [str(d)], None, False)
+        self.assertEqual(facts["docs"][0]["title"], "One-pager")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1373,6 +1373,28 @@ def config_facts(trees: Trees, matched: dict[str, list[tuple[str, str, dict]]], 
     return rows
 
 
+DOC_CHARS = 20000
+
+
+def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
+    """Local text files (a Confluence page the session saved, pasted requirements) as untrusted
+    facts: tags stripped, control characters dropped, text capped at DOC_CHARS, one d* id each.
+    An unreadable file becomes a note instead of stopping the run."""
+    docs, notes = [], []
+    for p in paths:
+        try:
+            raw = Path(p).read_text(errors="replace")
+        except OSError as e:
+            notes.append({"key": "docs", "text": f"{p} could not be read ({type(e).__name__}), so it is not on the page."})
+            continue
+        text = re.sub(r"<[^>]+>", "", raw)
+        text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
+        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.strip()), "") or Path(p).stem
+        docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
+                     "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
+    return docs, notes
+
+
 def _mentions(text: str, names: list[str]) -> bool:
     low = text.lower()
     return any(n.strip().lower() in low for n in names if n and n.strip())
@@ -1497,7 +1519,7 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     config = config_facts(trees, matched, repo)
     tf, tf_edges = terraform_mentions(trees.head, names)
     wf, wf_edges = workflow_mentions(trees.head, names)
-    notes: list[dict] = []
+    doc_out, notes = doc_facts(docs)
     if wf:
         notes.append({"key": "actions", "text": "GitHub Actions entries are the workflows that name the service at this "
                                                 "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
@@ -1513,5 +1535,5 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
         "query": {"service": names, "matched_by": matched_by, "ref": trees.ref, "sha": trees.sha, "repo": repo},
         "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
         "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": [],
-        "docs": [], "related_prs": [], "jira": None, "policy_hits": [], "notes": notes,
+        "docs": doc_out, "related_prs": [], "jira": None, "policy_hits": [], "notes": notes,
     }
