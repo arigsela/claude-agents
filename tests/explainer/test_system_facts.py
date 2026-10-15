@@ -127,6 +127,41 @@ spec:
 """
 
 
+DEPLOY_WORKFLOW = """name: deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      env:
+        required: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker build -t grafana .
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: argocd app sync grafana
+"""
+
+TF = """resource "aws_s3_bucket" "grafana_dashboards" {
+  bucket = "grafana-x"
+}
+
+resource "aws_s3_bucket" "other" {
+  bucket = "other"
+}
+
+resource "aws_iam_role" "dash" {
+  name = "x"
+  tags = { app = "Grafana" }
+}
+"""
+
+
 def sh(*args: str, cwd: Path) -> str:
     return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout
 
@@ -263,6 +298,86 @@ class CollectSystemTest(SystemFactsBase):
         self.assertEqual(facts["apps"][0]["render"], "source-diff")
         self.assertIn("RuntimeError", facts["apps"][0]["render_note"])
         self.assertEqual([r["kind"] for r in facts["resources"]], ["Application"])
+
+
+class SummaryTest(SystemFactsBase):
+    def docs(self) -> dict:
+        return {d["kind"]: d for d in yaml.safe_load_all(MANIFESTS)}
+
+    def test_workload_summary_is_masked(self):
+        s = facts_lib.resource_summary(self.docs()["Deployment"])
+        self.assertEqual(s["image"], "grafana/grafana:10.1")
+        self.assertEqual(s["replicas"], 2)
+        self.assertEqual(s["ports"], [3000])
+        self.assertEqual(s["probes"], {"readiness": "GET /api/health:3000", "liveness": "GET /api/health:3000"})
+        self.assertEqual(s["env_keys"], ["DB_PASSWORD", "GF_SERVER_ROOT_URL"])
+        self.assertNotIn("hunter2", json.dumps(s))
+
+    def test_other_kinds(self):
+        d = self.docs()
+        self.assertEqual(facts_lib.resource_summary(d["Service"]), {"ports": ["80->3000"], "selector": {"app": "grafana"}})
+        self.assertEqual(facts_lib.resource_summary(d["HTTPRoute"]),
+                         {"hosts": ["grafana.example.com"], "paths": ["/"], "backends": ["grafana:80"]})
+        self.assertEqual(facts_lib.resource_summary(d["CronJob"])["schedule"], "0 3 * * *")
+        self.assertEqual(facts_lib.resource_summary(d["CronJob"])["image"], "busybox:1.36")
+        self.assertEqual(facts_lib.resource_summary(d["ExternalSecret"]), {"store": "vault", "keys": ["admin-password"]})
+        self.assertEqual(facts_lib.resource_summary({"kind": "ConfigMap", "data": {"b": "1", "a": "2"}}), {"keys": ["a", "b"]})
+        self.assertEqual(facts_lib.resource_summary({"kind": "Namespace"}), {})
+        self.assertEqual(facts_lib.resource_summary({"kind": "Deployment", "spec": "broken"}), {})
+
+    def test_collect_system_attaches_summary(self):
+        repo = make_repo(self.tmp)
+        with self.trees(repo) as t:
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [], None, False)
+        route = next(r for r in facts["resources"] if r["kind"] == "HTTPRoute")
+        self.assertEqual(route["summary"]["hosts"], ["grafana.example.com"])
+        self.assertNotIn("hunter2", json.dumps(facts))
+
+
+class ConfigAndMentionsTest(SystemFactsBase):
+    def test_config_facts_keys_only(self):
+        repo = make_repo(self.tmp, values={"adminPassword": "hunter2hunter2", "replicas": 2, "nested": {"x": 1}})
+        with self.trees(repo) as t:
+            found = facts_lib.find_applications(t.head)
+            matched, _ = facts_lib.match_applications(found, ["grafana"])
+            rows = facts_lib.config_facts(t, matched, "o/r")
+        self.assertEqual(rows[0]["id"], "c1")
+        self.assertEqual(rows[0]["source"], "inline-values")
+        self.assertEqual(rows[0]["keys"], ["adminPassword", "nested", "replicas"])
+        self.assertNotIn("hunter2", json.dumps(rows))
+
+    def test_terraform_mentions_by_address_or_body(self):
+        repo = make_repo(self.tmp, tf=TF)
+        with self.trees(repo) as t:
+            tf, edges = facts_lib.terraform_mentions(t.head, ["grafana"])
+        # File order: the block at line 1 comes first; the role matches on its body ("Grafana" tag).
+        self.assertEqual([x["address"] for x in tf], ["aws_s3_bucket.grafana_dashboards", "aws_iam_role.dash"])
+        self.assertEqual({x["action"] for x in tf}, {"focus"})
+        self.assertEqual({x["source"] for x in tf}, {"source-ref"})
+        self.assertEqual(tf[0]["file"], "infra/main.tf")
+        self.assertEqual(tf[0]["lines"], [1])
+        self.assertEqual(tf[1]["lines"], [9])
+        self.assertEqual(edges, [])
+
+    def test_workflow_mentions(self):
+        repo = make_repo(self.tmp, workflow=DEPLOY_WORKFLOW)
+        with self.trees(repo) as t:
+            wf, edges = facts_lib.workflow_mentions(t.head, ["grafana"])
+            self.assertEqual(facts_lib.workflow_mentions(t.head, ["loki"]), ([], []))
+        self.assertEqual({w["element"] for w in wf}, {"setting", "trigger", "input", "job"})
+        self.assertTrue(all(w["action"] == "focus" for w in wf))
+        jobs = {w["name"]: w["id"] for w in wf if w["element"] == "job"}
+        self.assertEqual(edges, [{"from": jobs["deploy"], "to": jobs["build"], "type": "needs"}])
+        self.assertTrue(all(w["file"] == ".github/workflows/deploy.yaml" for w in wf))
+
+    def test_collect_system_fills_config_terraform_and_workflows(self):
+        repo = make_repo(self.tmp, values={"replicas": 2}, tf=TF, workflow=DEPLOY_WORKFLOW)
+        with self.trees(repo) as t:
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [], None, False)
+        self.assertEqual(facts["config"][0]["keys"], ["replicas"])
+        self.assertEqual(len(facts["terraform"]), 2)
+        self.assertTrue(facts["workflows"])
+        self.assertTrue(any(e["type"] == "needs" for e in facts["edges"]))
 
 
 if __name__ == "__main__":
