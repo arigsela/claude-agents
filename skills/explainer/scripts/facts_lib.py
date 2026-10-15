@@ -1026,6 +1026,12 @@ def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
             break
     else:
         return None, [{"key": "jira", "text": "No IFS or DX ticket key was found in the branch name, title or body."}]
+    return jira_facts_for_key(key, source)
+
+
+def jira_facts_for_key(key: str, source: str = "argument") -> tuple[dict | None, list[dict]]:
+    """The ticket `key` read through acli; every failure degrades to a note instead of stopping."""
+    key = key.upper()
     if not shutil.which("acli"):
         return None, [{"key": "jira", "text": f"{key} is referenced but acli is not installed, so the ticket was not read."}]
     try:
@@ -1395,6 +1401,63 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
     return docs, notes
 
 
+def related_prs(repo: str, key: str) -> tuple[list[dict], list[dict]]:
+    """PRs that name the ticket key: `gh pr list --search` covers titles and bodies, so open PRs
+    are also listed and filtered on their head branch, where CHG branches carry the key."""
+    def rows(*args: str) -> list[dict]:
+        raw = sh("gh", "pr", "list", "-R", repo, *args, "--json", "number,title,state,url,headRefName")
+        data = json.loads(raw) if raw.strip() else []
+        return [r for r in data if isinstance(r, dict)]
+
+    key_re = re.compile(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![0-9])", re.I)
+    try:
+        found = rows("--search", key, "--state", "all", "--limit", "10")
+        found += [r for r in rows("--state", "open", "--limit", "100") if key_re.search(str(r.get("headRefName") or ""))]
+    except (RuntimeError, json.JSONDecodeError) as e:
+        return [], [{"key": "related_prs", "text": f"PRs naming {key} could not be listed ({type(e).__name__})."}]
+    out, seen = [], set()
+    for r in found:
+        if r.get("number") in seen:
+            continue
+        seen.add(r.get("number"))
+        out.append({"number": r.get("number"), "title": r.get("title"), "state": r.get("state"), "url": r.get("url"),
+                    "head_ref": r.get("headRefName")})
+    return out, []
+
+
+ENV_DIR_NAMES = {"argo", "apps", "base-apps", "environments", "envs", "env", "clusters", "cluster", "overlays",
+                 "prod", "production", "nonprod", "staging", "stage", "dev", "development", "test", "qa", "uat", "sandbox"}
+
+
+def infer_service(found: list[tuple[str, str, dict]], texts: list) -> list[str]:
+    """The Application the texts name: the longest Application name, or manifest directory name
+    that belongs to exactly one app, that occurs in any text as a whole word (case-insensitive).
+    Environment directories such as prod/ are never aliases. Deterministic; the model never
+    guesses the service."""
+    hay = " ".join(str(t) for t in texts if t).lower()
+    if not hay.strip():
+        return []
+    candidates: dict[str, set[str]] = {}
+    for name, file, _ in found:
+        candidates.setdefault(name.lower(), set()).add(name)
+        for part in Path(file).parent.parts:
+            if part.lower() not in ENV_DIR_NAMES and len(part) > 2:
+                candidates.setdefault(part.lower(), set()).add(name)
+    longer = sorted(candidates, key=len, reverse=True)
+    for low in longer:
+        apps = candidates[low]
+        if len(apps) != 1:
+            continue
+        for m in re.finditer(r"(?<!\w)" + re.escape(low) + r"(?!\w)", hay):
+            # "grafana-agents" names grafana-agent (misspelt), not grafana: when the hyphenated token
+            # continues into a longer candidate's name, this shorter name does not count.
+            ext = re.match(r"[\w-]*", hay[m.start():]).group(0)
+            if any(c != low and c.startswith(low + "-") and ext.startswith(c) for c in longer):
+                continue
+            return [next(iter(apps))]
+    return []
+
+
 def _mentions(text: str, names: list[str]) -> bool:
     low = text.lower()
     return any(n.strip().lower() in low for n in names if n and n.strip())
@@ -1463,6 +1526,18 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     policy = read_policy(trees) or {}
     callouts = policy.get("risk_callouts") or {}
     found = find_applications(trees.head)
+    jira, prs, ticket_notes, inferred = None, [], [], False
+    if ticket_key:
+        jira, jira_notes = jira_facts_for_key(ticket_key)
+        prs, pr_notes = related_prs(repo, ticket_key)
+        ticket_notes = jira_notes + pr_notes
+        if not names:
+            texts = [(jira or {}).get("summary"), (jira or {}).get("description")] + [p.get("head_ref") for p in prs] + [p.get("title") for p in prs]
+            names, inferred = infer_service(found, texts), True
+            if not names:
+                ticket_notes.append({"key": "match", "text": f"No Application name appears in {ticket_key.upper()}'s summary, "
+                                                             "description or related PR branches, so no service was mapped; "
+                                                             "pass --service to name one."})
     matched, matched_by = match_applications(found, names)
     if names and not matched:
         close = sorted({n for n, _, _ in found},
@@ -1520,6 +1595,7 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     tf, tf_edges = terraform_mentions(trees.head, names)
     wf, wf_edges = workflow_mentions(trees.head, names)
     doc_out, notes = doc_facts(docs)
+    notes = ticket_notes + notes
     if wf:
         notes.append({"key": "actions", "text": "GitHub Actions entries are the workflows that name the service at this "
                                                 "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
@@ -1532,8 +1608,8 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
         notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
     return {
         "mode": "ticket" if ticket_key else "service", "pr": None, "triage": None,
-        "query": {"service": names, "matched_by": matched_by, "ref": trees.ref, "sha": trees.sha, "repo": repo},
+        "query": {"service": names, "matched_by": matched_by, "inferred": inferred, "ref": trees.ref, "sha": trees.sha, "repo": repo},
         "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
         "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": [],
-        "docs": doc_out, "related_prs": [], "jira": None, "policy_hits": [], "notes": notes,
+        "docs": doc_out, "related_prs": prs, "jira": jira, "policy_hits": [], "notes": notes,
     }
