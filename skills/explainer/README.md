@@ -27,10 +27,11 @@ Then it publishes a private page with:
 - the hunks you must still read
 - a walkthrough in dependency order, one note per item with its hunk inline (must-read hunks
   start open; items rendered from a chart or plan list their changed paths instead)
-- a quiz of 3–5 multiple-choice questions, each answerable from the page and cited to facts; the
-  bar for approving is passing it
+- with `--quiz`, a quiz of 3–5 multiple-choice questions, each answerable from the page and cited
+  to facts; the bar for approving is passing it
 
-It also posts the page link as a sticky PR comment. Every section has a Comment button that opens
+With `--comment` it also posts the page link as a sticky PR comment; by default it writes nothing
+to GitHub. Every section has a Comment button that opens
 the claude.ai composer on that section, so questions land next to what they are about; threads are
 posted and shown by claude.ai, never by the page.
 
@@ -99,7 +100,7 @@ path contains the name (across every environment directory), renders them, and r
 The page has: TL;DR, background, components, how it works (two or three traced scenarios: a
 request, a deploy, a job), the resource map, where it runs per environment, config that matters,
 what the docs ask, risk callouts, the files to open first, open questions for the one-pager,
-a walkthrough with each item's facts inline, and a quiz. Every sentence cites a fact; `verify.py`
+a walkthrough with each item's facts inline, and, with `--quiz`, a quiz. Every sentence cites a fact; `verify.py`
 enforces one component per app, one row per environment, 2–3 scenarios, cited config keys, and a
 summary per doc.
 

@@ -65,7 +65,8 @@ def strings(obj):
             yield from strings(v)
 
 
-def verify(facts: dict, expl: dict) -> list[str]:
+def verify(facts: dict, expl: dict, quiz: bool = False) -> list[str]:
+    """quiz is the --quiz flag: off by default, so a page has no quiz unless the user asked for one."""
     index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows", "config", "docs")
              for x in facts.get(key) or [] if isinstance(x, dict) and x.get("id")}
     ids = set(index)
@@ -140,37 +141,10 @@ def verify(facts: dict, expl: dict) -> list[str]:
             if ref not in ids and ref not in comments:
                 errors.append(f"scenario references unknown id {ref!r}")
         check_groups("scenario", refs)
-    quiz = expl.get("quiz")
-    if not isinstance(quiz, list) or not MIN_QUIZ <= len(quiz) <= MAX_QUIZ:
-        n = len(quiz) if isinstance(quiz, list) else 0
-        errors.append(f"quiz has {n} questions; write {MIN_QUIZ}-{MAX_QUIZ}")
-    for i, q in enumerate(quiz if isinstance(quiz, list) else []):
-        if not isinstance(q, dict):
-            errors.append(f"quiz[{i}] is not an object")
-            continue
-        if not text(q.get("question")):
-            errors.append(f"quiz[{i}] has no question")
-        options = q.get("options")
-        if not isinstance(options, list):
-            errors.append(f"quiz[{i}].options must be a list")
-            options = []
-        if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
-            errors.append(f"quiz[{i}] has {len(options)} options; give {MIN_OPTIONS}-{MAX_OPTIONS}")
-        correct = [o for o in options if isinstance(o, dict) and o.get("correct") is True]
-        if len(correct) != 1:
-            errors.append(f"quiz[{i}] has {len(correct)} correct options; exactly one must be correct")
-        for j, o in enumerate(options):
-            if not isinstance(o, dict) or not text(o.get("text")):
-                errors.append(f"quiz[{i}].options[{j}] has no text")
-            elif not text(o.get("explanation")):
-                errors.append(f"quiz[{i}].options[{j}] has no explanation")
-        refs = ref_list(q.get("refs"), f"quiz[{i}]", errors)
-        if not refs:
-            errors.append(f"quiz[{i}] cites nothing; every question must be answerable from cited facts")
-        for ref in refs:
-            if ref not in ids and ref not in comments:
-                errors.append(f"quiz[{i}] references unknown id {ref!r}")
-        check_groups(f"quiz[{i}]", refs)
+    if quiz:
+        verify_quiz(expl.get("quiz"), ids, comments, check_groups, errors)
+    elif expl.get("quiz"):
+        errors.append("quiz written without --quiz; leave it out unless the user asked for one")
     for hit in facts["policy_hits"]:
         if hit["ref"] not in must:
             errors.append(f"policy hit {hit['ref']} ({hit['rule']}) is missing from must_read")
@@ -245,6 +219,39 @@ def verify(facts: dict, expl: dict) -> list[str]:
 
 MIN_SCENARIOS, MAX_SCENARIOS = 2, 3
 NO_FACT = "no fact"
+
+
+def verify_quiz(quiz, ids: set, comments: dict, check_groups, errors: list[str]) -> None:
+    if not isinstance(quiz, list) or not MIN_QUIZ <= len(quiz) <= MAX_QUIZ:
+        n = len(quiz) if isinstance(quiz, list) else 0
+        errors.append(f"quiz has {n} questions; write {MIN_QUIZ}-{MAX_QUIZ}")
+    for i, q in enumerate(quiz if isinstance(quiz, list) else []):
+        if not isinstance(q, dict):
+            errors.append(f"quiz[{i}] is not an object")
+            continue
+        if not text(q.get("question")):
+            errors.append(f"quiz[{i}] has no question")
+        options = q.get("options")
+        if not isinstance(options, list):
+            errors.append(f"quiz[{i}].options must be a list")
+            options = []
+        if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
+            errors.append(f"quiz[{i}] has {len(options)} options; give {MIN_OPTIONS}-{MAX_OPTIONS}")
+        correct = [o for o in options if isinstance(o, dict) and o.get("correct") is True]
+        if len(correct) != 1:
+            errors.append(f"quiz[{i}] has {len(correct)} correct options; exactly one must be correct")
+        for j, o in enumerate(options):
+            if not isinstance(o, dict) or not text(o.get("text")):
+                errors.append(f"quiz[{i}].options[{j}] has no text")
+            elif not text(o.get("explanation")):
+                errors.append(f"quiz[{i}].options[{j}] has no explanation")
+        refs = ref_list(q.get("refs"), f"quiz[{i}]", errors)
+        if not refs:
+            errors.append(f"quiz[{i}] cites nothing; every question must be answerable from cited facts")
+        for ref in refs:
+            if ref not in ids and ref not in comments:
+                errors.append(f"quiz[{i}] references unknown id {ref!r}")
+        check_groups(f"quiz[{i}]", refs)
 
 
 def verify_plan(facts: dict, expl: dict, ids: set, check_groups) -> list[str]:
@@ -413,6 +420,7 @@ def main() -> int:
     ap.add_argument("--facts", required=True)
     ap.add_argument("--explainer", required=True)
     ap.add_argument("--errors-out", required=True)
+    ap.add_argument("--quiz", action="store_true", help="the user asked for a quiz (off by default)")
     args = ap.parse_args()
     try:
         with open(args.facts) as fh:
@@ -423,7 +431,7 @@ def main() -> int:
         except json.JSONDecodeError as err:
             errors = [f"explainer.json is not valid JSON: {err}"]
         else:
-            errors = verify(facts, expl)
+            errors = verify(facts, expl, quiz=args.quiz)
     except Exception as err:  # never crash silently
         errors = [f"verify crashed: {type(err).__name__}: {err}"]
     with open(args.errors_out, "w") as fh:

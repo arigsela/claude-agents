@@ -75,6 +75,8 @@ GOOD = {
     "narrator_model": "claude-opus-5-5",
 }
 
+QUIZ = GOOD.pop("quiz")  # the quiz is opt-in (--quiz): tests that check it pass quiz=True
+
 
 def bad(**changes) -> dict:
     expl = copy.deepcopy(GOOD)
@@ -135,27 +137,33 @@ class VerifyTest(unittest.TestCase):
         errs = verify.verify(FACTS, bad(reading_order=[{"ref": "r1", "note": " "}]))
         self.assertTrue(any("empty note" in e for e in errs))
 
+    def test_quiz_is_off_by_default(self):
+        self.assertEqual(verify.verify(FACTS, GOOD), [])
+        self.assertIn("quiz written without --quiz; leave it out unless the user asked for one",
+                      verify.verify(FACTS, bad(quiz=QUIZ)))
+        self.assertEqual(verify.verify(FACTS, bad(quiz=QUIZ), quiz=True), [])
+
     def test_quiz_count_and_shape(self):
-        self.assertTrue(any("quiz has 0 questions" in e for e in verify.verify(FACTS, bad(quiz=[]))))
-        q = copy.deepcopy(GOOD["quiz"])
+        self.assertTrue(any("quiz has 0 questions" in e for e in verify.verify(FACTS, bad(quiz=[]), quiz=True)))
+        q = copy.deepcopy(QUIZ)
         q[0]["options"][0]["correct"] = True  # two correct
-        self.assertTrue(any("2 correct options" in e for e in verify.verify(FACTS, bad(quiz=q))))
-        q = copy.deepcopy(GOOD["quiz"])
+        self.assertTrue(any("2 correct options" in e for e in verify.verify(FACTS, bad(quiz=q), quiz=True)))
+        q = copy.deepcopy(QUIZ)
         q[1]["options"][1]["explanation"] = ""
-        self.assertTrue(any("options[1] has no explanation" in e for e in verify.verify(FACTS, bad(quiz=q))))
-        q = copy.deepcopy(GOOD["quiz"])
+        self.assertTrue(any("options[1] has no explanation" in e for e in verify.verify(FACTS, bad(quiz=q), quiz=True)))
+        q = copy.deepcopy(QUIZ)
         q[2]["refs"] = []
-        self.assertTrue(any("quiz[2] cites nothing" in e for e in verify.verify(FACTS, bad(quiz=q))))
-        q = copy.deepcopy(GOOD["quiz"])
+        self.assertTrue(any("quiz[2] cites nothing" in e for e in verify.verify(FACTS, bad(quiz=q), quiz=True)))
+        q = copy.deepcopy(QUIZ)
         q[0]["options"] = q[0]["options"][:1]
-        self.assertTrue(any("quiz[0] has 1 options" in e for e in verify.verify(FACTS, bad(quiz=q))))
+        self.assertTrue(any("quiz[0] has 1 options" in e for e in verify.verify(FACTS, bad(quiz=q), quiz=True)))
 
     def test_secret_in_quiz_is_rejected(self):
-        q = copy.deepcopy(GOOD["quiz"])
+        q = copy.deepcopy(QUIZ)
         q[0]["options"][0]["explanation"] = "password: hunter2hunter2"
-        self.assertIn("explainer text contains a secret-looking value", verify.verify(FACTS, bad(quiz=q)))
+        self.assertIn("explainer text contains a secret-looking value", verify.verify(FACTS, bad(quiz=q), quiz=True))
         q[0]["options"][0]["explanation"] = 'set "token": "abcdefgh12345678" in the config'
-        self.assertIn("explainer text contains a secret-looking value", verify.verify(FACTS, bad(quiz=q)))
+        self.assertIn("explainer text contains a secret-looking value", verify.verify(FACTS, bad(quiz=q), quiz=True))
 
     def test_null_text_is_empty_not_the_word_none(self):
         self.assertIn("tldr is empty", verify.verify(FACTS, bad(tldr=None)))
@@ -163,11 +171,11 @@ class VerifyTest(unittest.TestCase):
         self.assertIn("background[0] has no text", errs)
         errs = verify.verify(FACTS, bad(scenario={"trigger": None, "before": "b", "after": "a", "refs": ["r1"]}))
         self.assertIn("scenario.trigger is empty", errs)
-        q = copy.deepcopy(GOOD["quiz"])
+        q = copy.deepcopy(QUIZ)
         q[0]["options"][0]["explanation"] = None
-        self.assertIn("quiz[0].options[0] has no explanation", verify.verify(FACTS, bad(quiz=q)))
+        self.assertIn("quiz[0].options[0] has no explanation", verify.verify(FACTS, bad(quiz=q), quiz=True))
         q[0]["question"] = None
-        self.assertIn("quiz[0] has no question", verify.verify(FACTS, bad(quiz=q)))
+        self.assertIn("quiz[0] has no question", verify.verify(FACTS, bad(quiz=q), quiz=True))
         errs = verify.verify(FACTS, bad(reading_order=[{"ref": "r1", "note": None}]))
         self.assertTrue(any("empty note" in e for e in errs))
 
@@ -181,16 +189,16 @@ class VerifyTest(unittest.TestCase):
             bad(reading_order=[None, 5, {"note": "no ref"}]),
             bad(reading_order="r1"),
         ]
-        q = copy.deepcopy(GOOD["quiz"]); q[0]["options"] = "It starts"; cases.append(bad(quiz=q))
-        q = copy.deepcopy(GOOD["quiz"]); q[0]["options"] = [None, "x"]; cases.append(bad(quiz=q))
-        q = copy.deepcopy(GOOD["quiz"]); q[0]["refs"] = {"r1": 1}; cases.append(bad(quiz=q))
-        q = copy.deepcopy(GOOD["quiz"]); q[0] = "not an object"; cases.append(bad(quiz=q))
+        q = copy.deepcopy(QUIZ); q[0]["options"] = "It starts"; cases.append(bad(quiz=q))
+        q = copy.deepcopy(QUIZ); q[0]["options"] = [None, "x"]; cases.append(bad(quiz=q))
+        q = copy.deepcopy(QUIZ); q[0]["refs"] = {"r1": 1}; cases.append(bad(quiz=q))
+        q = copy.deepcopy(QUIZ); q[0] = "not an object"; cases.append(bad(quiz=q))
         for expl in cases:
-            errs = verify.verify(FACTS, expl)   # must not raise
+            errs = verify.verify(FACTS, expl, quiz=True)   # must not raise
             self.assertTrue(errs, expl)
             self.assertFalse(any("crashed" in e for e in errs), errs)
         self.assertIn("background[0].refs must be a list of ids", verify.verify(FACTS, cases[0]))
-        self.assertIn("quiz[0].options must be a list", verify.verify(FACTS, cases[7]))
+        self.assertIn("quiz[0].options must be a list", verify.verify(FACTS, cases[7], quiz=True))
 
 
 class DiffTest(unittest.TestCase):
@@ -339,7 +347,7 @@ class DiffTest(unittest.TestCase):
         page = render.render({**FACTS, "terraform": [a, b], "resources": []},
                              bad(reading_order=[{"ref": "t1", "note": "a"}, {"ref": "t2", "note": "b"}],
                                  background=[{"text": "x", "refs": ["t1"]}], scenario={"trigger": "t", "before": "b", "after": "a", "refs": ["t1"]},
-                                 behavior_changes=[], must_read=[], quiz=[dict(q, refs=["t1"]) for q in GOOD["quiz"]]),
+                                 behavior_changes=[], must_read=[], quiz=[dict(q, refs=["t1"]) for q in QUIZ]),
                              [], d)
         self.assertEqual(page.count('<pre class="hunk">'), 1)
         self.assertIn("No hunk in the diff for this item.", page)
@@ -365,11 +373,11 @@ class DiffTest(unittest.TestCase):
 
 
 class RenderTest(unittest.TestCase):
-    def page(self, expl=GOOD, errors=(), diff=DIFF):
-        return render.render(FACTS, expl, list(errors), render.parse_diff(diff))
+    def page(self, expl=GOOD, errors=(), diff=DIFF, quiz=False):
+        return render.render(FACTS, expl, list(errors), render.parse_diff(diff), quiz=quiz)
 
     def test_sections_present_with_hunks_and_quiz(self):
-        page = self.page()
+        page = self.page(bad(quiz=QUIZ), quiz=True)
         self.assertIn("<h2>Background", page)
         self.assertIn("Grafana runs in mon", page)
         self.assertIn("<strong>Trigger:</strong> a grafana pod restarts", page)
@@ -384,6 +392,12 @@ class RenderTest(unittest.TestCase):
         self.assertIn("[REDACTED]", page)
         self.assertNotIn("hunter2", page)
 
+    def test_no_quiz_section_without_the_flag(self):
+        page = self.page(bad(quiz=QUIZ))
+        self.assertNotIn("Check your understanding", page)
+        self.assertNotIn('<ol class="quiz">', page)
+        self.assertIn("Check your understanding", self.page(bad(quiz=QUIZ), quiz=True))
+
     def test_without_diff_steps_still_render(self):
         page = self.page(diff="")
         self.assertNotIn('<pre class="hunk">', page)
@@ -395,9 +409,9 @@ class RenderTest(unittest.TestCase):
         page = self.page(expl)
         self.assertNotIn("<img", page)
         self.assertIn("&lt;img", page)
-        q = copy.deepcopy(GOOD["quiz"])
+        q = copy.deepcopy(QUIZ)
         q[0]["options"][0]["explanation"] = 'x" onclick="alert(1)'
-        page = self.page(bad(quiz=q))
+        page = self.page(bad(quiz=q), quiz=True)
         self.assertNotIn('onclick="alert', page)
 
     def test_rejected_shapes_still_render_an_unverified_page(self):
@@ -414,10 +428,10 @@ class RenderTest(unittest.TestCase):
             bad(tldr=None), "not even an object",
         ]
         for expl in cases:
-            page = render.render(FACTS, expl, errors, render.parse_diff(DIFF))  # must not raise
+            page = render.render(FACTS, expl, errors, render.parse_diff(DIFF), quiz=True)  # must not raise
             self.assertIn("<strong>Unverified.</strong>", page, expl)
             self.assertIn("quiz[0] is not an object", page)
-        self.assertIn("No quiz was written.", render.render(FACTS, bad(quiz=["invalid"]), errors, {}))
+        self.assertIn("No quiz was written.", render.render(FACTS, bad(quiz=["invalid"]), errors, {}, quiz=True))
         self.assertIn("No scenario was written.", render.render(FACTS, bad(scenario="invalid"), errors, {}))
 
     def test_legacy_reading_order_strings(self):

@@ -1,6 +1,6 @@
 ---
 name: plan-explainer
-description: Explain a plan (a project one-pager, design doc or requirements) against the repo it changes, before any code exists. Reads the plan as the source, searches the repo at the default branch for every identifier the plan names in backticks (roles, repos, modules, buckets, settings) across Terraform blocks, GitHub Actions workflows and tracked text files, needs no Argo CD Application, and publishes a private HTML page with background, each plan step mapped to what the repo has today (would change, already true, new, out of scope, unclear), the plan's terms found and missing, open questions, a walkthrough and a quiz. Use for "explain this one-pager", "where does this plan land in edp-terraform", "walk reviewers through the SageMaker one-pager", or Terraform-only and greenfield work the service explainer cannot match.
+description: Explain a plan (a project one-pager, design doc or requirements) against the repo it changes, before any code exists. Reads the plan as the source, searches the repo at the default branch for every identifier the plan names in backticks (roles, repos, modules, buckets, settings) across Terraform blocks, GitHub Actions workflows and tracked text files, needs no Argo CD Application, and publishes a private HTML page with background, each plan step mapped to what the repo has today (would change, already true, new, out of scope, unclear), the plan's terms found and missing, open questions, a walkthrough and, with `--quiz`, a quiz. Use for "explain this one-pager", "where does this plan land in edp-terraform", "walk reviewers through the SageMaker one-pager", or Terraform-only and greenfield work the service explainer cannot match.
 version: "1.0.0"
 model: claude-opus-5-5
 author:
@@ -28,7 +28,11 @@ source; the repo at one ref is the evidence. Every sentence cites a collected fa
 /plan-explainer <file> --repo org/infra-repo --service grafana
 /plan-explainer <file> --repo org/infra-repo --standalone
 /plan-explainer <file> --repo org/infra-repo --infographic
+/plan-explainer <file> --repo org/infra-repo --quiz
 ```
+
+`--quiz` (opt-in, off by default) adds 3–5 multiple-choice questions at the end of the page.
+Pass it only when the user asks for a quiz; without it, leave `quiz` out of the explainer.
 
 `--infographic` (opt-in, off by default) adds Codex-drawn slides of the verified page, as in the
 service explainer. It sends the page's text to OpenAI, so only the user turns it on, per run.
@@ -67,8 +71,8 @@ Confluence themselves.
    `model: "opus"`, give it `<W>`, this file's path and the ground rules, and wait for it.
    `verify.py` fails any `narrator_model` other than `claude-opus-5-5`.
 6. **Teach, then test.** The reader will review or build this plan next week. Background says
-   what is there today; the plan card says where each step lands; the quiz is the bar for
-   approving or starting.
+   what is there today; the plan card says where each step lands; with `--quiz`, the quiz is
+   the bar for approving or starting.
 
 ## Workflow
 
@@ -140,13 +144,13 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    | `must_read` | The files to open before reviewing: the ones the plan would change and the ones it must not. |
    | `reading_order` | One `{"ref", "note"}` step per item, from what exists to what changes: deploy path → roles → state → modules nearby. The note says why the item matters to the plan. |
    | `not_covered` | Every `notes[]` entry, using its `key` word (`plan`, `terms`, `terraform`, `mentions`, `policy`, ...). Every other repo the plan names, which this run did not read. Anything you could only guess at. |
-   | `quiz` | 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, a one-sentence `explanation` per option. About the plan and the repo: "which existing role must not change?", "what gates a prod apply today?", "which step adds something the repo has nothing for?". Never about IDs or file names. Vary the position of the correct option. |
+   | `quiz` | Only with `--quiz`; otherwise leave the field out. 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, a one-sentence `explanation` per option. About the plan and the repo: "which existing role must not change?", "what gates a prod apply today?", "which step adds something the repo has nothing for?". Never about IDs or file names. Vary the position of the correct option. |
    | `narrator_model` | Your exact model ID. It must be `claude-opus-5-5` (ground rule 5). |
 
 3. **Verify**
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json [--quiz]
    ```
 
    - Exit 0: continue.
@@ -161,7 +165,7 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... --out <W>/plan-<slug>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... [--quiz] --out <W>/plan-<slug>.html
    ```
 
    If `render.py` fails, show its error and stop. Do not hand-write a page.
@@ -182,5 +186,5 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
 
 7. **Report.** Send one short message: the link, the repo and ref, the number of plan steps by
    status, the terms found and missing, the open questions count, and everything in
-   `not_covered`. Say the page holds the repo's view of where the plan lands and that the quiz is
-   the bar for reviewing it.
+   `not_covered`. Say the page holds the repo's view of where the plan lands and, with `--quiz`, that
+   the quiz is the bar for reviewing it.

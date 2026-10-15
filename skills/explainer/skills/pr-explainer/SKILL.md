@@ -1,6 +1,6 @@
 ---
 name: pr-explainer
-description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, the background a reader needs, one concrete scenario walked before and after, a before→after table, risk callouts, the hunks a human must still read, a literate walkthrough with those hunks inline, and a quiz to pass before approving. The page takes comments next to each section. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
+description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, the background a reader needs, one concrete scenario walked before and after, a before→after table, risk callouts, the hunks a human must still read, a literate walkthrough with those hunks inline, and, with `--quiz`, a quiz to pass before approving. The page takes comments next to each section. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
 version: "1.0.0"
 model: claude-opus-5-5
 author:
@@ -24,7 +24,16 @@ page from rendered manifests, so a one-line chart bump shows the resources it ac
 /pr-explainer 650
 /pr-explainer 650 --repo arigsela/kubernetes
 /pr-explainer 650 --infographic
+/pr-explainer 650 --quiz
+/pr-explainer 650 --comment
 ```
+
+`--comment` (opt-in, off by default) posts the page link as a sticky comment on the PR (step 7).
+Without it the run writes nothing to GitHub; give the user the link instead. Pass it only when
+the user asks for the comment.
+
+`--quiz` (opt-in, off by default) adds 3–5 multiple-choice questions at the end of the page.
+Pass it only when the user asks for a quiz; without it, leave `quiz` out of the explainer.
 
 `--infographic` (opt-in, off by default) adds Codex-drawn slides of the verified page, as in the
 service explainer. It sends the page's text to OpenAI, so only the user turns it on, per run. The
@@ -53,7 +62,8 @@ current directory is not that repo, ask for `owner/name` instead of guessing.
    `verify.py` fails any `narrator_model` other than `claude-opus-5-5`.
 6. **Teach, then test.** The page is read by someone who will approve or change this system next
    week, not only by someone checking it today. Background says what was already there; the
-   scenario and walkthrough say what changes in operator terms; the quiz is the bar for approving.
+   scenario and walkthrough say what changes in operator terms; with `--quiz`, the quiz is the bar
+   for approving.
    Every one of them cites facts, so none of them can say more than the page can vouch for.
 
 ## Workflow
@@ -125,13 +135,13 @@ URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 al
    | `reading_order` | One `{"ref", "note"}` step per item, in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. Terraform `t*` resources go in dependency order from `edges` (a resource after the ones it references). GitHub Actions `w*` go settings → triggers → inputs/outputs/secrets → jobs, jobs in run order from `needs` edges (a job after the ones it needs). If you deviate, explain why in an `info` callout. `note` is one or two sentences that make the step a literate walkthrough: why this item comes now, what the hunk does, and what to look for. The page shows the item's hunk inline under the note (or its changed paths when the item was rendered from a chart or plan), so the note explains, it does not repeat the hunk. |
    | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. The `policy` note when no review policy was found. |
    | `ticket` | Required when `facts.jira` is set; omit it when `jira` is null. `intent`: one or two sentences on what the ticket asks for and why. `criteria`: each acceptance criterion or concrete ask from the description, with a `status`: `covered` (the diff delivers it; cite the `r*`/`t*`/`w*`/`f*` IDs), `respected` (a scope limit or constraint, such as "Layer 4 stays out of scope", that the diff does not break), `out_of_band` (done outside this PR, for example by a script; cite the ticket comment `j*` that records it), `not_covered` (nobody has done it), or `unclear` (the evidence is ambiguous). Every status except `covered` needs a one-line `reason`. Ticket comments that change scope count. Flag in a `medium` callout anything the PR changes that the ticket does not ask for. |
-   | `quiz` | 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, every option with a one-sentence `explanation` of why it is right or wrong. Medium difficulty: answerable only by someone who understood the sections above, never a gotcha, never about file names or IDs. Ask about operator-visible consequences ("a pod takes 3 s to start after this merges; what happens?"), scope ("which environments change?"), and what the ticket asked for versus what the PR does. Every question cites the facts that answer it in `refs`. Vary the position of the correct option. |
+   | `quiz` | Only with `--quiz`; otherwise leave the field out. 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, every option with a one-sentence `explanation` of why it is right or wrong. Medium difficulty: answerable only by someone who understood the sections above, never a gotcha, never about file names or IDs. Ask about operator-visible consequences ("a pod takes 3 s to start after this merges; what happens?"), scope ("which environments change?"), and what the ticket asked for versus what the PR does. Every question cites the facts that answer it in `refs`. Vary the position of the correct option. |
    | `narrator_model` | Your exact model ID. It must be `claude-opus-5-5` (ground rule 5). |
 
 3. **Verify**
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json [--quiz]
    ```
 
    - Exit 0: continue.
@@ -147,7 +157,7 @@ URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 al
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch [--infographic <png>]... --out <W>/pr-<N>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch [--infographic <png>]... [--quiz] --out <W>/pr-<N>.html
    ```
 
    By default this writes an Artifact page fragment; Artifacts render Mermaid natively.
@@ -161,7 +171,7 @@ URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 al
    1. Publish `<W>/pr-<N>.html` exactly as `render.py` wrote it. Never edit, redesign or merge it
       by hand. An update replaces the whole page with the new render. (`artifact-design` was
       already loaded in step 5.)
-   2. Look for an earlier page:
+   2. Look for an earlier page (read-only; finds the link a previous `--comment` run posted):
 
       ```
       uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --get-url
@@ -182,17 +192,18 @@ URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 al
       with the `ArtifactComments` tool when the user asks what reviewers said.
    6. If the Artifact tool is unavailable, re-run step 5's render command with `--standalone` and
       the same `--errors` and `--diff` (adds a doctype and the Mermaid script for local viewing),
-      `open` the file, tell the user where it is, and skip step 7. The comment buttons stay hidden
-      outside the Artifact host; the quiz works everywhere.
+      `open` the file, tell the user where it is, and skip step 7 even with `--comment`. The comment buttons stay hidden
+      outside the Artifact host; a quiz works everywhere.
 
-7. **Comment**
+7. **Comment** (only with `--comment`; otherwise skip to step 8)
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha>
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha> [--quiz]
    ```
 
    Use the URL returned by the final publish (new or updated), never the old one if they differ.
 
-8. **Report.** Send one short message: the link, the triage label (if any), the number of
-   changed resources, must-read items and quiz questions, the ticket key and the count per
-   criterion status, and everything in `not_covered`. Say that the quiz is the bar for approving.
+8. **Report.** Send one short message: the link, whether a PR comment was posted, the triage label (if any), the number of
+   changed resources, must-read items and (with `--quiz`) quiz questions, the ticket key and the
+   count per criterion status, and everything in `not_covered`. With `--quiz`, say that the quiz is
+   the bar for approving.
