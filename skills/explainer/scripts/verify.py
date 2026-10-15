@@ -20,6 +20,8 @@ NARRATOR_MODEL = "claude-opus-5-5"
 TICKET_STATUSES = {"covered", "respected", "out_of_band", "not_covered", "unclear"}
 # Ticket mode, before a PR exists: would_change (cite what it touches), already_true, out_of_scope, unclear.
 TICKET_SYSTEM_STATUSES = {"would_change", "already_true", "out_of_scope", "unclear"}
+# Plan mode adds new: the plan builds something the repo has nothing for yet (cite the plan).
+PLAN_STATUSES = TICKET_SYSTEM_STATUSES | {"new"}
 # Refs that differ in one place render as one group; more groups than this per row means the
 # narrator is listing evidence instead of pointing at it.
 MAX_REF_GROUPS = 6
@@ -215,6 +217,10 @@ def verify(facts: dict, expl: dict) -> list[str]:
             errors.append(f"ticket.pr is {chosen!r}, which is not one of the related PRs {sorted(n for n in open_prs if n is not None)}")
         elif chosen is None and open_prs:
             errors.append(f"ticket.pr is missing; an open PR names this ticket: set it to {open_prs[0]}")
+    if mode == "plan":
+        errors += verify_plan(facts, expl, ids, check_groups)
+    elif expl.get("plan") is not None:
+        errors.append(f"explainer has a plan section but facts.mode is {mode!r}")
     if system:
         errors += verify_system(facts, expl, ids, comments, check_groups)
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
@@ -224,6 +230,43 @@ def verify(facts: dict, expl: dict) -> list[str]:
 
 MIN_SCENARIOS, MAX_SCENARIOS = 2, 3
 NO_FACT = "no fact"
+
+
+def verify_plan(facts: dict, expl: dict, ids: set, check_groups) -> list[str]:
+    """Plan pages: every step the plan takes is mapped to the repo. would_change and already_true
+    cite what the repo has (not the plan itself); new cites the plan doc (d*), since the repo has
+    nothing yet; every status but would_change says why."""
+    errors: list[str] = []
+    docs = {d.get("id") for d in facts.get("docs") or [] if isinstance(d, dict) and d.get("id")}
+    plan = expl.get("plan")
+    if not isinstance(plan, dict):
+        return ["facts.mode is 'plan' but the explainer has no plan section"]
+    steps = plan.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return ["plan.steps must list each step the plan takes, mapped to the repo"]
+    for i, item in enumerate(steps):
+        if not isinstance(item, dict):
+            errors.append(f"plan.steps[{i}] is not an object")
+            continue
+        status, refs = item.get("status"), ref_list(item.get("refs"), f"plan.steps[{i}]", errors)
+        if not text(item.get("text")):
+            errors.append(f"plan.steps[{i}].text is empty")
+        if status not in PLAN_STATUSES:
+            errors.append(f"plan.steps[{i}] status {status!r} is not one of {sorted(PLAN_STATUSES)}")
+        for ref in refs:
+            if ref not in ids:
+                errors.append(f"plan.steps[{i}] references unknown id {ref!r}")
+        repo_refs = [r for r in refs if r in ids and r not in docs]
+        if status in ("would_change", "already_true") and not repo_refs:
+            errors.append(f"plan.steps[{i}] is {status} but cites nothing in the repo; cite the block, workflow or file")
+        if status == "new" and not any(r in docs for r in refs):
+            errors.append(f"plan.steps[{i}] is new but does not cite the plan (d*)")
+        if status != "would_change" and not text(item.get("reason")):
+            errors.append(f"plan.steps[{i}] is {status} but has no reason")
+        check_groups(f"plan.steps[{i}]", [r for r in refs if r in ids])
+    if not expl.get("open_questions"):
+        errors.append("open_questions is empty; list what the plan leaves open that the repo cannot answer")
+    return errors
 
 
 def verify_system(facts: dict, expl: dict, ids: set, comments: dict, check_groups) -> list[str]:

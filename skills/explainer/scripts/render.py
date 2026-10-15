@@ -28,7 +28,8 @@ TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "des
 # Ticket criterion statuses as the reader sees them; verify.py owns the allowed set.
 STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "unclear",
                 "out_of_band": "done outside this PR", "respected": "respected",
-                "would_change": "would change", "already_true": "already true", "out_of_scope": "out of scope"}
+                "would_change": "would change", "already_true": "already true", "out_of_scope": "out of scope",
+                "new": "new"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
 # Walkthrough hunks are read inline; past this many lines the step links to the PR instead.
 MAX_HUNK_LINES = 60
@@ -518,6 +519,9 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         if mode == "ticket" and facts.get("jira"):
             title = f"Ticket explainer: {facts['jira'].get('key')}"
             page_title = f"{facts['jira'].get('key')} — {mask(facts['jira'].get('summary') or '')}"
+        if mode == "plan":
+            plan_title = mask(next((d.get("title") for d in as_dicts(facts.get("docs")) if d.get("title")), "") or "plan")
+            title, page_title = f"Plan explainer: {plan_title}", f"{plan_title} — where it lands in {repo}"
     else:
         header = (f'<a href="{esc(pr["url"])}">{esc(pr["repo"])}#{pr["number"]}</a> · head '
                   f'<code>{esc(pr["head_sha"][:7])}</code>'
@@ -571,6 +575,21 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
                        + (f'<div class="scroll"><table><thead><tr><th>{asks_header}</th><th>Status</th><th>Why</th><th>Refs</th>'
                           f'</tr></thead><tbody>{criteria}</tbody></table></div>' if criteria else "")
                        + related + "</div>")
+    plan_html = ""
+    if mode == "plan":
+        plan = as_dict(expl.get("plan"))
+        step_rows = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td>'
+                            f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), str(c.get("status") or "")) if isinstance(c.get("status"), str) else "")}</span></td>'
+                            f'<td>{esc(mask(c.get("reason", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
+                            for c in as_dicts(plan.get("steps")))
+        term_rows = "".join(f'<tr><td><code>{esc(mask(str(t)))}</code></td><td>{refs(as_refs(ids)) if as_refs(ids) else "<span class=\"meta\">not in this repo</span>"}</td></tr>'
+                            for t, ids in as_dict(query.get("term_hits")).items())
+        plan_html = ('<h2>Plan <button type="button" class="ask" hidden>Comment</button></h2><div class="card">'
+                       + (f'<div class="scroll"><table><thead><tr><th>The plan does</th><th>Status</th><th>Why</th><th>Refs</th>'
+                          f'</tr></thead><tbody>{step_rows}</tbody></table></div>' if step_rows else '<p class="meta">No plan steps were written.</p>')
+                       + (f'<p><strong>Plan terms in the repo</strong></p><div class="scroll"><table><thead><tr><th>Term</th><th>Found in</th>'
+                          f'</tr></thead><tbody>{term_rows}</tbody></table></div>' if term_rows else "")
+                       + "</div>")
     must_refs = {m.get("ref") for m in as_dicts(expl.get("must_read"))}
     steps = []
     for step in as_list(expl.get("reading_order")):
@@ -658,6 +677,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
                       or '<p class="meta">No background was written.</p>',
         "SCENARIO": scenario_html,
         "TICKET": ticket_html,
+        "PLAN": plan_html,
         "PLANS": plans,
         "MERMAID": esc(mermaid(facts)),
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'

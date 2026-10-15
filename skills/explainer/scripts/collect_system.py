@@ -3,10 +3,11 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "pathspec>=0.12,<1"]
 # ///
-"""explainer: collect deterministic facts about a service (or a ticket's system) at one ref.
+"""explainer: collect deterministic facts about a service, a ticket's system or a plan's repo at one ref.
 
 Usage: collect_system.py --service NAME [--service NAME]... [--repo owner/name] [--ref main]
                          [--doc FILE]... [--ticket KEY] [--all] --out DIR
+       collect_system.py --plan --doc ONE_PAGER [--term TERM]... [--repo owner/name] [--ref main] --out DIR
 --repo is required outside a checkout of the repo. --ref defaults to the repo's default branch.
 The work is in facts_lib.collect_system(); this file parses arguments and writes facts.json.
 """
@@ -35,10 +36,16 @@ def main() -> int:
     ap.add_argument("--doc", action="append", default=[], help="a local text file (Confluence export, requirements); repeat")
     ap.add_argument("--ticket", help="IFS-123 or DX-123: read the ticket and infer the service from it")
     ap.add_argument("--all", action="store_true", help="accept more than 8 matched Applications")
+    ap.add_argument("--plan", action="store_true", help="the --doc files are a plan (a one-pager); no Application is required")
+    ap.add_argument("--term", action="append", default=[], help="plan mode: a term to search for besides the plan's backticked identifiers; repeat")
     ap.add_argument("--out", required=True, help="work directory for facts.json")
     args = ap.parse_args()
-    if not args.service and not args.ticket:
-        sys.exit("collect: pass --service NAME and/or --ticket KEY")
+    if args.plan and not args.doc:
+        sys.exit("collect: --plan needs the plan as --doc FILE")
+    if args.term and not args.plan:
+        sys.exit("collect: --term only applies with --plan")
+    if not args.service and not args.ticket and not args.plan:
+        sys.exit("collect: pass --service NAME, --ticket KEY or --plan --doc FILE")
     repo = args.repo or repo_from_origin()
     if not repo:
         sys.exit("collect: the current directory is not a GitHub checkout; pass --repo owner/name")
@@ -47,7 +54,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     trees = Trees.at(repo, ref)
     try:
-        facts = collect_system(repo, trees, args.service, args.doc, args.ticket, args.all)
+        facts = collect_system(repo, trees, args.service, args.doc, args.ticket, args.all, args.plan, args.term)
     finally:
         trees.close()
     (out / "facts.json").write_text(json.dumps(facts, indent=2))
@@ -59,6 +66,10 @@ def main() -> int:
           f"{len(facts['terraform'])} terraform blocks, {len(facts['workflows'])} workflow entries, "
           f"{len(facts['docs'])} docs, ticket: {(facts['jira'] or {}).get('key') or 'none'}, "
           f"unrendered apps: {unrendered or 'none'}")
+    if facts["mode"] == "plan":
+        hits = facts["query"]["term_hits"]
+        print(f"collect: {len(hits)} plan terms, {sum(1 for v in hits.values() if v)} found in the repo, "
+              f"missing: {[t for t, v in hits.items() if not v] or 'none'}")
     print(f"collect: wrote {out / 'facts.json'}")
     return 0
 

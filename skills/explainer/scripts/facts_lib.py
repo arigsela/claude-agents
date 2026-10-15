@@ -1396,7 +1396,9 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
             continue
         text = re.sub(r"<[^>]+>", "", raw)
         text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
-        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.strip()), "") or Path(p).stem
+        # Obsidian and Jekyll notes open with YAML frontmatter; the title is the first line after it.
+        body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
+        title = next((line.lstrip("# ").strip() for line in body.splitlines() if line.strip()), "") or Path(p).stem
         title = SECRET_VALUE_RE.sub(r"\1[REDACTED]", title)  # a title reaches the page as a ref label
         docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
                      "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
@@ -1526,11 +1528,104 @@ def workflow_mentions(root: Path, names: list[str]) -> tuple[list[dict], list[di
     return out, edges
 
 
+PLAN_TERM_RE = re.compile(r"`([^`\n]{3,80})`")
+PLAN_VERSION_RE = re.compile(r"^v?\d+(\.\d+)+$")
+PLAN_TERM_OK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*[A-Za-z0-9]$")
+
+
+def plan_terms(docs: list[dict], repo: str) -> list[str]:
+    """The identifiers a plan names in backticks, in order of first use: `{env}`-style placeholders
+    and a leading @ dropped, versions, globs, prose with spaces and the repo's own name skipped.
+    A term must carry a digit, one of - _ . / : or an inner capital, so code-quoted English words
+    (`data`, `pip`) do not match half the repo. Deterministic; the model never picks the terms."""
+    own = repo.rsplit("/", 1)[-1].lower()
+    out: list[str] = []
+    for d in docs:
+        for m in PLAN_TERM_RE.finditer(d.get("text") or ""):
+            term = re.sub(r"\{[^}]*\}", "", m.group(1).strip()).lstrip("@").strip("-_./:")
+            if (len(term) < 3 or not PLAN_TERM_OK_RE.match(term) or PLAN_VERSION_RE.match(term)
+                    or term.lower() == own or term.lower() in (t.lower() for t in out)):
+                continue
+            if not re.search(r"[\d\-_./:]", term) and not re.search(r"(?<=[a-z])[A-Z]", term):
+                continue
+            out.append(term)
+    return out
+
+
+MAX_FILE_MENTIONS = 40
+MAX_FILES_PER_TERM = 8
+MAX_MENTION_BYTES = 200_000
+
+
+def file_mentions(root: Path, terms: list[str], skip: set[str]) -> tuple[list[dict], list[dict]]:
+    """Tracked text files whose name or text names a plan term outside resource/data blocks and
+    workflows (locals, backends, a Justfile, CODEOWNERS, a README), as `f*` entries with the terms
+    and the lines they are on. Files in `skip` are already facts; binary and large files are left
+    out. Each term keeps its first MAX_FILES_PER_TERM files, in path order, so a broad term (a
+    state bucket every backend names) cannot crowd out a narrow one."""
+    try:
+        tracked = sorted(p for p in sh("git", "ls-files", cwd=root).splitlines() if p)
+    except RuntimeError:
+        tracked = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and ".git" not in p.parts)
+    out, notes = [], []
+    named_in: dict[str, int] = {t: 0 for t in terms}
+    full = False
+    for rel in tracked:
+        f = root / rel
+        if rel in skip or not f.is_file() or f.stat().st_size > MAX_MENTION_BYTES:
+            continue
+        raw = f.read_bytes()
+        if b"\0" in raw:
+            continue
+        lines = raw.decode(errors="replace").splitlines()
+        named = [t for t in terms if _mentions(Path(rel).name, [t]) or any(_mentions(line, [t]) for line in lines)]
+        for t in named:
+            named_in[t] += 1
+        if not named or full or all(named_in[t] > MAX_FILES_PER_TERM for t in named):
+            continue
+        if len(out) == MAX_FILE_MENTIONS:
+            full = True
+            continue
+        at = [i for i, line in enumerate(lines, start=1) if _mentions(line, named)]
+        out.append({"id": f"f{len(out) + 1}", "file": rel, "status": "mentions", "lines": at[:10],
+                    "terms": named, "summary": {"names": named, "lines": at[:10]}})
+    broad = {t: n for t, n in named_in.items() if n > MAX_FILES_PER_TERM}
+    if broad:
+        notes.append({"key": "mentions", "text": "Some terms are named in more files than the page lists (first "
+                                                 f"{MAX_FILES_PER_TERM} each, by path): "
+                                                 + ", ".join(f"{t} ({n} files)" for t, n in broad.items()) + "."})
+    if full:
+        notes.append({"key": "mentions", "text": f"More than {MAX_FILE_MENTIONS} files name the plan's terms; the rest "
+                                                 "are not on the page. Pass fewer, narrower --term values."})
+    return out, notes
+
+
+def term_hits(root: Path, terms: list[str], tf: list[dict], wf: list[dict], files: list[dict]) -> dict[str, list[str]]:
+    """term -> the t* ids whose block names it, the first w* id of each workflow file that names
+    it (entries are per element, the match is per file) and the f* files that name it; [] when
+    the repo has nothing for it yet, which is what the plan would add."""
+    bodies = {(file, line): f"{addr}\n{body}" for addr, file, line, body in tf_block_list(root)}
+    first: dict[str, str] = {}
+    for w in wf:
+        first.setdefault(w["workflow"], w["id"])
+    texts = {path: (root / path).read_text(errors="replace") for path in first}
+    hits: dict[str, list[str]] = {}
+    for term in terms:
+        ids = [t["id"] for t in tf if _mentions(bodies.get((t["file"], t["lines"][0]), ""), [term])]
+        ids += [wid for path, wid in first.items() if _mentions(texts[path], [term])]
+        ids += [f["id"] for f in files if term in f["terms"]]
+        hits[term] = ids
+    return hits
+
+
 def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], ticket_key: str | None,
-                   all_apps: bool) -> dict:
+                   all_apps: bool, plan: bool = False, terms: list[str] | None = None) -> dict:
     """Facts for a service (or a ticket's system) at one ref: the matched Applications in every
     environment, their rendered resources as `focus`, generated Secrets, edges, and the shared keys
-    the PR collector fills, empty. Exits with a message when nothing matches or too much does."""
+    the PR collector fills, empty. Exits with a message when nothing matches or too much does.
+
+    plan=True reads a plan (a one-pager) from docs instead: Applications are optional, and the
+    Terraform, workflow and file searches use the plan's backticked identifiers plus `terms`."""
     policy = read_policy(trees) or {}
     callouts = policy.get("risk_callouts") or {}
     found = find_applications(trees.head)
@@ -1600,24 +1695,43 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
                           "summary": resource_summary(universe[k])})
     edges_out = [{"from": ids[a], "to": ids[b], "type": t} for a, b, t in edges if a in ids and b in ids]
     config = config_facts(trees, matched, repo)
-    tf, tf_edges = terraform_mentions(trees.head, names)
-    wf, wf_edges = workflow_mentions(trees.head, names)
     doc_out, notes = doc_facts(docs)
+    search, hits = names, {}
+    if plan:
+        search = list(dict.fromkeys(names + plan_terms(doc_out, repo) + list(terms or [])))
+    tf, tf_edges = terraform_mentions(trees.head, search) if search else ([], [])
+    wf, wf_edges = workflow_mentions(trees.head, search) if search else ([], [])
     notes = ticket_notes + notes
+    files: list[dict] = []
+    if plan:
+        files, file_notes = file_mentions(trees.head, search, {w["workflow"] for w in wf})
+        notes += file_notes
+        hits = term_hits(trees.head, search, tf, wf, files)
+        notes.append({"key": "plan", "text": "The plan's terms were matched as case-insensitive substrings in resource and "
+                                             "data blocks, workflows and tracked text files at this ref. A hit means the "
+                                             "repo names the term, not that what the plan proposes is already there; "
+                                             "other repos the plan names were not read."
+                                             if doc_out else "No plan document could be read, so the page has nothing to map."})
+        missing = [t for t, ids in hits.items() if not ids]
+        if missing:
+            notes.append({"key": "terms", "text": "These plan terms name nothing in this repo's Terraform, workflows or files "
+                                                  f"at this ref: {', '.join(missing)}. Each is something the plan "
+                                                  "adds, or lives in another repo."})
     if wf:
-        notes.append({"key": "actions", "text": "GitHub Actions entries are the workflows that name the service at this "
+        notes.append({"key": "actions", "text": f"GitHub Actions entries are the workflows that name the {'plan terms' if plan else 'service'} at this "
                                                 "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
                                                 "composite actions and callers in other repositories are not resolved."})
     if tf:
         notes.append({"key": "terraform", "text": "Terraform blocks are the resource and data blocks whose address or "
-                                                  "body names the service at this ref; no plan was run, so counts, "
+                                                  f"body names the {'plan terms' if plan else 'service'} at this ref; no plan was run, so counts, "
                                                   "for_each instances and module internals are not resolved."})
     if not policy:
         notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
     return {
-        "mode": "ticket" if ticket_key else "service", "pr": None, "triage": None,
-        "query": {"service": names, "matched_by": matched_by, "inferred": inferred, "ref": trees.ref, "sha": trees.sha, "repo": repo},
+        "mode": "plan" if plan else "ticket" if ticket_key else "service", "pr": None, "triage": None,
+        "query": {"service": names, "matched_by": matched_by, "inferred": inferred, "ref": trees.ref, "sha": trees.sha, "repo": repo,
+                  **({"terms": search, "term_hits": hits} if plan else {})},
         "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
-        "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": [],
+        "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": files,
         "docs": doc_out, "related_prs": prs, "jira": jira, "policy_hits": [], "notes": notes,
     }

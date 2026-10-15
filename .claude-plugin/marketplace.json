@@ -97,7 +97,7 @@
     {
       "name": "explainer",
       "source": "./skills/explainer",
-      "description": "Teaching pages for a GitOps PR, a service under discovery or a ticket: deterministic resource maps, background, scenarios, a literate walkthrough and a quiz, as a private HTML page."
+      "description": "Teaching pages for a GitOps PR, a service under discovery, a ticket or a plan such as a one-pager: deterministic resource maps, background, scenarios, a literate walkthrough and a quiz, as a private HTML page."
     },
     {
       "name": "review-retro",
