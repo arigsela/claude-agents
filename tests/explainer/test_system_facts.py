@@ -187,5 +187,34 @@ class TreesAtTest(SystemFactsBase):
         self.assertFalse(t.head.exists())  # close() removed the worktree
 
 
+def app(name: str, path: str) -> dict:
+    return yaml.safe_load(APP_YAML.format(name=name, path=path))
+
+
+class MatchTest(unittest.TestCase):
+    def test_match_by_name_directory_and_source_path(self):
+        found = [("grafana", "argo/prod/grafana.yaml", app("grafana", "apps/grafana")),
+                 ("grafana", "argo/nonprod/grafana.yaml", app("grafana", "apps/grafana")),
+                 ("metrics", "argo/prod/metrics.yaml", app("metrics", "apps/grafana-agent")),
+                 ("loki", "argo/prod/loki.yaml", app("loki", "apps/loki"))]
+        apps, by = facts_lib.match_applications(found, ["grafana"])
+        self.assertEqual(sorted(apps), ["grafana", "metrics"])
+        self.assertEqual(len(apps["grafana"]), 2)
+        self.assertIn({"app": "metrics", "name": "grafana", "by": "source-path"}, by)
+        self.assertIn({"app": "grafana", "name": "grafana", "by": "name"}, by)
+
+    def test_match_by_directory(self):
+        found = [("web", "argo/prod/payments/web.yaml", app("web", "apps/web"))]
+        apps, by = facts_lib.match_applications(found, ["payments"])
+        self.assertEqual(list(apps), ["web"])
+        self.assertEqual(by, [{"app": "web", "name": "payments", "by": "directory"}])
+
+    def test_match_is_case_insensitive_and_empty_when_nothing_matches(self):
+        found = [("Grafana-UI", "argo/prod/g.yaml", app("Grafana-UI", "apps/g"))]
+        self.assertEqual(list(facts_lib.match_applications(found, ["grafana"])[0]), ["Grafana-UI"])
+        self.assertEqual(facts_lib.match_applications(found, ["loki"]), ({}, []))
+        self.assertEqual(facts_lib.match_applications(found, [" ", ""]), ({}, []))
+
+
 if __name__ == "__main__":
     unittest.main()

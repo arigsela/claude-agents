@@ -213,6 +213,32 @@ def find_applications(root: Path) -> list[tuple[str, str, dict]]:
     return found
 
 
+MATCH_FIELDS = ("name", "directory", "source-path")
+
+
+def match_applications(found: list[tuple[str, str, dict]], names: list[str]) -> tuple[dict[str, list[tuple[str, str, dict]]], list[dict]]:
+    """Applications a service name matches, keyed by app name: every environment file of each.
+
+    A name matches case-insensitively as a substring of the Application's name, of the directory
+    its manifest sits in, or of its source path(s), in that order; `matched_by` records which.
+    """
+    apps: dict[str, list[tuple[str, str, dict]]] = {}
+    by: list[dict] = []
+    wanted = [n.strip().lower() for n in names if n and n.strip()]
+    for name, file, doc in found:
+        hay = {"name": name.lower(), "directory": str(Path(file).parent).lower(),
+               "source-path": " ".join(str(s.get("path") or "") for s in app_sources(doc)).lower()}
+        for n in wanted:
+            how = next((k for k in MATCH_FIELDS if n in hay[k]), None)
+            if how:
+                apps.setdefault(name, []).append((name, file, doc))
+                row = {"app": name, "name": n, "by": how}
+                if row not in by:
+                    by.append(row)
+                break
+    return apps, by
+
+
 def applications(base: list[tuple[str, str, dict]], head: list[tuple[str, str, dict]]) -> tuple[dict, dict, bool]:
     """App id -> (file, doc) for base and head, and whether Applications span several directories.
 
