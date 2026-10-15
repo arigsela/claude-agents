@@ -80,6 +80,8 @@ GOOD_SYSTEM = {
     "narrator_model": "claude-opus-5-5",
 }
 
+SYSTEM_QUIZ = GOOD_SYSTEM.pop("quiz")  # the quiz is opt-in (--quiz)
+
 
 def bad(**changes) -> dict:
     expl = copy.deepcopy(GOOD_SYSTEM)
@@ -148,11 +150,11 @@ class SystemVerifyTest(unittest.TestCase):
 
 
 class SystemRenderTest(unittest.TestCase):
-    def page(self, expl=GOOD_SYSTEM, errors=(), facts=SYSTEM_FACTS):
-        return render.render(facts, expl, list(errors), {})
+    def page(self, expl=GOOD_SYSTEM, errors=(), facts=SYSTEM_FACTS, quiz=False):
+        return render.render(facts, expl, list(errors), {}, quiz=quiz)
 
     def test_sections_and_header(self):
-        page = self.page()
+        page = self.page(bad(quiz=SYSTEM_QUIZ), quiz=True)
         for h in ("<h2>Background", "<h2>Components", "<h2>How it works", "<h2>Resource map", "<h2>Where it runs",
                   "<h2>Config that matters", "<h2>What the docs ask", "<h2>Risk callouts", "<h2>Open these files first",
                   "<h2>Open questions", "<h2>Walkthrough", "<h2>Not covered", "<h2>Check your understanding"):
@@ -263,7 +265,6 @@ class NoAppTicketTest(unittest.TestCase):
             "open_questions": [{"text": "Which app is Grafana deployed by?", "refs": ["IFS-9"]}], "docs_summary": [],
             "callouts": [], "must_read": [], "reading_order": [], "not_covered": ["match"],
             "ticket": {"intent": "SSO for Grafana.", "criteria": [{"text": "SSO", "status": "unclear", "reason": "no app matched", "refs": ["IFS-9"]}]},
-            "quiz": [{"question": f"q{i}", "options": [{"text": "a", "correct": True, "explanation": "e"}, {"text": "b", "correct": False, "explanation": "e"}], "refs": ["IFS-9"]} for i in range(3)],
             "narrator_model": "claude-opus-5-5"}
 
     def test_ticket_key_is_citable_and_scenarios_optional_without_apps(self):

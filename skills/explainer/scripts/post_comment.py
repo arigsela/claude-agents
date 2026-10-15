@@ -36,6 +36,7 @@ def main() -> int:
     ap.add_argument("--get-url", action="store_true")
     ap.add_argument("--url")
     ap.add_argument("--sha")
+    ap.add_argument("--quiz", action="store_true", help="the page has a quiz")
     args = ap.parse_args()
     if not args.get_url:
         if not (args.url and args.sha):
@@ -54,8 +55,8 @@ def main() -> int:
         return 0
     body = (f"<!-- pr-explainer url={args.url} sha={args.sha} -->\n"
             f"📖 Explainer for `{args.sha[:7]}`: {args.url} (private link). "
-            "Questions go as comments on the page, next to the section they are about; "
-            "the quiz at the bottom is the bar for approving.")
+            "Questions go as comments on the page, next to the section they are about"
+            + ("; the quiz at the bottom is the bar for approving." if args.quiz else "."))
     payload = json.dumps({"body": body})
     if existing:
         gh("api", "-X", "PATCH", f"repos/{args.repo}/issues/comments/{existing['id']}", "--input", "-", stdin=payload)

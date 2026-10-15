@@ -158,10 +158,6 @@ GOOD_PLAN = {
     "callouts": [], "must_read": [{"ref": "f1", "why": "the role the plan must not change"}],
     "reading_order": [{"ref": "f1", "note": "the shared CI role"}],
     "not_covered": ["plan: substring match only", "terms: PublicInternetOnly is new"],
-    "quiz": [{"question": f"Which role stays as is? ({n})", "options": [
-        {"text": "github-deploy-tf", "correct": True, "explanation": "bidw-aws-lambda uses it."},
-        {"text": "a new SageMaker role", "correct": False, "explanation": "That one is added."}], "refs": ["f1"]}
-        for n in range(3)],
     "narrator_model": "claude-opus-5-5",
 }
 
@@ -169,6 +165,14 @@ GOOD_PLAN = {
 class PlanVerifyTest(unittest.TestCase):
     def test_good_plan_passes(self):
         self.assertEqual(verify.verify(PLAN_FACTS, GOOD_PLAN), [])
+
+    def test_plan_quiz_with_the_flag(self):
+        quiz = [{"question": f"Which role stays as is? ({n})", "options": [
+            {"text": "github-deploy-tf", "correct": True, "explanation": "bidw-aws-lambda uses it."},
+            {"text": "a new SageMaker role", "correct": False, "explanation": "That one is added."}], "refs": ["f1"]}
+            for n in range(3)]
+        self.assertEqual(verify.verify(PLAN_FACTS, {**GOOD_PLAN, "quiz": quiz}, quiz=True), [])
+        self.assertIn("quiz has 0 questions; write 3-5", verify.verify(PLAN_FACTS, GOOD_PLAN, quiz=True))
 
     def test_plan_section_required(self):
         bad = {k: v for k, v in GOOD_PLAN.items() if k != "plan"}

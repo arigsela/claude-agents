@@ -474,7 +474,7 @@ def as_refs(value) -> list[str]:
 
 
 def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict]] | None = None,
-           infographic: list[str] | None = None) -> str:
+           infographic: list[str] | None = None, quiz: bool = False) -> str:
     """The page. A failed verify still renders (with the Unverified banner), so every explainer
     field is read through as_list/as_dict/as_refs and a wrong-shaped entry is skipped, never raised on."""
     mode = facts.get("mode") or "pr"
@@ -673,14 +673,21 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         + (f'<span class="meta">(no fact)</span>' if NO_FACT in as_refs(q.get("refs")) else refs(q.get("refs", [])))
         + "</li>" for q in as_dicts(expl.get("open_questions")))
 
-    quiz = []
+    questions_html = []
     for q in as_dicts(expl.get("quiz")):
         opts = "".join(
             f'<button type="button" class="opt" data-correct="{1 if o.get("correct") is True else 0}" '
             f'data-why="{esc(mask(o.get("explanation", "")))}">{esc(mask(o.get("text", "")))}</button>'
             for o in as_dicts(q.get("options")))
-        quiz.append(f'<li class="q"><p>{esc(mask(q.get("question", "")))}</p><div class="opts">{opts}</div>'
-                    f'<div class="why" hidden></div><p class="meta">{refs(q.get("refs", []))}</p></li>')
+        questions_html.append(f'<li class="q"><p>{esc(mask(q.get("question", "")))}</p><div class="opts">{opts}</div>'
+                              f'<div class="why" hidden></div><p class="meta">{refs(q.get("refs", []))}</p></li>')
+    # The quiz is opt-in (--quiz); without it the page has no quiz section at all.
+    quiz_html = "" if not quiz else (
+        '<h2>Check your understanding <button type="button" class="ask" hidden>Comment</button></h2>'
+        f'<p class="meta">Answer before you {"write" if system else "approve"}. '
+        'Every question is answerable from the sections above.</p>'
+        + '<ol class="quiz">' + ("".join(questions_html) or '<li class="meta">No quiz was written.</li>') + "</ol>"
+        '<p class="score" hidden></p>')
 
     scenario = as_dict(expl.get("scenario"))
     scenario_html = (
@@ -738,7 +745,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "PRIMER": primer_html,
         "OPEN_QUESTIONS_TITLE": OPEN_QUESTIONS_TITLE.get(mode, "Open questions"),
         "OPEN_QUESTIONS_DOCS": doc_links_html,
-        "QUIZ": "".join(quiz) or '<li class="meta">No quiz was written.</li>',
+        "QUIZ_SECTION": quiz_html,
         "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in as_list(expl.get("not_covered")))
                        or "<li>Nothing: every changed app was rendered.</li>",
     }
@@ -756,6 +763,7 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--diff", help="the PR's unified diff (collect.py's diff.patch), for inline walkthrough hunks")
     ap.add_argument("--standalone", action="store_true")
+    ap.add_argument("--quiz", action="store_true", help="add the quiz section (off by default)")
     ap.add_argument("--infographic", action="append", default=[], help="a PNG slide from infographic.py; repeat")
     args = ap.parse_args()
     facts = json.loads(Path(args.facts).read_text())
@@ -770,7 +778,7 @@ def main() -> int:
         except Exception:
             errors = ["verify did not complete (errors file missing or invalid)"]
     errors = list(dict.fromkeys(load_errors + [str(e) for e in errors]))
-    page = render(facts, expl, errors, diff, args.infographic)
+    page = render(facts, expl, errors, diff, args.infographic, quiz=args.quiz)
     Path(args.out).write_text(STANDALONE_HEAD + page + STANDALONE_TAIL if args.standalone else page)
     print(f"render: wrote {args.out}")
     return 0

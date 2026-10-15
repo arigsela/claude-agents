@@ -1,6 +1,6 @@
 ---
 name: service-explainer
-description: Explain a service under discovery without reading the repo by hand. Finds the Argo CD Applications that match a name across every environment, renders them at the default branch, maps their resources, the Terraform blocks and GitHub Actions workflows that name the service, and the config keys this repo sets, reads any Confluence page or requirements you feed in, and publishes a private HTML page with background, components, how it works (traced scenarios), where it runs per environment, config that matters, open questions for a one-pager, a walkthrough and a quiz. Use for "explain the grafana service", "walk me through payments-api", "I'm writing a one-pager on X", or discovery before a ticket.
+description: Explain a service under discovery without reading the repo by hand. Finds the Argo CD Applications that match a name across every environment, renders them at the default branch, maps their resources, the Terraform blocks and GitHub Actions workflows that name the service, and the config keys this repo sets, reads any Confluence page or requirements you feed in, and publishes a private HTML page with background, components, how it works (traced scenarios), where it runs per environment, config that matters, open questions for a one-pager, a walkthrough and, with `--quiz`, a quiz. Use for "explain the grafana service", "walk me through payments-api", "I'm writing a one-pager on X", or discovery before a ticket.
 version: "1.0.0"
 model: claude-opus-5-5
 author:
@@ -29,7 +29,11 @@ request, a deploy and a job move through it, with every sentence cited to a coll
 /service-explainer grafana --all
 /service-explainer grafana --standalone
 /service-explainer grafana --infographic
+/service-explainer grafana --quiz
 ```
+
+`--quiz` (opt-in, off by default) adds 3–5 multiple-choice questions at the end of the page.
+Pass it only when the user asks for a quiz; without it, leave `quiz` out of the explainer.
 
 `--standalone` keeps the page off claude.ai: the skill renders a local file, opens it and publishes
 nothing. Use it when the service's structure (hosts, namespaces, images) must not leave the
@@ -65,7 +69,8 @@ The scripts never talk to Confluence themselves.
    `model: "opus"`, give it `<W>`, this file's path and the ground rules, and wait for it.
    `verify.py` fails any `narrator_model` other than `claude-opus-5-5`.
 6. **Teach, then test.** The reader will write a one-pager or a change next week. Background
-   says what is there; the scenarios say how it behaves; the quiz is the bar for starting.
+   says what is there; the scenarios say how it behaves; with `--quiz`, the quiz is the
+   bar for starting.
 
 ## Workflow
 
@@ -135,13 +140,13 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    | `must_read` | The files to open before writing: the Application, the values, the main workload. `why` says what to look for. |
    | `reading_order` | One `{"ref", "note"}` step per item, walking the system: Application → config → workloads → routing → jobs → Terraform → workflows. The page shows each item's collected facts under the note, so the note explains why this item matters, it does not repeat the facts. |
    | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything you could only guess at. |
-   | `quiz` | 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, a one-sentence `explanation` per option. Medium difficulty, about the system: "which environment has two replicas?", "what happens to a request when the pod is not ready?", "which job deploys it?". Never about IDs or file names. Every question cites the facts that answer it. Vary the position of the correct option. |
+   | `quiz` | Only with `--quiz`; otherwise leave the field out. 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, a one-sentence `explanation` per option. Medium difficulty, about the system: "which environment has two replicas?", "what happens to a request when the pod is not ready?", "which job deploys it?". Never about IDs or file names. Every question cites the facts that answer it. Vary the position of the correct option. |
    | `narrator_model` | Your exact model ID. It must be `claude-opus-5-5` (ground rule 5). |
 
 3. **Verify**
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json [--quiz]
    ```
 
    - Exit 0: continue.
@@ -169,7 +174,7 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... --out <W>/service-<name>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... [--quiz] --out <W>/service-<name>.html
    ```
 
    `render.py` picks the system template from `facts.mode`, masks secret-looking values and draws
@@ -193,5 +198,5 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
 
 7. **Report.** Send one short message: the link, the apps and environments found, the number of
    resources, config rows, Terraform blocks and workflow entries, the open questions count, and
-   everything in `not_covered`. Say the page holds the repo's view of the service and that the
-   quiz is the bar for writing the one-pager.
+   everything in `not_covered`. Say the page holds the repo's view of the service and, with
+   `--quiz`, that the quiz is the bar for writing the one-pager.
