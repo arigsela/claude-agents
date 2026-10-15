@@ -31,6 +31,8 @@ STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "
                 "out_of_band": "done outside this PR", "respected": "respected",
                 "would_change": "would change", "already_true": "already true", "out_of_scope": "out of scope",
                 "new": "new"}
+OPEN_QUESTIONS_TITLE = {"service": "Open questions for the one-pager", "ticket": "Open questions for the ticket",
+                        "plan": "Open questions for the plan"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
 # Walkthrough hunks are read inline; past this many lines the step links to the PR instead.
 MAX_HUNK_LINES = 60
@@ -490,8 +492,8 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
     def ref_url(item: dict) -> str | None:
         if "created" in item or ("key" in item and "summary" in item):  # ticket comment, or the ticket
             return item.get("url")
-        if "chars" in item:  # a local doc file: nothing to link to
-            return None
+        if "chars" in item:  # a doc: its Confluence page when the skill recorded one, else a local file
+            return item.get("url")
         path = item.get("file")
         if not path:
             return None
@@ -688,6 +690,17 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         f'</tbody></table></div><p class="meta">{refs(scenario.get("refs", []))}</p></div>'
         if scenario else '<div class="card"><p class="meta">No scenario was written.</p></div>')
 
+    repo_facts = any(facts.get(k) for k in ("resources", "non_manifest_changes", "terraform", "workflows", "config"))
+    primer = as_dict(expl.get("primer"))
+    primer_html = ""
+    if system and isinstance(primer.get("topic"), str) and isinstance(primer.get("text"), str) and primer["text"].strip():
+        primer_html = (f'<h2>What {esc(mask(primer["topic"]))} is <button type="button" class="ask" hidden>Comment</button></h2>'
+                       '<p class="meta">General background on the technology, written by the narrator. It is not checked '
+                       'against the repo or the ticket; every section below is.</p>'
+                       f'<div class="card"><p>{esc(mask(primer["text"]))}</p></div>')
+    linked = [d for d in as_dicts(facts.get("docs")) if isinstance(d.get("url"), str) and d["url"].startswith("https://")]
+    doc_links_html = (" Read alongside " + ", ".join(f'<a href="{esc(d["url"])}">{esc(mask(d.get("title") or d["url"]))}</a>'
+                                                       for d in linked) + "." if linked else "")
     subs = {
         "TITLE": esc(title),
         "PR_TITLE": esc(page_title),
@@ -719,7 +732,12 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
                              for m in as_dicts(expl.get("must_read")))
                      + "".join(f'<li>+{esc(h["more"])} more matching {esc(mask(h.get("rule", "")))} — see the PR\'s Files view</li>'
                                for h in facts.get("policy_hits", []) if h.get("more")),
-        "WALKTHROUGH": "".join(steps) or '<li class="meta">No reading order was written.</li>',
+        "WALKTHROUGH": "".join(steps) or (
+            '<li class="meta">No reading order was written.</li>' if repo_facts
+            else '<li class="meta">Nothing in the repo relates to this yet, so there is nothing to walk through.</li>'),
+        "PRIMER": primer_html,
+        "OPEN_QUESTIONS_TITLE": OPEN_QUESTIONS_TITLE.get(mode, "Open questions"),
+        "OPEN_QUESTIONS_DOCS": doc_links_html,
         "QUIZ": "".join(quiz) or '<li class="meta">No quiz was written.</li>',
         "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in as_list(expl.get("not_covered")))
                        or "<li>Nothing: every changed app was rendered.</li>",
