@@ -11,6 +11,7 @@ natively). --standalone adds a doctype and the Mermaid script for local viewing.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import html
 import json
@@ -428,6 +429,32 @@ def template_path(mode: str) -> Path:
     return Path(__file__).resolve().parent.parent / "assets" / f"template-{mode}.html"
 
 
+# Slides are inlined as data: URIs; the page must stay under the Artifact host's 16MB limit.
+MAX_INFOGRAPHIC_BYTES = 10_000_000
+
+
+def infographic_html(paths: list[str]) -> str:
+    """Codex's slides as <img> tags, labelled as an illustration of the checked text, not a fact
+    source. A missing file or one past the size budget is left out."""
+    imgs, total = [], 0
+    for p in paths:
+        f = Path(p)
+        if f.suffix.lower() != ".png" or not f.is_file():
+            continue
+        data = f.read_bytes()
+        if not data.startswith(b"\x89PNG") or total + len(data) > MAX_INFOGRAPHIC_BYTES:
+            continue
+        total += len(data)
+        imgs.append(f'<img class="slide" alt="Infographic slide {len(imgs) + 1}" '
+                    f'src="data:image/png;base64,{base64.b64encode(data).decode()}">')
+    if not imgs:
+        return ""
+    return ('<h2>At a glance <button type="button" class="ask" hidden>Comment</button></h2>'
+            '<p class="meta">Illustrations Codex drew from this page\'s verified text with the tech-infographics '
+            'skill. They are not a fact source; the sections below and their refs are.</p>'
+            f'<div class="card slides">{"".join(imgs)}</div>')
+
+
 def as_list(value) -> list:
     return value if isinstance(value, list) else []
 
@@ -444,7 +471,8 @@ def as_refs(value) -> list[str]:
     return [r for r in as_list(value) if isinstance(r, str)]
 
 
-def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict]] | None = None) -> str:
+def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict]] | None = None,
+           infographic: list[str] | None = None) -> str:
     """The page. A failed verify still renders (with the Unverified banner), so every explainer
     field is read through as_list/as_dict/as_refs and a wrong-shaped entry is skipped, never raised on."""
     mode = facts.get("mode") or "pr"
@@ -678,6 +706,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "SCENARIO": scenario_html,
         "TICKET": ticket_html,
         "PLAN": plan_html,
+        "INFOGRAPHIC": infographic_html(infographic or []) if system else "",
         "PLANS": plans,
         "MERMAID": esc(mermaid(facts)),
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'
@@ -709,6 +738,7 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--diff", help="the PR's unified diff (collect.py's diff.patch), for inline walkthrough hunks")
     ap.add_argument("--standalone", action="store_true")
+    ap.add_argument("--infographic", action="append", default=[], help="a PNG slide from infographic.py; repeat")
     args = ap.parse_args()
     facts = json.loads(Path(args.facts).read_text())
     expl, load_errors = load_explainer(Path(args.explainer))
@@ -722,7 +752,7 @@ def main() -> int:
         except Exception:
             errors = ["verify did not complete (errors file missing or invalid)"]
     errors = list(dict.fromkeys(load_errors + [str(e) for e in errors]))
-    page = render(facts, expl, errors, diff)
+    page = render(facts, expl, errors, diff, args.infographic)
     Path(args.out).write_text(STANDALONE_HEAD + page + STANDALONE_TAIL if args.standalone else page)
     print(f"render: wrote {args.out}")
     return 0

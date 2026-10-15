@@ -26,10 +26,14 @@ links it and the report suggests `/pr-explainer <n>` for the change itself.
 /ticket-explainer DX-593 --service build-orchestrator --repo org/gitops-repo
 /ticket-explainer IFS-314 --doc <W>/docs/one-pager.md
 /ticket-explainer IFS-314 --standalone
+/ticket-explainer IFS-314 --infographic
 ```
 
 `--standalone` keeps the page off claude.ai: the skill renders a local file, opens it and publishes
 nothing.
+
+`--infographic` (opt-in, off by default) adds Codex-drawn slides of the verified page, as in the
+service explainer. It sends the page's text to OpenAI, so only the user turns it on, per run.
 
 Run it from anywhere. Inside a checkout of the GitOps repo, `--repo` is optional. Anywhere else,
 `--repo` is required; if the user gave only a key and the current directory is not that repo, ask
@@ -121,15 +125,19 @@ otherwise `query.repo` from `<W>/facts.json`.
    Exit 0: continue. Exit 1: fix `explainer.json` **once** using the listed errors, then run it
    again. Still failing: continue; the page shows an "Unverified" banner.
 
-4. **Render.** First load the `artifact-design` skill.
+4. **Infographic (only with `--infographic`).** Exactly as service-explainer step 4: without the
+   flag, or with `--standalone`, skip it; with it, `infographic.py` asks Codex for slides of the
+   verified page, and you keep only the slides that match `<W>/infographic/brief.md`.
+
+5. **Render.** First load the `artifact-design` skill.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --out <W>/ticket-<KEY>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... --out <W>/ticket-<KEY>.html
    ```
 
    If `render.py` fails, show its error and stop. Do not hand-write a page.
 
-5. **Publish.** Exactly as service-explainer step 5, with `file_path=<W>/ticket-<KEY>.html`,
+6. **Publish.** Exactly as service-explainer step 6, with `file_path=<W>/ticket-<KEY>.html`,
    `icon: "map"`, `description: "Ticket explainer for <KEY>"` and
    `capabilities: {"comments": {"composer_only": true}}`. `--url` updates an earlier page;
    `--standalone` publishes nothing and opens the local file instead. No GitHub or Jira comment is
@@ -139,7 +147,7 @@ otherwise `query.repo` from `<W>/facts.json`.
    ticket itself as `<KEY>` (for example `"refs": ["IFS-314"]`) in `background`, `open_questions`,
    the criteria and the quiz; `how_it_works` may be empty.
 
-6. **Report.** Send one short message: the link, the ticket key and summary, the service and
+7. **Report.** Send one short message: the link, the ticket key and summary, the service and
    whether it was inferred, the apps and environments found, the count per criterion status, the
    open questions count, everything in `not_covered`, and, when `ticket.pr` is set, "the change
    itself: `/pr-explainer <n>`". Say the quiz is the bar for starting the work.

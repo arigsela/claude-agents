@@ -27,7 +27,11 @@ source; the repo at one ref is the evidence. Every sentence cites a collected fa
 /plan-explainer <file> --repo org/infra-repo --term terraform-state --term "just apply"
 /plan-explainer <file> --repo org/infra-repo --service grafana
 /plan-explainer <file> --repo org/infra-repo --standalone
+/plan-explainer <file> --repo org/infra-repo --infographic
 ```
+
+`--infographic` (opt-in, off by default) adds Codex-drawn slides of the verified page, as in the
+service explainer. It sends the page's text to OpenAI, so only the user turns it on, per run.
 
 `--repo` is the repo the plan changes. If the user did not name it and the current directory is
 not a checkout of it, read the plan, list the repos it names, and ask which one; do not guess. One
@@ -148,16 +152,20 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    - Exit 1: fix `explainer.json` **once** using the listed errors, then run it again.
    - Still failing: continue anyway. The page will show an "Unverified" banner.
 
-4. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
+4. **Infographic (only with `--infographic`).** Exactly as service-explainer step 4: without the
+   flag, or with `--standalone`, skip it; with it, `infographic.py` asks Codex for slides of the
+   verified page, and you keep only the slides that match `<W>/infographic/brief.md`.
+
+5. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --out <W>/plan-<slug>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... --out <W>/plan-<slug>.html
    ```
 
    If `render.py` fails, show its error and stop. Do not hand-write a page.
 
-5. **Publish**
+6. **Publish**
    1. Publish `<W>/plan-<slug>.html` exactly as `render.py` wrote it. Never edit, redesign or
       merge it by hand.
    2. If the user passed `--url <artifact-url>` (an earlier page for this plan), call Artifact
@@ -167,11 +175,11 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
       `description: "Plan explainer for <plan title> in <R>"` and the `capabilities` below.
    4. Every publish passes `capabilities: {"comments": {"composer_only": true}}`.
    5. If the user passed `--standalone`, or the Artifact tool is unavailable, do not publish:
-      re-run step 4 with `--standalone`, `open` the file and tell the user where it is.
+      re-run step 5 with `--standalone`, `open` the file and tell the user where it is.
 
    No GitHub or Jira comment is posted in plan mode.
 
-6. **Report.** Send one short message: the link, the repo and ref, the number of plan steps by
+7. **Report.** Send one short message: the link, the repo and ref, the number of plan steps by
    status, the terms found and missing, the open questions count, and everything in
    `not_covered`. Say the page holds the repo's view of where the plan lands and that the quiz is
    the bar for reviewing it.
