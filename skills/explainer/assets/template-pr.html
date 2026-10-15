@@ -22,6 +22,7 @@
   .meta { color:var(--muted); font-size:.9rem; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
   .card p:first-child { margin-top:0; } .card p:last-child { margin-bottom:0; }
+  .slides { display:grid; gap:12px; } .slides img { width:100%; height:auto; border-radius:6px; display:block; }
   .scroll { overflow-x:auto; }
   table { border-collapse:collapse; width:100%; font-size:.92rem; }
   th, td { border-bottom:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
@@ -70,6 +71,7 @@
   {{BANNER}}
   <h2>TL;DR <button type="button" class="ask" hidden>Comment</button></h2>
   <div class="card">{{TLDR}}</div>
+  {{INFOGRAPHIC}}
   <h2>Background <button type="button" class="ask" hidden>Comment</button></h2>
   <div class="card">{{BACKGROUND}}</div>
   <h2>What happens, before and after <button type="button" class="ask" hidden>Comment</button></h2>
