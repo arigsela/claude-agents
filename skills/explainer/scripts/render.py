@@ -27,7 +27,8 @@ TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "des
             "added": "added", "modified": "modified", "removed": "removed", "focus": "focus"}
 # Ticket criterion statuses as the reader sees them; verify.py owns the allowed set.
 STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "unclear",
-                "out_of_band": "done outside this PR", "respected": "respected"}
+                "out_of_band": "done outside this PR", "respected": "respected",
+                "would_change": "would change", "already_true": "already true", "out_of_scope": "out of scope"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
 # Walkthrough hunks are read inline; past this many lines the step links to the PR instead.
 MAX_HUNK_LINES = 60
@@ -540,12 +541,24 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
                            f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), c.get("status", "")))}</span></td>'
                            f'<td>{esc(mask(c.get("reason", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
                            for c in as_dicts(ticket.get("criteria")))
-        ticket_html = ('<h2>Ticket</h2><div class="card">'
+        related = ""
+        if system and facts.get("related_prs"):
+            chosen = ticket.get("pr") if isinstance(ticket.get("pr"), int) else None
+            items = []
+            for p_ in as_dicts(facts.get("related_prs")):
+                line = (f'<a href="{esc(p_.get("url") or "")}">#{esc(p_.get("number"))}</a> {esc(mask(p_.get("title") or ""))} '
+                        f'<span class="pill">{esc(p_.get("state") or "")}</span>')
+                if p_.get("number") == chosen:
+                    line += f' — the change itself: run <code>/pr-explainer {esc(chosen)}</code>'
+                items.append(f"<li>{line}</li>")
+            related = f'<p><strong>PRs that name this ticket</strong></p><ul>{"".join(items)}</ul>'
+        asks_header = "Ticket asks for" if not system else "Ticket asks for"
+        ticket_html = ('<h2>Ticket <button type="button" class="ask" hidden>Comment</button></h2><div class="card">'
                        f'<div class="meta">{meta}</div><p><strong>{esc(mask(jira.get("summary") or ""))}</strong></p>'
                        + (f'<p>{esc(mask(ticket["intent"]))}</p>' if isinstance(ticket.get("intent"), str) else "")
-                       + ('<div class="scroll"><table><thead><tr><th>Ticket asks for</th><th>Status</th><th>Why</th><th>Refs</th>'
+                       + (f'<div class="scroll"><table><thead><tr><th>{asks_header}</th><th>Status</th><th>Why</th><th>Refs</th>'
                           f'</tr></thead><tbody>{criteria}</tbody></table></div>' if criteria else "")
-                       + "</div>")
+                       + related + "</div>")
     must_refs = {m.get("ref") for m in as_dicts(expl.get("must_read"))}
     steps = []
     for step in as_list(expl.get("reading_order")):

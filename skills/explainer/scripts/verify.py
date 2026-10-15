@@ -18,6 +18,8 @@ NARRATOR_MODEL = "claude-opus-5-5"
 # covered: the diff delivers it. respected: a scope limit or constraint the diff does not break.
 # out_of_band: done outside this PR, cited from a ticket comment (j*). not_covered / unclear: neither.
 TICKET_STATUSES = {"covered", "respected", "out_of_band", "not_covered", "unclear"}
+# Ticket mode, before a PR exists: would_change (cite what it touches), already_true, out_of_scope, unclear.
+TICKET_SYSTEM_STATUSES = {"would_change", "already_true", "out_of_scope", "unclear"}
 # Refs that differ in one place render as one group; more groups than this per row means the
 # narrator is listing evidence instead of pointing at it.
 MAX_REF_GROUPS = 6
@@ -174,24 +176,42 @@ def verify(facts: dict, expl: dict) -> list[str]:
     if expl.get("narrator_model") != NARRATOR_MODEL:
         errors.append(f"narrator_model is {expl.get('narrator_model')!r}; the explainer must be written by {NARRATOR_MODEL}")
     ticket = expl.get("ticket")
-    if facts.get("jira") and not ticket:
+    if facts.get("jira") and not isinstance(ticket, dict):
         errors.append(f"facts.jira has {facts['jira']['key']} but the explainer has no ticket section")
     if ticket and not facts.get("jira"):
         errors.append("explainer has a ticket section but facts.jira is null")
-    for i, item in enumerate((ticket or {}).get("criteria", [])):
-        status, refs = item.get("status"), item.get("refs", [])
-        if status not in TICKET_STATUSES:
-            errors.append(f"ticket.criteria[{i}] status {status!r} is not one of {sorted(TICKET_STATUSES)}")
+    ticket = ticket if isinstance(ticket, dict) else {}
+    statuses, cited_status = (TICKET_SYSTEM_STATUSES, "would_change") if mode == "ticket" else (TICKET_STATUSES, "covered")
+    criteria = ticket.get("criteria")
+    if criteria is not None and not isinstance(criteria, list):
+        errors.append("ticket.criteria must be a list")
+        criteria = []
+    for i, item in enumerate(criteria or []):
+        if not isinstance(item, dict):
+            errors.append(f"ticket.criteria[{i}] is not an object")
+            continue
+        status, refs = item.get("status"), ref_list(item.get("refs"), f"ticket.criteria[{i}]", errors)
+        if status not in statuses:
+            errors.append(f"ticket.criteria[{i}] status {status!r} is not one of {sorted(statuses)}")
         for ref in refs:
             if ref not in ids and ref not in comments:
                 errors.append(f"ticket.criteria[{i}] references unknown id {ref!r}")
         if status == "covered" and not any(r in ids for r in refs):
             errors.append(f"ticket.criteria[{i}] is covered but cites no change from the PR")
+        if status == "would_change" and not any(r in ids for r in refs):
+            errors.append(f"ticket.criteria[{i}] would change but cites no resource, config row, block or workflow it would touch")
         if status == "out_of_band" and not any(r in comments for r in refs):
             errors.append(f"ticket.criteria[{i}] is out_of_band but cites no ticket comment (j*)")
-        if status != "covered" and not str(item.get("reason", "")).strip():
+        if status != cited_status and not text(item.get("reason")):
             errors.append(f"ticket.criteria[{i}] is {status} but has no reason")
-        check_groups(f"ticket.criteria[{i}]", refs)
+        check_groups(f"ticket.criteria[{i}]", [r for r in refs if r in ids or r in comments])
+    if mode == "ticket" and facts.get("jira"):
+        open_prs = [p.get("number") for p in facts.get("related_prs") or [] if isinstance(p, dict) and p.get("state") == "OPEN"]
+        chosen = ticket.get("pr")
+        if chosen is not None and chosen not in {p.get("number") for p in facts.get("related_prs") or [] if isinstance(p, dict)}:
+            errors.append(f"ticket.pr is {chosen!r}, which is not one of the related PRs {sorted(n for n in open_prs if n is not None)}")
+        elif chosen is None and open_prs:
+            errors.append(f"ticket.pr is missing; an open PR names this ticket: set it to {open_prs[0]}")
     if system:
         errors += verify_system(facts, expl, ids, comments, check_groups)
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
