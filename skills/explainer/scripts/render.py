@@ -413,6 +413,15 @@ def fact_lines(item: dict) -> str:
     return mask("\n".join(out))
 
 
+def load_explainer(path: Path) -> tuple[dict, list[str]]:
+    """explainer.json, or an empty explainer plus the error, so a page still renders (Unverified)."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as err:
+        return {}, [f"explainer.json is not valid JSON: {err}"]
+    return (data if isinstance(data, dict) else {}), ([] if isinstance(data, dict) else ["explainer.json is not an object"])
+
+
 def template_path(mode: str) -> Path:
     """assets/template-<mode>.html at the plugin root; pr and system pages differ in their sections."""
     return Path(__file__).resolve().parent.parent / "assets" / f"template-{mode}.html"
@@ -446,9 +455,11 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
     index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows", "config", "docs")
              for x in facts.get(key) or [] if isinstance(x, dict) and x.get("id")}
     index.update({c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")})
+    if isinstance(facts.get("jira"), dict) and facts["jira"].get("key"):
+        index[facts["jira"]["key"]] = facts["jira"]
 
     def ref_url(item: dict) -> str | None:
-        if "created" in item:  # ticket comment
+        if "created" in item or ("key" in item and "summary" in item):  # ticket comment, or the ticket
             return item.get("url")
         if "chars" in item:  # a local doc file: nothing to link to
             return None
@@ -467,6 +478,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
 
     def ref_link(item: dict | None, text: str) -> str:
         url = ref_url(item) if item else None
+        text = mask(text)  # a doc title or ticket summary is model-visible text, so it is masked like any other
         return f'<a href="{esc(url)}">{esc(text)}</a>' if url else (esc(text) if item else f"<code>{esc(text)}</code>")
 
     def ref_html(rid) -> str:
@@ -484,7 +496,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
             segs = members[0][1]
             pre, core, suf = ref_groups.trim([m[1][pos] for m in members])
             links = ", ".join(ref_link(index.get(m[0]), c) for m, c in zip(members, core))
-            out.append(f'<span class="ref">{esc("".join(segs[:pos]) + pre)}{{{links}}}{esc(suf + "".join(segs[pos + 1:]))}</span>')
+            out.append(f'<span class="ref">{esc(mask("".join(segs[:pos]) + pre))}{{{links}}}{esc(mask(suf + "".join(segs[pos + 1:])))}</span>')
         return "".join(out)
 
     banner = ""
@@ -538,7 +550,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
             f'<span class="pill">{esc(jira["status"])}</span>' if jira.get("status") else "",
             f'parent {esc(parent.get("key") or "")} {esc(mask(parent.get("summary") or ""))}' if parent else "") if x)
         criteria = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td>'
-                           f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), c.get("status", "")))}</span></td>'
+                           f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), str(c.get("status") or "")) if isinstance(c.get("status"), str) else str(c.get("status") or ""))}</span></td>'
                            f'<td>{esc(mask(c.get("reason", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
                            for c in as_dicts(ticket.get("criteria")))
         related = ""
@@ -651,8 +663,8 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'
                             f'<td>{esc(mask(b.get("after", "")))}</td><td>{refs(b.get("refs", []))}</td></tr>'
                             for b in as_dicts(expl.get("behavior_changes"))),
-        "CALLOUTS": "".join(f'<li class="{SEVERITY_CLASS.get(c.get("severity"), "sev-info")}">'
-                            f'<span class="sev">{esc(mask(c.get("severity", "info")))}</span> {esc(mask(c.get("text", "")))} '
+        "CALLOUTS": "".join(f'<li class="{SEVERITY_CLASS.get(c.get("severity") if isinstance(c.get("severity"), str) else "", "sev-info")}">'
+                            f'<span class="sev">{esc(mask(c.get("severity") if isinstance(c.get("severity"), str) else "info"))}</span> {esc(mask(c.get("text", "")))} '
                             f'{refs(c.get("refs", []))}</li>' for c in as_dicts(expl.get("callouts"))),
         "MUST_READ": "".join(f'<li>{ref_html(m.get("ref", ""))} — {esc(mask(m.get("why", "")))}</li>'
                              for m in as_dicts(expl.get("must_read")))
@@ -679,7 +691,7 @@ def main() -> int:
     ap.add_argument("--standalone", action="store_true")
     args = ap.parse_args()
     facts = json.loads(Path(args.facts).read_text())
-    expl = json.loads(Path(args.explainer).read_text())
+    expl, load_errors = load_explainer(Path(args.explainer))
     diff = parse_diff(Path(args.diff).read_text()) if args.diff and Path(args.diff).is_file() else {}
     errors = []
     if args.errors:
@@ -689,6 +701,7 @@ def main() -> int:
                 raise ValueError("not a list")
         except Exception:
             errors = ["verify did not complete (errors file missing or invalid)"]
+    errors = list(dict.fromkeys(load_errors + [str(e) for e in errors]))
     page = render(facts, expl, errors, diff)
     Path(args.out).write_text(STANDALONE_HEAD + page + STANDALONE_TAIL if args.standalone else page)
     print(f"render: wrote {args.out}")

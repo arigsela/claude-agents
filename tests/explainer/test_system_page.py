@@ -251,6 +251,56 @@ class TicketVerifyTest(unittest.TestCase):
         self.assertTrue(any("status 'would_change'" in e for e in verify.verify(facts, expl)))
 
 
+class NoAppTicketTest(unittest.TestCase):
+    """A ticket that names no Application still gets a verified page: the ticket itself is citable."""
+    FACTS = {**TICKET_FACTS, "apps": [], "resources": [], "edges": [], "config": [], "terraform": [], "workflows": [],
+             "docs": [], "related_prs": [], "query": {**TICKET_FACTS["query"], "service": [], "inferred": True},
+             "jira": {**JIRA, "comments": []},
+             "notes": [{"key": "match", "text": "No Application name appears in IFS-9's summary."}]}
+    EXPL = {"tldr": "IFS-9 asks for SSO on Grafana; no Application in this repo matched.",
+            "background": [{"text": "The ticket asks for SSO.", "refs": ["IFS-9"]}],
+            "components": [], "how_it_works": [], "where_it_runs": [], "config_that_matters": [],
+            "open_questions": [{"text": "Which app is Grafana deployed by?", "refs": ["IFS-9"]}], "docs_summary": [],
+            "callouts": [], "must_read": [], "reading_order": [], "not_covered": ["match"],
+            "ticket": {"intent": "SSO for Grafana.", "criteria": [{"text": "SSO", "status": "unclear", "reason": "no app matched", "refs": ["IFS-9"]}]},
+            "quiz": [{"question": f"q{i}", "options": [{"text": "a", "correct": True, "explanation": "e"}, {"text": "b", "correct": False, "explanation": "e"}], "refs": ["IFS-9"]} for i in range(3)],
+            "narrator_model": "claude-opus-5-5"}
+
+    def test_ticket_key_is_citable_and_scenarios_optional_without_apps(self):
+        self.assertEqual(verify.verify(self.FACTS, self.EXPL), [])
+        errs = verify.verify(TICKET_FACTS, {**GOOD_TICKET, "how_it_works": []})
+        self.assertTrue(any("how_it_works has 0" in e for e in errs))  # with apps, scenarios stay required
+
+    def test_ticket_key_renders_as_a_link(self):
+        page = render.render(self.FACTS, self.EXPL, [], {})
+        self.assertNotIn("<strong>Unverified.</strong>", page)
+        self.assertIn('<a href="https://x.atlassian.net/browse/IFS-9">ticket IFS-9</a>', page)
+
+
+class RenderRobustnessTest(unittest.TestCase):
+    def test_list_valued_status_and_severity_do_not_crash(self):
+        expl = bad_ticket(callouts=[{"severity": ["high"], "text": "x", "refs": ["r1"]}])
+        expl["ticket"]["criteria"][0]["status"] = ["would_change"]
+        page = render.render(TICKET_FACTS, expl, ["bad"], {})
+        self.assertIn("<strong>Unverified.</strong>", page)
+
+    def test_invalid_explainer_json_still_renders_unverified(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "explainer.json"
+            p.write_text("{not json")
+            expl, errors = render.load_explainer(p)
+        self.assertEqual(expl, {})
+        self.assertTrue(errors and "not valid JSON" in errors[0])
+        page = render.render(SYSTEM_FACTS, expl, errors, {})
+        self.assertIn("<strong>Unverified.</strong>", page)
+
+    def test_doc_title_is_masked_on_the_page(self):
+        facts = {**SYSTEM_FACTS, "docs": [{**SYSTEM_FACTS["docs"][0], "title": "password: hunter2hunter2 notes"}]}
+        page = render.render(facts, GOOD_SYSTEM, [], {})
+        self.assertNotIn("hunter2", page)
+
+
 class TicketRenderTest(unittest.TestCase):
     def test_ticket_card_statuses_and_related_prs(self):
         page = render.render(TICKET_FACTS, GOOD_TICKET, [], {})

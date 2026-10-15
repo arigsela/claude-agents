@@ -1266,7 +1266,8 @@ def _probe(spec: dict) -> str | None:
     if grpc := _d(spec.get("grpc")):
         return f"gRPC :{grpc.get('port', '')}"
     if ex := _d(spec.get("exec")):
-        return "exec " + " ".join(str(c) for c in (ex.get("command") or [])[:3])
+        cmd = ex.get("command") or []
+        return "exec " + (str(cmd[0]) if cmd else "")  # the command name only: arguments can carry credentials
     return None
 
 
@@ -1396,6 +1397,7 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
         text = re.sub(r"<[^>]+>", "", raw)
         text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
         title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.strip()), "") or Path(p).stem
+        title = SECRET_VALUE_RE.sub(r"\1[REDACTED]", title)  # a title reaches the page as a ref label
         docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
                      "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
     return docs, notes

@@ -27,7 +27,12 @@ request, a deploy and a job move through it, with every sentence cited to a coll
 /service-explainer payments --service payments-db --ref main
 /service-explainer grafana --doc <W>/docs/one-pager.md
 /service-explainer grafana --all
+/service-explainer grafana --standalone
 ```
+
+`--standalone` keeps the page off claude.ai: the skill renders a local file, opens it and publishes
+nothing. Use it when the service's structure (hosts, namespaces, images) must not leave the
+machine.
 
 Run it from anywhere. Inside a checkout of the GitOps repo, `--repo` is optional. Anywhere else,
 `--repo` is required; if the user gave only a name and the current directory is not that repo, ask
@@ -114,7 +119,7 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    | `tldr` | 2–3 plain sentences: what the service is, where it runs, and what reaches it. No code. |
    | `background` | 1–3 short paragraphs for someone who has not opened this app in months: what it does, which namespace and environments, what talks to it and what it talks to. Cite resources, config rows or docs. Never explore the repo beyond `facts.json`. |
    | `components` | One row per matched app (`verify.py` enforces one per `apps[].app`): `role` in one or two sentences from its workloads, routes and config keys; `refs` to the resources that show it. |
-   | `how_it_works` | 2–3 scenarios, each a concrete trigger with example data and the path it takes in operator terms: a request from outside (route → service → workload, with the real host from `summary.hosts`), a deploy (workflow job → image → Application sync), and a scheduled or event-driven job when there is one. `refs` cite every resource the path passes through, in order. |
+   | `how_it_works` | 2–3 scenarios, each a concrete trigger with example data and the path it takes in operator terms: a request from outside (route → service → workload, with the real host from `summary.hosts`), a deploy (workflow job → image → Application sync), and a scheduled or event-driven job when there is one. `refs` cite the resources the path passes through, in order, at most 6 (`verify.py` caps a row at 6 ref groups): name the hops that matter and leave out mounts and bindings the walkthrough already covers. |
    | `where_it_runs` | One row per `scope` (`verify.py` enforces one per environment directory): what differs in that environment (replicas, image, hosts, config keys) or "identical to prod". |
    | `config_that_matters` | The config keys and ExternalSecret keys a reader must know exist, with `why`. Keys only, never values. `refs` are `c*` or `r*`. |
    | `open_questions` | What a one-pager must answer that facts cannot, or what looks worth a decision: no owner annotation, no runbook, single replica, no probes, no resource limits, no PodDisruptionBudget, a secret store not in the repo, a doc ask the system does not meet. Each with `refs`, or `["no fact"]` when nothing in facts speaks to it. The page labels these as prompts, not findings. |
@@ -157,8 +162,8 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
       `description: "Service explainer for <name> in <R>"` and the `capabilities` below.
    4. Every publish passes `capabilities: {"comments": {"composer_only": true}}`: the page's
       "Comment" buttons open the claude.ai composer on a section; the page writes nothing itself.
-   5. If the Artifact tool is unavailable, re-run step 4 with `--standalone`, `open` the file and
-      tell the user where it is.
+   5. If the user passed `--standalone`, or the Artifact tool is unavailable, do not publish:
+      re-run step 4 with `--standalone`, `open` the file and tell the user where it is.
 
    No GitHub or Jira comment is posted in service mode.
 

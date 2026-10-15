@@ -25,7 +25,11 @@ links it and the report suggests `/pr-explainer <n>` for the change itself.
 /ticket-explainer IFS-314
 /ticket-explainer DX-593 --service build-orchestrator --repo org/gitops-repo
 /ticket-explainer IFS-314 --doc <W>/docs/one-pager.md
+/ticket-explainer IFS-314 --standalone
 ```
+
+`--standalone` keeps the page off claude.ai: the skill renders a local file, opens it and publishes
+nothing.
 
 Run it from anywhere. Inside a checkout of the GitOps repo, `--repo` is optional. Anywhere else,
 `--repo` is required; if the user gave only a key and the current directory is not that repo, ask
@@ -127,8 +131,13 @@ otherwise `query.repo` from `<W>/facts.json`.
 
 5. **Publish.** Exactly as service-explainer step 5, with `file_path=<W>/ticket-<KEY>.html`,
    `icon: "map"`, `description: "Ticket explainer for <KEY>"` and
-   `capabilities: {"comments": {"composer_only": true}}`. `--url` updates an earlier page. No
-   GitHub or Jira comment is posted.
+   `capabilities: {"comments": {"composer_only": true}}`. `--url` updates an earlier page;
+   `--standalone` publishes nothing and opens the local file instead. No GitHub or Jira comment is
+   posted.
+
+   When no Application matched (a `match` note), the page still explains the ticket: cite the
+   ticket itself as `<KEY>` (for example `"refs": ["IFS-314"]`) in `background`, `open_questions`,
+   the criteria and the quiz; `how_it_works` may be empty.
 
 6. **Report.** Send one short message: the link, the ticket key and summary, the service and
    whether it was inferred, the apps and environments found, the count per criterion status, the

@@ -313,6 +313,14 @@ class SummaryTest(SystemFactsBase):
         self.assertEqual(s["env_keys"], ["DB_PASSWORD", "GF_SERVER_ROOT_URL"])
         self.assertNotIn("hunter2", json.dumps(s))
 
+    def test_exec_probe_keeps_only_the_command_name(self):
+        dep = yaml.safe_load(MANIFESTS.split("---")[0])
+        dep["spec"]["template"]["spec"]["containers"][0]["livenessProbe"] = {
+            "exec": {"command": ["sh", "-c", "curl -H 'Authorization: Bearer abcdefghijklmnop' localhost"]}}
+        s = facts_lib.resource_summary(dep)
+        self.assertEqual(s["probes"]["liveness"], "exec sh")
+        self.assertNotIn("abcdefghijklmnop", json.dumps(s))
+
     def test_other_kinds(self):
         d = self.docs()
         self.assertEqual(facts_lib.resource_summary(d["Service"]), {"ports": ["80->3000"], "selector": {"app": "grafana"}})
@@ -398,6 +406,13 @@ class DocsTest(SystemFactsBase):
         self.assertGreater(docs[0]["chars"], facts_lib.DOC_CHARS)
         self.assertEqual(notes[0]["key"], "docs")
         self.assertIn("missing.md", notes[0]["text"])
+
+    def test_doc_title_is_masked(self):
+        p = Path(self.tmp) / "page.md"
+        p.write_text("password: hunter2hunter2 and more\nbody")
+        docs, _ = facts_lib.doc_facts([str(p)])
+        self.assertNotIn("hunter2", docs[0]["title"])
+        self.assertIn("[REDACTED]", docs[0]["title"])
 
     def test_untitled_doc_uses_the_file_name(self):
         p = Path(self.tmp) / "requirements.md"

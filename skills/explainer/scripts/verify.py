@@ -65,6 +65,9 @@ def verify(facts: dict, expl: dict) -> list[str]:
              for x in facts.get(key) or [] if isinstance(x, dict) and x.get("id")}
     ids = set(index)
     comments = {c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")}
+    jira = facts.get("jira")
+    if isinstance(jira, dict) and jira.get("key"):
+        comments[jira["key"]] = jira  # the ticket itself is citable, as its key, when nothing else is
     errors = []
     mode = facts.get("mode") or "pr"
     system = mode != "pr"
@@ -262,7 +265,8 @@ def verify_system(facts: dict, expl: dict, ids: set, comments: dict, check_group
         errors.append(f"components is missing a row for {app}")
 
     hiw = expl.get("how_it_works")
-    if not isinstance(hiw, list) or not MIN_SCENARIOS <= len(hiw) <= MAX_SCENARIOS:
+    low = MIN_SCENARIOS if apps else 0  # with no matched app there is no system to trace
+    if not isinstance(hiw, list) or not low <= len(hiw) <= MAX_SCENARIOS:
         n = len(hiw) if isinstance(hiw, list) else 0
         errors.append(f"how_it_works has {n} scenarios; write {MIN_SCENARIOS}-{MAX_SCENARIOS} (a request, a deploy, a job)")
     for i, sc in enumerate(hiw if isinstance(hiw, list) else []):
