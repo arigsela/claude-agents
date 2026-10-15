@@ -3,9 +3,9 @@
 One plugin, three skills that share one facts pipeline:
 
 - `/pr-explainer <PR>` explains a GitOps PR (below).
-- `/service-explainer <name>` and `/ticket-explainer <KEY>` explain a service under discovery or a
-  ticket's system and asks. They are planned in `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md`
-  and arrive in the next two releases.
+- `/service-explainer <name>` explains a service under discovery (below).
+- `/ticket-explainer <KEY>` explains a ticket's system and asks; planned in
+  `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md`, next release.
 
 Layout: `scripts/` (shared: `facts_lib.py`, `collect_pr.py`, `verify.py`, `render.py`,
 `ref_groups.py`, `post_comment.py`), `assets/` (one page template per mode), `skills/<name>/SKILL.md`.
@@ -82,3 +82,31 @@ Apps that cannot be rendered are listed under "Not covered".
 Design: `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` §6 and `2026-10-15-explainer-plugin-design.md`.
 
 Install: `/plugin install explainer@claude-agents-marketplace` (replaces `pr-explainer`; uninstall that one first).
+
+## service-explainer
+
+`/service-explainer <name>` explains a service before anyone changes it: for a one-pager, for
+discovery, or before picking up a ticket. `collect_system.py` reads the repo at one ref (the
+default branch unless `--ref`), finds every Argo CD Application whose name, directory or source
+path contains the name (across every environment directory), renders them, and records:
+
+- every resource as `focus`, each with a `summary` per kind (image, replicas, ports, probes, env
+  names, hosts, paths, backends, schedule, secret store and keys, size, data keys), masked
+- the config keys this repo sets per app (inline helm values, parameters, value files): keys only
+- the Terraform resource/data blocks and the GitHub Actions workflows that name the service
+- any `--doc` file (a Confluence page the session saved, pasted requirements), as untrusted text
+
+The page has: TL;DR, background, components, how it works (two or three traced scenarios: a
+request, a deploy, a job), the resource map, where it runs per environment, config that matters,
+what the docs ask, risk callouts, the files to open first, open questions for the one-pager,
+a walkthrough with each item's facts inline, and a quiz. Every sentence cites a fact; `verify.py`
+enforces one component per app, one row per environment, 2–3 scenarios, cited config keys, and a
+summary per doc.
+
+No match: the collector lists the ten closest Application names and the skill asks. More than
+eight matches: it asks you to narrow the name or pass `--all`. No GitHub or Jira comment is
+posted; pass `--url` to update an earlier page.
+
+The page is a private Artifact under your claude.ai account and holds the repo's view of the
+service (hostnames, namespaces, images, config keys). Whether that is acceptable for your
+company's material is your call; `--standalone` writes a local file instead.

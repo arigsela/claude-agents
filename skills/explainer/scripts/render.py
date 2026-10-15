@@ -21,10 +21,10 @@ import ref_groups
 
 MAX_NODES = 40
 NODE_CLASS = {"added": "added", "modified": "modified", "removed": "removed",
-              "context": "context", "generated": "context"}
+              "context": "context", "generated": "context", "focus": "focus"}
 # Plan actions from a plan comment, then source-level actions from the no-plan block comparison.
 TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "destroy": "removed", "read": "context",
-            "added": "added", "modified": "modified", "removed": "removed"}
+            "added": "added", "modified": "modified", "removed": "removed", "focus": "focus"}
 # Ticket criterion statuses as the reader sees them; verify.py owns the allowed set.
 STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "unclear",
                 "out_of_band": "done outside this PR", "respected": "respected"}
@@ -376,8 +376,40 @@ def mermaid(facts: dict) -> str:
     lines += ["  classDef added fill:#dcfce7,stroke:#16a34a,color:#052e16",
               "  classDef modified fill:#fef3c7,stroke:#d97706,color:#451a03",
               "  classDef removed fill:#fee2e2,stroke:#dc2626,color:#450a0a,stroke-dasharray:4 3",
-              "  classDef context fill:#f1f5f9,stroke:#94a3b8,color:#334155"]
+              "  classDef context fill:#f1f5f9,stroke:#94a3b8,color:#334155",
+              "  classDef focus fill:#dbeafe,stroke:#2563eb,color:#1e3a8a"]
     return "\n".join(lines)
+
+
+NO_FACT = "no fact"
+
+
+def fact_lines(item: dict) -> str:
+    """The collected facts for a walkthrough step on a system page: a resource's summary, a config
+    row's keys, a Terraform block's address, a workflow entry's element, as key: value lines."""
+    out: list[str] = []
+
+    def walk(prefix: str, value) -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(f"{prefix}{k}." if isinstance(v, dict) else f"{prefix}{k}", v)
+        elif isinstance(value, list):
+            out.append(f"{prefix}: {', '.join(str(v) for v in value)}")
+        elif value not in (None, ""):
+            out.append(f"{prefix}: {value}")
+
+    if "keys" in item:
+        out.append(f"source: {item.get('source', '')}")
+        walk("keys", item.get("keys") or [])
+    elif "address" in item:
+        out.append(f"address: {item.get('address', '')}")
+    elif "element" in item:
+        out.append(f"{item.get('element', '')}: {item.get('name', '')}" + (f" (uses {item['uses']})" if item.get("uses") else ""))
+    else:
+        if item.get("namespace"):
+            out.append(f"namespace: {item['namespace']}")
+        walk("", item.get("summary") or {})
+    return mask("\n".join(out))
 
 
 def template_path(mode: str) -> Path:
@@ -404,21 +436,29 @@ def as_refs(value) -> list[str]:
 def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict]] | None = None) -> str:
     """The page. A failed verify still renders (with the Unverified banner), so every explainer
     field is read through as_list/as_dict/as_refs and a wrong-shaped entry is skipped, never raised on."""
-    pr = facts["pr"]
+    mode = facts.get("mode") or "pr"
+    system = mode != "pr"
+    pr = facts.get("pr") or {}
+    query = as_dict(facts.get("query"))
     diff = diff or {}
     expl = as_dict(expl)
-    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows")
-             for x in facts.get(key) or []}
+    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows", "config", "docs")
+             for x in facts.get(key) or [] if isinstance(x, dict) and x.get("id")}
     index.update({c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")})
 
     def ref_url(item: dict) -> str | None:
         if "created" in item:  # ticket comment
             return item.get("url")
+        if "chars" in item:  # a local doc file: nothing to link to
+            return None
         path = item.get("file")
         if not path:
             return None
-        url = f'{pr["url"]}/files#diff-{hashlib.sha256(path.encode()).hexdigest()}'
         start = (item.get("lines") or [None])[0] or ((item.get("hunks") or [[None]])[0][0])
+        if system:  # no PR: link into the repo at the ref that was read
+            url = f'https://github.com/{query.get("repo") or ""}/blob/{str(query.get("sha") or query.get("ref") or "")[:7]}/{path}'
+            return url + (f"#L{start}" if start else "")
+        url = f'{pr["url"]}/files#diff-{hashlib.sha256(path.encode()).hexdigest()}'
         if start:
             # A removed block's line number is on the base side of the diff.
             url += f'{"L" if item.get("action") in ("removed", "destroy") else "R"}{start}'
@@ -451,10 +491,26 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         banner = ('<div class="banner"><strong>Unverified.</strong> These checks failed:<ul>'
                   + "".join(f"<li>{esc(e)}</li>" for e in errors) + "</ul></div>")
     triage = facts.get("triage") or {}
-    header = (f'<a href="{esc(pr["url"])}">{esc(pr["repo"])}#{pr["number"]}</a> · head '
-              f'<code>{esc(pr["head_sha"][:7])}</code>'
-              + (f' · <span class="pill">{esc(triage["label"])}</span>' if triage.get("label") else "")
-              + f' · narrated by <code>{esc(expl.get("narrator_model") or "unknown model")}</code>')
+    narrated = f' · narrated by <code>{esc(expl.get("narrator_model") or "unknown model")}</code>'
+    if system:
+        scopes = sorted({a.get("scope") for a in facts.get("apps") or [] if isinstance(a, dict) and a.get("scope")})
+        repo, sha, ref = query.get("repo") or "", str(query.get("sha") or ""), query.get("ref") or ""
+        header = (f'<a href="https://github.com/{esc(repo)}/tree/{esc(sha or ref)}">{esc(repo)}</a> @ {esc(ref)} '
+                  f'<code>{esc(sha[:7])}</code>'
+                  + "".join(f' · <span class="pill">{esc(sc)}</span>' for sc in scopes)
+                  + (f' · <span class="pill">{esc((facts.get("jira") or {}).get("key") or "")}</span>' if facts.get("jira") else "")
+                  + narrated)
+        service = ", ".join(str(n) for n in as_list(query.get("service"))) or "service"
+        title, page_title = f"Service explainer: {service}", f"{service} — how it works"
+        if mode == "ticket" and facts.get("jira"):
+            title = f"Ticket explainer: {facts['jira'].get('key')}"
+            page_title = f"{facts['jira'].get('key')} — {mask(facts['jira'].get('summary') or '')}"
+    else:
+        header = (f'<a href="{esc(pr["url"])}">{esc(pr["repo"])}#{pr["number"]}</a> · head '
+                  f'<code>{esc(pr["head_sha"][:7])}</code>'
+                  + (f' · <span class="pill">{esc(triage["label"])}</span>' if triage.get("label") else "")
+                  + narrated)
+        title, page_title = f"PR {pr['number']} explainer", pr["title"]
 
     plans = ""
     if facts.get("terraform_plans"):
@@ -504,11 +560,44 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
                 str(r.get("kind", "")).endswith("Secret") for r in facts.get("resources") or [] if r.get("file") == item.get("file"))
             steps.append(f'<li><details{" open" if rid in must_refs else ""}><summary>{ref_html(rid)}{note}</summary>'
                          f'{hunk_html(hunks, secret)}</details></li>')
+        elif system and item:
+            facts_pre = fact_lines(item)
+            steps.append(f'<li><details{" open" if rid in must_refs else ""}><summary>{ref_html(rid)}{note}</summary>'
+                         f'<pre class="facts">{esc(facts_pre)}</pre></details></li>' if facts_pre
+                         else f"<li>{ref_html(rid)}{note}</li>")
         else:
             paths = item.get("changed_paths") or []
             where = (f'<p class="meta">Changed: {", ".join(f"<code>{esc(x)}</code>" for x in paths)}</p>' if paths
                      else '<p class="meta">No hunk in the diff for this item.</p>' if item else "")
             steps.append(f"<li>{ref_html(rid)}{note}{where}</li>")
+
+    components = "".join(
+        f'<tr><td>{esc(mask(c.get("app", "")))}</td><td>{esc(mask(c.get("role", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
+        for c in as_dicts(expl.get("components")))
+    how = "".join(
+        f'<div class="card"><p><strong>{esc(mask(sc.get("trigger", "")))}</strong></p><p>{esc(mask(sc.get("path", "")))}</p>'
+        f'<p class="meta">{refs(sc.get("refs", []))}</p></div>' for sc in as_dicts(expl.get("how_it_works")))
+    where_rows = "".join(
+        f'<tr><td><span class="pill">{esc(mask(w.get("scope", "")))}</span></td><td>{esc(mask(w.get("differs", "")))}</td>'
+        f'<td>{refs(w.get("refs", []))}</td></tr>' for w in as_dicts(expl.get("where_it_runs")))
+    config_rows = "".join(
+        f'<tr><td><code>{esc(mask(c.get("key", "")))}</code></td><td>{esc(mask(c.get("why", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
+        for c in as_dicts(expl.get("config_that_matters")))
+    docs_html = ""
+    doc_titles = {d.get("id"): d.get("title") for d in facts.get("docs") or [] if isinstance(d, dict)}
+    summaries = as_dicts(expl.get("docs_summary"))
+    if facts.get("docs"):
+        parts = []
+        for d in summaries:
+            asks = "".join(f"<li>{esc(mask(a))}</li>" for a in as_list(d.get("asks")) if isinstance(a, str))
+            parts.append(f'<div class="card"><p><strong>{esc(mask(doc_titles.get(d.get("doc")) or str(d.get("doc"))))}</strong> '
+                         f'<span class="meta">{ref_html(d.get("doc") or "")}</span></p><ul>{asks}</ul></div>')
+        docs_html = ('<h2>What the docs ask <button type="button" class="ask" hidden>Comment</button></h2>'
+                     + ("".join(parts) or '<div class="card"><p class="meta">No summary was written.</p></div>'))
+    questions = "".join(
+        f'<li>{esc(mask(q.get("text", "")))} '
+        + (f'<span class="meta">(no fact)</span>' if NO_FACT in as_refs(q.get("refs")) else refs(q.get("refs", [])))
+        + "</li>" for q in as_dicts(expl.get("open_questions")))
 
     quiz = []
     for q in as_dicts(expl.get("quiz")):
@@ -528,8 +617,14 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         if scenario else '<div class="card"><p class="meta">No scenario was written.</p></div>')
 
     subs = {
-        "TITLE": esc(f"PR {pr['number']} explainer"),
-        "PR_TITLE": esc(pr["title"]),
+        "TITLE": esc(title),
+        "PR_TITLE": esc(page_title),
+        "COMPONENTS": components or '<tr><td colspan="3" class="meta">No components were written.</td></tr>',
+        "HOW_IT_WORKS": how or '<div class="card"><p class="meta">No scenarios were written.</p></div>',
+        "WHERE_IT_RUNS": where_rows or '<tr><td colspan="3" class="meta">One environment.</td></tr>',
+        "CONFIG": config_rows or '<tr><td colspan="3" class="meta">Nothing listed.</td></tr>',
+        "DOCS": docs_html,
+        "OPEN_QUESTIONS": questions or "<li class=\"meta\">None written.</li>",
         "HEADER": header,
         "BANNER": banner,
         "TLDR": esc(mask(expl.get("tldr", ""))),
@@ -555,7 +650,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in as_list(expl.get("not_covered")))
                        or "<li>Nothing: every changed app was rendered.</li>",
     }
-    page = template_path(facts.get("mode") or "pr").read_text()
+    page = template_path("system" if system else "pr").read_text()  # service and ticket share one template
     for key, value in subs.items():
         page = page.replace("{{" + key + "}}", value)
     return page

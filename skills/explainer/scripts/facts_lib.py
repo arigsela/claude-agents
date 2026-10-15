@@ -19,7 +19,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import difflib
 from collections import Counter
 from pathlib import Path
 
@@ -94,35 +96,26 @@ def repo_from_origin() -> str | None:
     return m.group(1) if m else None
 
 
+def local_root() -> Path:
+    """Top level of the current checkout; a function so tests can point it at a fixture repo."""
+    return Path(sh("git", "rev-parse", "--show-toplevel").strip())
+
+
 class Trees:
-    """Detached worktrees of the PR's base and head commits.
+    """Detached worktrees of the PR's base and head commits, or of one ref (`Trees.at`).
 
     Uses the current checkout when its origin is the PR's repo. Anywhere else it fetches into a
     temporary bare repo, so the skill runs without a local clone and never fetches the wrong remote.
     """
 
     def __init__(self, repo: str, pr: int, base_sha: str, head_sha: str):
-        self.dir = Path(tempfile.mkdtemp(prefix="pr-explainer-"))
+        self.base: Path | None
+        self.ref: str | None = None
+        self.sha: str | None = head_sha
+        self._open(repo)
         self.base, self.head = self.dir / "base", self.dir / "head"
-        origin = repo_from_origin()
-        if origin and origin.lower() == repo.lower():
-            self.local: Path | None = Path(sh("git", "rev-parse", "--show-toplevel").strip())
-            self.git = self.local
-            fetch = ["git", "fetch", "--quiet", "origin"]
-        else:
-            self.local = None
-            self.git = self.dir / "repo.git"
-            # Blobless: commits and trees for merge-base, file contents only for the two checkouts.
-            fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
         try:
-            if not self.local:
-                sh("git", "init", "--quiet", "--bare", str(self.git))
-                sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
-                # gh's token covers private repos, including the lazy blob fetches worktree add makes.
-                # The empty entry drops inherited helpers so a stale keychain credential cannot win.
-                sh("git", "config", "credential.helper", "", cwd=self.git)
-                sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
-            sh(*fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
+            sh(*self.fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
             self.merge_base = sh("git", "merge-base", base_sha, head_sha, cwd=self.git).strip()
             sh("git", "worktree", "add", "--detach", "--quiet", str(self.base), self.merge_base, cwd=self.git)
             sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), head_sha, cwd=self.git)
@@ -130,10 +123,51 @@ class Trees:
             self.close()
             raise
 
+    @classmethod
+    def at(cls, repo: str, ref: str) -> "Trees":
+        """One worktree at `ref` (a branch, tag or sha); `base` is None and `merge_base` is None."""
+        self = cls.__new__(cls)
+        self.ref, self.merge_base = ref, None
+        self._open(repo)
+        self.base, self.head = None, self.dir / "head"
+        try:
+            sh(*self.fetch, ref, cwd=self.git)
+            self.sha = sh("git", "rev-parse", "FETCH_HEAD", cwd=self.git).strip()
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), self.sha, cwd=self.git)
+        except BaseException:
+            self.close()
+            raise
+        return self
+
+    def _open(self, repo: str) -> None:
+        """The temp dir, the git dir to fetch into (local checkout or a bare blobless repo), the fetch command."""
+        self.dir = Path(tempfile.mkdtemp(prefix="explainer-"))
+        origin = repo_from_origin()
+        if origin and origin.lower() == repo.lower():
+            self.local: Path | None = local_root()
+            self.git = self.local
+            self.fetch = ["git", "fetch", "--quiet", "origin"]
+            return
+        self.local = None
+        self.git = self.dir / "repo.git"
+        # Blobless: commits and trees for merge-base, file contents only for the checkouts.
+        self.fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
+        try:
+            sh("git", "init", "--quiet", "--bare", str(self.git))
+            sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
+            # gh's token covers private repos, including the lazy blob fetches worktree add makes.
+            # The empty entry drops inherited helpers so a stale keychain credential cannot win.
+            sh("git", "config", "credential.helper", "", cwd=self.git)
+            sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
+        except BaseException:
+            shutil.rmtree(self.dir, ignore_errors=True)
+            raise
+
     def close(self) -> None:
         if self.local:
-            for tree in (self.base, self.head):
-                subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
+            for tree in (getattr(self, "base", None), getattr(self, "head", None)):
+                if tree is not None:
+                    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
         shutil.rmtree(self.dir, ignore_errors=True)
         if self.local:
             subprocess.run(["git", "worktree", "prune"], cwd=self.local, capture_output=True)
@@ -179,6 +213,32 @@ def find_applications(root: Path) -> list[tuple[str, str, dict]]:
                     and isinstance(md, dict) and md.get("name") and isinstance(spec, dict)):
                 found.append((str(md["name"]), str(rel), d))
     return found
+
+
+MATCH_FIELDS = ("name", "directory", "source-path")
+
+
+def match_applications(found: list[tuple[str, str, dict]], names: list[str]) -> tuple[dict[str, list[tuple[str, str, dict]]], list[dict]]:
+    """Applications a service name matches, keyed by app name: every environment file of each.
+
+    A name matches case-insensitively as a substring of the Application's name, of the directory
+    its manifest sits in, or of its source path(s), in that order; `matched_by` records which.
+    """
+    apps: dict[str, list[tuple[str, str, dict]]] = {}
+    by: list[dict] = []
+    wanted = [n.strip().lower() for n in names if n and n.strip()]
+    for name, file, doc in found:
+        hay = {"name": name.lower(), "directory": str(Path(file).parent).lower(),
+               "source-path": " ".join(str(s.get("path") or "") for s in app_sources(doc)).lower()}
+        for n in wanted:
+            how = next((k for k in MATCH_FIELDS if n in hay[k]), None)
+            if how:
+                apps.setdefault(name, []).append((name, file, doc))
+                row = {"app": name, "name": n, "by": how}
+                if row not in by:
+                    by.append(row)
+                break
+    return apps, by
 
 
 def applications(base: list[tuple[str, str, dict]], head: list[tuple[str, str, dict]]) -> tuple[dict, dict, bool]:
@@ -562,6 +622,8 @@ def read_policy(trees: Trees) -> dict | None:
     """Policy from the local checkout (spec §3), else the base worktree, else the head worktree."""
     roots = [trees.local] if trees.local else []
     for root in (*roots, trees.base, trees.head):
+        if root is None:
+            continue
         f = root / POLICY_PATH
         if f.exists():
             return yaml.safe_load(f.read_text()) or {}
@@ -1167,4 +1229,311 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
         "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "workflows": wf,
         "jira": jira, "policy_hits": policy_hits, "notes": notes,
+    }
+
+
+# --- service and ticket modes (spec 2026-10-15 §4) -------------------------------------------
+
+MAX_MATCHED_APPS = 8
+SECRET_VALUE_RE = re.compile(
+    r"(?i)(['\"]?(?:password|passwd|token|secret|api[_-]?key|private[_-]?key|credential)s?[\w-]*['\"]?\s*[:=]\s*['\"]?)"
+    r"([^'\"\s]{8,})")
+ROUTE_KINDS = {"HTTPRoute", "GRPCRoute", "TLSRoute", "TCPRoute", "Ingress", "VirtualService"}
+
+
+def _masked(value):
+    if isinstance(value, str):
+        return SECRET_VALUE_RE.sub(r"\1[REDACTED]", value)
+    if isinstance(value, list):
+        return [_masked(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _masked(v) for k, v in value.items()}
+    return value
+
+
+def _probe(spec: dict) -> str | None:
+    spec = _d(spec)
+    if http := _d(spec.get("httpGet")):
+        return f"GET {http.get('path') or '/'}:{http.get('port', '')}"
+    if tcp := _d(spec.get("tcpSocket")):
+        return f"TCP :{tcp.get('port', '')}"
+    if grpc := _d(spec.get("grpc")):
+        return f"gRPC :{grpc.get('port', '')}"
+    if ex := _d(spec.get("exec")):
+        return "exec " + " ".join(str(c) for c in (ex.get("command") or [])[:3])
+    return None
+
+
+def resource_summary(doc: dict) -> dict:
+    """What the narrator needs to say concrete things about a resource, per kind, with every
+    string masked: image, replicas, ports, probes and env names for workloads; ports and selector
+    for Services; hosts, paths and backends for routes; schedule for CronJobs; store and keys for
+    ExternalSecrets; size for PVCs; keys for ConfigMaps. Never values from env, data or secrets."""
+    kind = str(doc.get("kind") or "")
+    spec = _d(doc.get("spec"))
+    out: dict = {}
+    try:
+        if kind in WORKLOADS:
+            pod, _ = pod_spec(doc)
+            containers = [c for c in (pod.get("containers") or []) if isinstance(c, dict)]
+            if containers:
+                first = containers[0]
+                out["image"] = str(first.get("image") or "")
+                ports = [p.get("containerPort") for c in containers for p in (c.get("ports") or []) if isinstance(p, dict)]
+                out["ports"] = [p for p in ports if p is not None]
+                probes = {k: _probe(first.get(f"{k}Probe")) for k in ("startup", "readiness", "liveness")}
+                out["probes"] = {k: v for k, v in probes.items() if v}
+                out["env_keys"] = sorted({str(e.get("name")) for c in containers for e in (c.get("env") or [])
+                                          if isinstance(e, dict) and e.get("name")})
+            if kind == "CronJob":
+                out["schedule"] = str(spec.get("schedule") or "")
+            elif kind != "DaemonSet" and "replicas" in spec:
+                out["replicas"] = spec.get("replicas")
+        elif kind == "Service":
+            out["ports"] = [f"{p.get('port')}->{p.get('targetPort', p.get('port'))}" for p in (spec.get("ports") or [])
+                            if isinstance(p, dict)]
+            out["selector"] = _d(spec.get("selector"))
+        elif kind in ROUTE_KINDS:
+            hosts = spec.get("hostnames") or spec.get("hosts") or [r.get("host") for r in (spec.get("rules") or []) if isinstance(r, dict)]
+            out["hosts"] = [str(h) for h in hosts if h]
+            paths, backends = [], []
+            for rule in spec.get("rules") or spec.get("http") or []:
+                if not isinstance(rule, dict):
+                    continue
+                for m in rule.get("matches") or rule.get("match") or []:
+                    if isinstance(m, dict):
+                        path = _d(m.get("path")) or _d(m.get("uri"))
+                        paths.append(str(path.get("value") or path.get("prefix") or path.get("exact") or "/"))
+                for b in rule.get("backendRefs") or rule.get("route") or []:
+                    if isinstance(b, dict):
+                        dest = _d(b.get("destination"))
+                        name = b.get("name") or dest.get("host")
+                        port = b.get("port") or _d(dest.get("port")).get("number")
+                        if name:
+                            backends.append(f"{name}:{port}" if port else str(name))
+                for p in _d(_d(rule.get("http")).get("paths")) if isinstance(rule.get("http"), dict) else []:
+                    pass
+                http = _d(rule.get("http"))
+                for pth in http.get("paths") or []:
+                    if isinstance(pth, dict):
+                        paths.append(str(pth.get("path") or "/"))
+                        svc = _d(_d(pth.get("backend")).get("service"))
+                        if svc.get("name"):
+                            backends.append(f"{svc['name']}:{_d(svc.get('port')).get('number', '')}".rstrip(":"))
+            out["paths"] = list(dict.fromkeys(paths))
+            out["backends"] = list(dict.fromkeys(backends))
+        elif kind == "ExternalSecret":
+            out["store"] = str(_d(spec.get("secretStoreRef")).get("name") or "")
+            out["keys"] = sorted({str(d.get("secretKey") or _d(d.get("remoteRef")).get("key") or "") for d in (spec.get("data") or [])
+                                  if isinstance(d, dict)} - {""})
+        elif kind == "PersistentVolumeClaim":
+            out["size"] = str(_d(_d(spec.get("resources")).get("requests")).get("storage") or "")
+        elif kind in ("ConfigMap", "Secret"):
+            out["keys"] = sorted(str(k) for k in (_d(doc.get("data")) | _d(doc.get("stringData"))).keys())
+    except (AttributeError, TypeError, KeyError):
+        return {}
+    return _masked({k: v for k, v in out.items() if v not in (None, "", [], {})})
+
+
+def _top_keys(value) -> list[str]:
+    if isinstance(value, str):
+        try:
+            value = yaml.safe_load(value)
+        except yaml.YAMLError:
+            return []
+    return sorted(str(k) for k in value.keys()) if isinstance(value, dict) else []
+
+
+def config_facts(trees: Trees, matched: dict[str, list[tuple[str, str, dict]]], repo: str) -> list[dict]:
+    """The top-level keys this repo sets for each matched app: inline helm values, valuesObject,
+    parameters, and value files in this repo. Keys only; a value file can hold anything."""
+    rows: list[dict] = []
+    scoped = any(len(v) > 1 for v in matched.values())
+    for name in sorted(matched):
+        for _, afile, adoc in sorted(matched[name], key=lambda x: x[1]):
+            scope = str(Path(afile).parent) if scoped else ""
+            sources = app_sources(adoc)
+            refs = {s["ref"]: s for s in sources if s.get("ref")}
+            for src in sources:
+                helm = _d(src.get("helm"))
+                for source, keys in (("inline-values", _top_keys(helm.get("values"))),
+                                     ("values-object", _top_keys(helm.get("valuesObject"))),
+                                     ("parameters", sorted(str(p.get("name")) for p in (helm.get("parameters") or []) if isinstance(p, dict) and p.get("name")))):
+                    if keys:
+                        rows.append({"id": f"c{len(rows) + 1}", "app": name, "scope": scope, "source": source, "file": afile, "keys": keys})
+                for vf in helm.get("valueFiles") or []:
+                    try:
+                        p = value_file(trees.head, src, refs, str(vf), repo)
+                    except RuntimeError:
+                        p = None
+                    if p and p.is_file():
+                        rel = str(p.relative_to(trees.head))
+                        rows.append({"id": f"c{len(rows) + 1}", "app": name, "scope": scope, "source": "values-file",
+                                     "file": rel, "keys": _top_keys(p.read_text(errors="replace"))})
+    return rows
+
+
+DOC_CHARS = 20000
+
+
+def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
+    """Local text files (a Confluence page the session saved, pasted requirements) as untrusted
+    facts: tags stripped, control characters dropped, text capped at DOC_CHARS, one d* id each.
+    An unreadable file becomes a note instead of stopping the run."""
+    docs, notes = [], []
+    for p in paths:
+        try:
+            raw = Path(p).read_text(errors="replace")
+        except OSError as e:
+            notes.append({"key": "docs", "text": f"{p} could not be read ({type(e).__name__}), so it is not on the page."})
+            continue
+        text = re.sub(r"<[^>]+>", "", raw)
+        text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
+        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.strip()), "") or Path(p).stem
+        docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
+                     "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
+    return docs, notes
+
+
+def _mentions(text: str, names: list[str]) -> bool:
+    low = text.lower()
+    return any(n.strip().lower() in low for n in names if n and n.strip())
+
+
+def terraform_mentions(root: Path, names: list[str]) -> tuple[list[dict], list[dict]]:
+    """resource/data blocks at the ref whose address or body names the service, as `focus`
+    entries with source `source-ref`, plus reference edges between them."""
+    tf = []
+    blocks = tf_block_list(root)
+    for addr, file, line, body in blocks:
+        if _mentions(addr, names) or _mentions(body, names):
+            rtype, _, rname = addr.removeprefix("data.").partition(".")
+            tf.append({"id": f"t{len(tf) + 1}", "address": addr, "action": "focus", "source": "source-ref",
+                       "type": rtype, "name": rname, "file": file, "lines": [line]})
+    groups = {(tf_dir(t["file"]), t["address"]): [t["id"]] for t in tf}
+    bodies = {(tf_dir(file), addr): body for addr, file, line, body in blocks}
+    return tf, tf_reference_edges(groups, bodies)
+
+
+def workflow_mentions(root: Path, names: list[str]) -> tuple[list[dict], list[dict]]:
+    """Every element of each workflow file that names the service, as `focus` entries, plus
+    `needs` edges between its jobs."""
+    out, edges = [], []
+    wdir = root / WORKFLOW_DIR
+    if not wdir.is_dir():
+        return [], []
+    for f in sorted(wdir.iterdir()):
+        path = f"{WORKFLOW_DIR}{f.name}"
+        if not is_workflow(path) or not f.is_file():
+            continue
+        text = f.read_text(errors="replace")
+        if not _mentions(text, names):
+            continue
+        try:
+            doc = yaml.safe_load(text)
+        except yaml.YAMLError:
+            continue
+        doc = doc if isinstance(doc, dict) else {}
+        elems = workflow_elements(doc)
+        ids = {}
+        for k in sorted(elems, key=lambda k: (WORKFLOW_ELEMENT_ORDER[k[0]], key_line(text, elems[k][1]) or 0, k)):
+            value, keypath = elems[k]
+            line = key_line(text, keypath)
+            entry = {"id": f"w{len(out) + 1}", "workflow": path, "element": k[0], "event": k[1], "name": k[2],
+                     "action": "focus", "changed_paths": [], "file": path, "lines": [line] if line else []}
+            if k[0] == "job" and isinstance(value, dict) and value.get("uses"):
+                entry["uses"] = str(value["uses"])
+            if k[0] == "input" and isinstance(value, dict):
+                entry["required"] = bool(value.get("required"))
+                entry["has_default"] = "default" in value
+            ids[k] = entry["id"]
+            out.append(entry)
+        for src, job in (doc.get("jobs") or {}).items():
+            for dst in job_needs(job):
+                if ("job", "", str(src)) in ids and ("job", "", dst) in ids:
+                    edges.append({"from": ids[("job", "", str(src))], "to": ids[("job", "", dst)], "type": "needs"})
+    return out, edges
+
+
+def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], ticket_key: str | None,
+                   all_apps: bool) -> dict:
+    """Facts for a service (or a ticket's system) at one ref: the matched Applications in every
+    environment, their rendered resources as `focus`, generated Secrets, edges, and the shared keys
+    the PR collector fills, empty. Exits with a message when nothing matches or too much does."""
+    policy = read_policy(trees) or {}
+    callouts = policy.get("risk_callouts") or {}
+    found = find_applications(trees.head)
+    matched, matched_by = match_applications(found, names)
+    if names and not matched:
+        close = sorted({n for n, _, _ in found},
+                       key=lambda n: difflib.SequenceMatcher(None, n.lower(), names[0].lower()).ratio(), reverse=True)[:10]
+        sys.exit(f"collect: no Application matches {names}; closest names: {', '.join(close) or 'none'}")
+    if len(matched) > MAX_MATCHED_APPS and not all_apps:
+        sys.exit(f"collect: {len(matched)} Applications match {names}: {', '.join(sorted(matched))}. "
+                 "Narrow the name or pass --all.")
+    scoped = any(len(v) > 1 for v in matched.values())
+    apps_out, universe, owner, where = [], {}, {}, {}
+    for name in sorted(matched):
+        for _, afile, adoc in sorted(matched[name], key=lambda x: x[1]):
+            ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
+            scope = str(Path(afile).parent) if scoped else ""
+            entry = {"app": name, "application_file": afile, "scope": scope,
+                     "source_kind": "unknown", "render": "rendered", "render_note": ""}
+            k = res_key(adoc, "argo-cd", scope)  # the Application object itself is always a fact
+            universe[k], owner[k], where[k] = adoc, name, afile
+            try:
+                entry["source_kind"] = app_source_kind(trees.head, adoc)
+                hdocs, _, hnotes = render_app(trees.head, afile, adoc, trees.dir, repo)
+            except Exception as err:
+                entry["render"], entry["render_note"] = "source-diff", f"{type(err).__name__}: {err}"
+                apps_out.append(entry)
+                continue
+            entry["render_note"] = "; ".join(dict.fromkeys(hnotes))
+            for d, f in hdocs:
+                k = res_key(d, ns, scope)
+                universe[k], owner[k], where[k] = d, name, f
+            apps_out.append(entry)
+    generated: set[tuple] = set()
+    for k, d in list(universe.items()):
+        if k[0] == "ExternalSecret":
+            target = ((d.get("spec") or {}).get("target") or {}).get("name") or k[2]
+            sk = ("Secret", k[1], target, k[3])
+            if sk not in universe:
+                universe[sk] = {"kind": "Secret", "metadata": {"name": target, "namespace": k[1]}}
+                owner[sk] = owner.get(k)
+                generated.add(sk)
+    by_scope: dict[str, dict[tuple, dict]] = {}
+    for k, d in universe.items():
+        by_scope.setdefault(k[3], {})[k] = d
+    edges = [e for part in by_scope.values() for e in build_edges(part)]
+    order = sorted(universe, key=lambda k: (owner.get(k) or "", k[3], k))
+    ids, resources = {}, []
+    for i, k in enumerate(order, start=1):
+        ids[k] = f"r{i}"
+        file = where.get(k)
+        resources.append({"id": ids[k], "app": owner.get(k), "scope": k[3], "kind": k[0], "namespace": k[1], "name": k[2],
+                          "action": "generated" if k in generated else "focus", "changed_paths": [], "file": file,
+                          "lines": find_lines(trees.head, file, k[0], k[2]), "risk": callouts.get(k[0]),
+                          "summary": resource_summary(universe[k])})
+    edges_out = [{"from": ids[a], "to": ids[b], "type": t} for a, b, t in edges if a in ids and b in ids]
+    config = config_facts(trees, matched, repo)
+    tf, tf_edges = terraform_mentions(trees.head, names)
+    wf, wf_edges = workflow_mentions(trees.head, names)
+    doc_out, notes = doc_facts(docs)
+    if wf:
+        notes.append({"key": "actions", "text": "GitHub Actions entries are the workflows that name the service at this "
+                                                "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
+                                                "composite actions and callers in other repositories are not resolved."})
+    if tf:
+        notes.append({"key": "terraform", "text": "Terraform blocks are the resource and data blocks whose address or "
+                                                  "body names the service at this ref; no plan was run, so counts, "
+                                                  "for_each instances and module internals are not resolved."})
+    if not policy:
+        notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
+    return {
+        "mode": "ticket" if ticket_key else "service", "pr": None, "triage": None,
+        "query": {"service": names, "matched_by": matched_by, "ref": trees.ref, "sha": trees.sha, "repo": repo},
+        "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
+        "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": [],
+        "docs": doc_out, "related_prs": [], "jira": None, "policy_hits": [], "notes": notes,
     }

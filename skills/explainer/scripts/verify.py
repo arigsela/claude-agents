@@ -59,11 +59,13 @@ def strings(obj):
 
 
 def verify(facts: dict, expl: dict) -> list[str]:
-    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows")
-             for x in facts.get(key) or []}
+    index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows", "config", "docs")
+             for x in facts.get(key) or [] if isinstance(x, dict) and x.get("id")}
     ids = set(index)
     comments = {c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")}
     errors = []
+    mode = facts.get("mode") or "pr"
+    system = mode != "pr"
 
     def check_groups(where: str, refs: list[str]) -> None:
         n = len(ref_groups.group([ref_groups.entry(index.get(r) or comments.get(r), r) for r in refs]))
@@ -113,7 +115,9 @@ def verify(facts: dict, expl: dict) -> list[str]:
                 errors.append(f"background[{i}] references unknown id {ref!r}")
         check_groups(f"background[{i}]", refs)
     scenario = expl.get("scenario")
-    if not isinstance(scenario, dict):
+    if system and not isinstance(scenario, dict):
+        pass  # how_it_works[0] stands in for the scenario on a system page
+    elif not isinstance(scenario, dict):
         errors.append("scenario is missing: one concrete trigger walked before and after the change")
     else:
         for field in ("trigger", "before", "after"):
@@ -188,8 +192,137 @@ def verify(facts: dict, expl: dict) -> list[str]:
         if status != "covered" and not str(item.get("reason", "")).strip():
             errors.append(f"ticket.criteria[{i}] is {status} but has no reason")
         check_groups(f"ticket.criteria[{i}]", refs)
+    if system:
+        errors += verify_system(facts, expl, ids, comments, check_groups)
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
         errors.append("explainer text contains a secret-looking value")
+    return errors
+
+
+MIN_SCENARIOS, MAX_SCENARIOS = 2, 3
+NO_FACT = "no fact"
+
+
+def verify_system(facts: dict, expl: dict, ids: set, comments: dict, check_groups) -> list[str]:
+    """Service and ticket pages: components per app, 2-3 scenarios, one row per environment,
+    config keys cited to c*/r*, open questions cited or marked "no fact", one summary per doc."""
+    errors: list[str] = []
+    apps = {a.get("app") for a in facts.get("apps") or [] if isinstance(a, dict) and a.get("app")}
+    scopes = {a.get("scope") for a in facts.get("apps") or [] if isinstance(a, dict) and a.get("scope")}
+    docs = {d.get("id") for d in facts.get("docs") or [] if isinstance(d, dict) and d.get("id")}
+
+    def cited(where: str, refs, allowed: set | None = None) -> None:
+        for ref in refs:
+            if ref not in ids and ref not in comments:
+                errors.append(f"{where} references unknown id {ref!r}")
+            elif allowed is not None and ref[:1] not in allowed:
+                errors.append(f"{where} cites {ref}; cite config rows (c*) or resources (r*)")
+        check_groups(where, [r for r in refs if r in ids or r in comments])
+
+    components = expl.get("components")
+    if not isinstance(components, list):
+        errors.append("components must be a list with one row per app")
+        components = []
+    seen = set()
+    for i, c in enumerate(components):
+        if not isinstance(c, dict):
+            errors.append(f"components[{i}] is not an object")
+            continue
+        app = c.get("app")
+        if app not in apps:
+            errors.append(f"components[{i}] names {app!r}, which is not one of the matched apps {sorted(apps)}")
+        seen.add(app)
+        if not text(c.get("role")):
+            errors.append(f"components[{i}].role is empty")
+        refs = ref_list(c.get("refs"), f"components[{i}]", errors)
+        if not refs:
+            errors.append(f"components[{i}] cites nothing")
+        cited(f"components[{i}]", refs)
+    for app in sorted(apps - seen):
+        errors.append(f"components is missing a row for {app}")
+
+    hiw = expl.get("how_it_works")
+    if not isinstance(hiw, list) or not MIN_SCENARIOS <= len(hiw) <= MAX_SCENARIOS:
+        n = len(hiw) if isinstance(hiw, list) else 0
+        errors.append(f"how_it_works has {n} scenarios; write {MIN_SCENARIOS}-{MAX_SCENARIOS} (a request, a deploy, a job)")
+    for i, sc in enumerate(hiw if isinstance(hiw, list) else []):
+        if not isinstance(sc, dict):
+            errors.append(f"how_it_works[{i}] is not an object")
+            continue
+        for field in ("trigger", "path"):
+            if not text(sc.get(field)):
+                errors.append(f"how_it_works[{i}].{field} is empty")
+        refs = ref_list(sc.get("refs"), f"how_it_works[{i}]", errors)
+        if not refs:
+            errors.append(f"how_it_works[{i}] cites nothing")
+        cited(f"how_it_works[{i}]", refs)
+
+    wir = expl.get("where_it_runs")
+    if scopes and not isinstance(wir, list):
+        errors.append("where_it_runs must be a list with one row per environment")
+    seen = set()
+    for i, row in enumerate(wir if isinstance(wir, list) else []):
+        if not isinstance(row, dict):
+            errors.append(f"where_it_runs[{i}] is not an object")
+            continue
+        scope = row.get("scope")
+        if scope not in scopes:
+            errors.append(f"where_it_runs[{i}] names {scope!r}, which is not one of the environments {sorted(scopes)}")
+        seen.add(scope)
+        if not text(row.get("differs")):
+            errors.append(f"where_it_runs[{i}].differs is empty (write 'identical' when nothing differs)")
+        refs = ref_list(row.get("refs"), f"where_it_runs[{i}]", errors)
+        cited(f"where_it_runs[{i}]", refs)
+    for scope in sorted(scopes - seen):
+        errors.append(f"where_it_runs is missing a row for {scope}")
+
+    cfg = expl.get("config_that_matters")
+    if cfg is not None and not isinstance(cfg, list):
+        errors.append("config_that_matters must be a list")
+    for i, row in enumerate(cfg if isinstance(cfg, list) else []):
+        if not isinstance(row, dict):
+            errors.append(f"config_that_matters[{i}] is not an object")
+            continue
+        for field in ("key", "why"):
+            if not text(row.get(field)):
+                errors.append(f"config_that_matters[{i}].{field} is empty")
+        refs = ref_list(row.get("refs"), f"config_that_matters[{i}]", errors)
+        if not refs:
+            errors.append(f"config_that_matters[{i}] cites nothing")
+        cited(f"config_that_matters[{i}]", refs, allowed={"c", "r"})
+
+    oq = expl.get("open_questions")
+    if not isinstance(oq, list):
+        errors.append("open_questions must be a list (may be empty only when no app matched)")
+    elif not oq and apps:
+        errors.append("open_questions is empty; list what the one-pager must answer that facts cannot")
+    for i, q in enumerate(oq if isinstance(oq, list) else []):
+        if not isinstance(q, dict):
+            errors.append(f"open_questions[{i}] is not an object")
+            continue
+        if not text(q.get("text")):
+            errors.append(f"open_questions[{i}].text is empty")
+        refs = ref_list(q.get("refs"), f"open_questions[{i}]", errors)
+        if not refs:
+            errors.append(f"open_questions[{i}] cites nothing; cite a fact or write refs: [\"{NO_FACT}\"]")
+        cited(f"open_questions[{i}]", [r for r in refs if r != NO_FACT])
+
+    ds = expl.get("docs_summary")
+    if docs and not isinstance(ds, list):
+        errors.append("docs_summary must be a list with one entry per doc")
+    seen = set()
+    for i, d in enumerate(ds if isinstance(ds, list) else []):
+        if not isinstance(d, dict):
+            errors.append(f"docs_summary[{i}] is not an object")
+            continue
+        if d.get("doc") not in docs:
+            errors.append(f"docs_summary[{i}] names {d.get('doc')!r}, which is not one of the docs {sorted(docs)}")
+        seen.add(d.get("doc"))
+        asks = d.get("asks")
+        if not isinstance(asks, list) or not any(text(a) for a in asks):
+            errors.append(f"docs_summary[{i}].asks must list what the doc asks for")
+    for doc in sorted(docs - seen):
+        errors.append(f"docs_summary is missing an entry for {doc}")
     return errors
 
 

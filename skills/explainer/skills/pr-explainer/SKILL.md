@@ -73,7 +73,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    On a non-zero exit, show the error and stop. `facts.json` records the repo as `pr.repo` and
    the head commit as `pr.head_sha`.
 
-   When the current directory's `origin` is the PR's repo, `collect.py` fetches into that checkout
+   When the current directory's `origin` is the PR's repo, `collect_pr.py` fetches into that checkout
    and reads the review policy from its root first. Otherwise it fetches into a temporary blobless
    bare repo and reads the policy from the base, then head, commit. Either way it renders the base
    side at the merge base (`pr.merge_base`). If an app
