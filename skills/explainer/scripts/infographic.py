@@ -75,8 +75,10 @@ def brief(facts: dict, expl: dict, max_slides: int) -> str:
 def prompt(out_dir: Path, max_slides: int) -> str:
     return (f"Use the tech-infographics skill on {out_dir / 'brief.md'}. Make at most {max_slides} landscape PNG "
             f"slides and save them as {out_dir}/slide-01.png, slide-02.png and so on. Use only the names and "
-            "relationships in the brief. Skip the PDF, the ZIP and the speaker notes. Do not run any other commands "
-            "or read other files. Reply with each saved path and its pixel size.")
+            "relationships in the brief. Skip the PDF, the ZIP and the speaker notes. Copy each generated image "
+            f"from wherever the image tool saved it into {out_dir}; apart from that copy and checking pixel sizes, "
+            "do not run commands or read files other than the brief and the skill. Reply with each saved path and "
+            "its pixel size.")
 
 
 def main() -> int:
