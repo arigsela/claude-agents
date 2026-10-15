@@ -216,5 +216,54 @@ class MatchTest(unittest.TestCase):
         self.assertEqual(facts_lib.match_applications(found, [" ", ""]), ({}, []))
 
 
+class CollectSystemTest(SystemFactsBase):
+    def test_no_match_lists_candidates_and_fails(self):
+        repo = make_repo(self.tmp)
+        with self.trees(repo) as t, self.assertRaises(SystemExit) as cm:
+            facts_lib.collect_system("o/r", t, ["nothing"], [], None, False)
+        self.assertIn("grafana", str(cm.exception))
+
+    def test_too_many_matches_fails_without_all(self):
+        repo = make_repo(self.tmp, apps=[f"svc-{i}" for i in range(9)])
+        with self.trees(repo) as t, self.assertRaises(SystemExit) as cm:
+            facts_lib.collect_system("o/r", t, ["svc"], [], None, False)
+        self.assertIn("--all", str(cm.exception))
+        with self.trees(repo) as t:
+            self.assertEqual(len(facts_lib.collect_system("o/r", t, ["svc"], [], None, True)["apps"]), 9)
+
+    def test_service_facts_focus_resources_scopes_and_shape(self):
+        repo = make_repo(self.tmp, envs=("prod", "nonprod"))
+        with self.trees(repo) as t:
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [], None, False)
+        self.assertEqual(facts["mode"], "service")
+        self.assertIsNone(facts["pr"])
+        self.assertEqual(facts["query"]["service"], ["grafana"])
+        self.assertEqual(facts["query"]["ref"], "main")
+        self.assertEqual({a["scope"] for a in facts["apps"]}, {"argo/prod", "argo/nonprod"})
+        self.assertTrue(all(a["render"] == "rendered" for a in facts["apps"]))
+        kinds = {(r["kind"], r["scope"]) for r in facts["resources"]}
+        self.assertIn(("Deployment", "argo/prod"), kinds)
+        self.assertIn(("Application", "argo/nonprod"), kinds)
+        self.assertTrue(all(r["action"] in ("focus", "generated") for r in facts["resources"]))
+        self.assertIn("generated", {r["action"] for r in facts["resources"]})  # the ExternalSecret's Secret
+        self.assertTrue(any(e["type"] == "selects" for e in facts["edges"]))
+        dep = next(r for r in facts["resources"] if r["kind"] == "Deployment" and r["scope"] == "argo/prod")
+        self.assertEqual(dep["file"], "apps/grafana/all.yaml")
+        self.assertEqual(dep["lines"][0], 1)
+        for key in ("config", "docs", "related_prs", "terraform", "terraform_plans", "workflows",
+                    "non_manifest_changes", "policy_hits", "notes"):
+            self.assertIsInstance(facts[key], list, key)
+        self.assertIsNone(facts["jira"])
+        json.dumps(facts)  # serialisable
+
+    def test_render_failure_is_recorded_not_fatal(self):
+        repo = make_repo(self.tmp)
+        with self.trees(repo) as t, mock.patch.object(facts_lib, "render_app", side_effect=RuntimeError("helm missing")):
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [], None, False)
+        self.assertEqual(facts["apps"][0]["render"], "source-diff")
+        self.assertIn("RuntimeError", facts["apps"][0]["render_note"])
+        self.assertEqual([r["kind"] for r in facts["resources"]], ["Application"])
+
+
 if __name__ == "__main__":
     unittest.main()
