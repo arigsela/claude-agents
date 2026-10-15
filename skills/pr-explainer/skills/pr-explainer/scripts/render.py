@@ -29,6 +29,9 @@ TF_CLASS = {"create": "added", "update": "modified", "replace": "modified", "des
 STATUS_LABEL = {"covered": "covered", "not_covered": "not covered", "unclear": "unclear",
                 "out_of_band": "done outside this PR", "respected": "respected"}
 SEVERITY_CLASS = {"high": "sev-high", "medium": "sev-med", "info": "sev-info"}
+# Walkthrough hunks are read inline; past this many lines the step links to the PR instead.
+MAX_HUNK_LINES = 60
+HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 STANDALONE_HEAD = ('<!doctype html>\n<meta charset="utf-8">\n'
                    '<meta name="viewport" content="width=device-width, initial-scale=1">\n')
 # The Artifact host renders mermaid natively, so the fragment loads no library.
@@ -43,8 +46,22 @@ STANDALONE_TAIL = '''
 '''
 
 
+# A secret-looking key, bare (YAML, env, HCL) or quoted (JSON, "key": "value"), followed by a value.
 SECRET_VALUE_RE = re.compile(
-    r"(?i)((?:password|passwd|token|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)(\S{8,})")
+    r"(?i)(['\"]?(?:password|passwd|token|secret|api[_-]?key|private[_-]?key|credential)s?[\w-]*['\"]?\s*[:=]\s*['\"]?)"
+    r"([^'\"\s]{8,})")
+# Kubernetes Secret data is base64; a long base64 value after a key is masked wherever it appears.
+BASE64_VALUE_RE = re.compile(r"^([+\- ]?\s*[\w.\-/\"']+\s*:\s*['\"]?)([A-Za-z0-9+/]{24,}={0,2})(['\"]?\s*)$")
+# A YAML "key:" line in a diff: diff prefix, indentation, key (with the colon), value (may be empty).
+KEY_LINE_RE = re.compile(r"^([+\- ]?)(\s*)([\w.\-/\"']+\s*:)(\s*)(.*)$")
+SECRET_KEY_RE = re.compile(r"(?i)(?:password|passwd|token|secret|api[_-]?key|private[_-]?key|credential)")
+BLOCK_SCALAR_RE = re.compile(r"^[|>][-+0-9]*\s*(#.*)?$")
+# In a Secret's hunk a value survives only when it is a top-level structural key, or sits under
+# metadata: (names and labels). Every other line is masked by position, because a hunk deep
+# inside data:/stringData: shows no block header and a data entry may be called name or type.
+SECRET_TOP_KEYS = {"apiversion", "kind", "metadata", "type", "immutable", "data", "stringdata", "spec"}
+SECRET_META_KEYS = {"name", "namespace", "generatename", "labels", "annotations"}
+HUNK_CONTEXT_RE = re.compile(r"^@@[^@]*@@\s*(.*)$")
 
 
 def esc(value) -> str:
@@ -54,6 +71,159 @@ def esc(value) -> str:
 def mask(value) -> str:
     """Mask secret-looking values in model text; apply before esc()."""
     return SECRET_VALUE_RE.sub(r"\1[REDACTED]", str(value))
+
+
+def parse_diff(text: str) -> dict[str, list[dict]]:
+    """{path: [{"old": [start, end], "new": [start, end], "lines": [...]}, ...]} from a unified diff.
+    A file is keyed by its head path, or by its base path when the PR deletes it."""
+    files: dict[str, list[dict]] = {}
+    path, hunk, left = None, None, [0, 0]  # left: old and new lines still owed to the open hunk
+    for line in text.splitlines():
+        if hunk is not None and (left[0] > 0 or left[1] > 0):
+            # Inside a hunk every line is content, including "--- x" (a removed "-- x") or "+++ x".
+            if line.startswith("\\"):
+                hunk["lines"].append(line)
+                continue
+            kind = line[:1] if line else " "
+            if kind == "-":
+                left[0] -= 1
+            elif kind == "+":
+                left[1] -= 1
+            elif kind == " ":
+                left[0] -= 1
+                left[1] -= 1
+            else:
+                hunk = None  # a malformed diff: stop the hunk rather than swallow the next file
+            if hunk is not None:
+                hunk["lines"].append(line)
+                continue
+        if line.startswith("diff --git "):
+            path, hunk = None, None
+        elif line.startswith(("--- ", "+++ ")):
+            name = line[4:].split("\t")[0]
+            if name != "/dev/null":  # "--- a/x" is set first; "+++ b/x" overrides it unless the file was deleted
+                path = name[2:] if name[:2] in ("a/", "b/") else name
+            hunk = None
+        elif m := HUNK_HEADER_RE.match(line):
+            if path is None:
+                continue
+            old, old_n = int(m.group(1)), int(m.group(2)) if m.group(2) is not None else 1
+            new, new_n = int(m.group(3)), int(m.group(4)) if m.group(4) is not None else 1
+            hunk = {"old": [old, old + max(old_n, 1) - 1], "new": [new, new + max(new_n, 1) - 1], "lines": [line]}
+            left = [old_n, new_n]
+            files.setdefault(path, []).append(hunk)
+    return files
+
+
+def hunks_for(item: dict, diff: dict[str, list[dict]], end: int | None = None) -> list[dict]:
+    """The hunks of the diff a ref points at. A resource with a line range takes the hunks that
+    overlap it. A Terraform block or workflow job knows only its first line; `end` is the first
+    line of the next item in the same file (the caller computes it), and the block takes the hunks
+    between the two. Without a boundary it takes the hunk holding its first line, or else the next
+    hunk below only when that hunk's header context names the item (git puts the enclosing
+    `resource "type" "name"` line there), so another block's edit is never shown as this one's. A
+    file without line info (a script, a values file) takes every hunk. A rendered resource whose
+    file is not in the diff (a chart bump) gets none: the page shows its changed paths instead."""
+    path = item.get("file")
+    if not path or path not in diff:
+        return []
+    side = "old" if item.get("action") in ("removed", "destroy") else "new"
+    lines = [n for n in (item.get("lines") or []) if isinstance(n, int)]
+    if not lines:
+        return diff[path]
+    lo, hi = lines[0], lines[-1]
+    if len(lines) == 1 and end is not None and end > lo:
+        hi = end - 1
+    hit = [h for h in diff[path] if h[side][0] <= hi and h[side][1] >= lo]
+    if not hit and len(lines) == 1 and end is None:
+        name = str(item.get("name") or "")
+        below = [h for h in diff[path] if h[side][0] > lo][:1]
+        hit = [h for h in below if name and f'"{name}"' in h["lines"][0]]
+    return hit
+
+
+def next_item_start(item: dict, index: dict[str, dict]) -> int | None:
+    """The first line of the next item in the same file, so a single-line ref stops there."""
+    path, lines = item.get("file"), item.get("lines") or []
+    if not path or not lines or not isinstance(lines[0], int):
+        return None
+    starts = [x["lines"][0] for x in index.values()
+              if x is not item and x.get("file") == path and isinstance((x.get("lines") or [None])[0], int)
+              and x["lines"][0] > lines[0]]
+    return min(starts) if starts else None
+
+
+def mask_hunk_lines(lines: list[str], secret: bool = False) -> list[str]:
+    """Mask credentials in diff lines. On top of mask(): long base64 values after any key; the
+    indented lines of a block scalar under a secret-looking key (password: |); and, when the hunk
+    belongs to a Secret (the caller says so, or a Secret is named in the hunk), every line except
+    top-level structural keys and the names and labels under metadata:. The section is tracked by
+    indentation from the hunk header's context and the top-level keys seen, so a hunk deep inside
+    data: or stringData:, with no block header in view, masks everything indented. Keys stay
+    visible so the reader still sees what changed."""
+    out = []
+    if any(re.search(r"kind:\s*['\"]?(Sealed)?Secret\b", ln) for ln in lines):
+        secret = True
+    section, meta_sub, block = None, None, None  # top-level key; key under metadata; block-scalar indent
+    for line in lines:
+        if line.startswith("@@"):
+            ctx = HUNK_CONTEXT_RE.match(line)
+            head = (ctx.group(1).strip() if ctx else "")
+            section = head[:-1].strip().lower() if head.endswith(":") and " " not in head else None
+            meta_sub, block = None, None
+            out.append(line)
+            continue
+        if line.startswith("\\"):
+            out.append(line)
+            continue
+        m = KEY_LINE_RE.match(line)
+        prefix = line[:1] if line[:1] in "+- " else ""
+        body = line[len(prefix):]
+        indent, blank = len(body) - len(body.lstrip()), not body.strip()
+        if block is not None:
+            if not blank and indent <= block:
+                block = None  # the scalar ended
+            else:
+                out.append(line if blank else f"{prefix}{' ' * indent}[REDACTED]")
+                continue
+        if m:
+            key = m.group(3)[:-1].strip().strip("\"'").lower()
+            value = m.group(5)
+            if indent == 0:
+                section, meta_sub = key, None
+            elif section == "metadata" and indent <= 2:
+                meta_sub = key
+            if SECRET_KEY_RE.search(key) and BLOCK_SCALAR_RE.match(value.strip()):
+                block = indent
+            if secret:
+                safe = ((indent == 0 and key in SECRET_TOP_KEYS)
+                        or (section == "metadata" and (key in SECRET_META_KEYS or meta_sub == "labels")))
+                if not safe and value.strip():
+                    line = f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}[REDACTED]"
+                elif not safe and (indent == 0 or section in ("data", "stringdata", None)):
+                    block = indent  # an empty value opens a nested block inside data: mask its children
+        elif secret and not blank and not (section == "metadata" and meta_sub == "labels"):
+            line = f"{prefix}{' ' * indent}[REDACTED]"
+        line = mask(line)
+        line = BASE64_VALUE_RE.sub(r"\1[REDACTED]\3", line)
+        out.append(line)
+    return out
+
+
+def hunk_html(hunks: list[dict], secret: bool = False) -> str:
+    """One <pre> per step; +/- lines carry a class, every line is masked then escaped."""
+    out, shown, total = [], 0, sum(len(h["lines"]) for h in hunks)
+    for h in hunks:
+        for line in mask_hunk_lines(h["lines"], secret):
+            if shown >= MAX_HUNK_LINES:
+                break
+            cls = "add" if line.startswith("+") else "del" if line.startswith("-") else "hdr" if line.startswith("@@") else ""
+            text = esc(line)
+            out.append(f'<span class="{cls}">{text}</span>' if cls else text)
+            shown += 1
+    if shown < total:
+        out.append(f'<span class="hdr">… {total - shown} more lines; open the PR to read the rest</span>')
+    return '<pre class="hunk">' + "\n".join(out) + "</pre>"
 
 
 def label(text: str) -> str:
@@ -210,8 +380,28 @@ def mermaid(facts: dict) -> str:
     return "\n".join(lines)
 
 
-def render(facts: dict, expl: dict, errors: list[str]) -> str:
+def as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def as_dicts(value) -> list[dict]:
+    return [v for v in as_list(value) if isinstance(v, dict)]
+
+
+def as_dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def as_refs(value) -> list[str]:
+    return [r for r in as_list(value) if isinstance(r, str)]
+
+
+def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict]] | None = None) -> str:
+    """The page. A failed verify still renders (with the Unverified banner), so every explainer
+    field is read through as_list/as_dict/as_refs and a wrong-shaped entry is skipped, never raised on."""
     pr = facts["pr"]
+    diff = diff or {}
+    expl = as_dict(expl)
     index = {x["id"]: x for key in ("resources", "non_manifest_changes", "terraform", "workflows")
              for x in facts.get(key) or []}
     index.update({c["id"]: c for c in (facts.get("jira") or {}).get("comments") or [] if c.get("id")})
@@ -233,14 +423,15 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
         url = ref_url(item) if item else None
         return f'<a href="{esc(url)}">{esc(text)}</a>' if url else (esc(text) if item else f"<code>{esc(text)}</code>")
 
-    def ref_html(rid: str) -> str:
+    def ref_html(rid) -> str:
+        rid = rid if isinstance(rid, str) else str(rid)
         item = index.get(rid)
         return ref_link(item, "".join(ref_groups.segments(item, rid)))
 
     def refs(ids: list[str]) -> str:
         """One line per group; refs that differ in one place render as prefix{a, b, c}suffix."""
         out = []
-        for pos, members in ref_groups.group([ref_groups.entry(index.get(r), r) for r in ids]):
+        for pos, members in ref_groups.group([ref_groups.entry(index.get(r), r) for r in as_refs(ids)]):
             if pos is None:
                 out.append(f'<span class="ref">{ref_html(members[0][0])}</span>')
                 continue
@@ -275,7 +466,7 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
                  + "".join(rows) + "</tbody></table></div>")
 
     ticket_html = ""
-    jira, ticket = facts.get("jira"), expl.get("ticket") or {}
+    jira, ticket = facts.get("jira"), as_dict(expl.get("ticket"))
     if jira:
         key = esc(jira["key"])
         link = f'<a href="{esc(jira["url"])}">{key}</a>' if jira.get("url") else key
@@ -287,34 +478,76 @@ def render(facts: dict, expl: dict, errors: list[str]) -> str:
         criteria = "".join(f'<tr><td>{esc(mask(c.get("text", "")))}</td>'
                            f'<td><span class="pill">{esc(STATUS_LABEL.get(c.get("status"), c.get("status", "")))}</span></td>'
                            f'<td>{esc(mask(c.get("reason", "")))}</td><td>{refs(c.get("refs", []))}</td></tr>'
-                           for c in ticket.get("criteria", []))
+                           for c in as_dicts(ticket.get("criteria")))
         ticket_html = ('<h2>Ticket</h2><div class="card">'
                        f'<div class="meta">{meta}</div><p><strong>{esc(mask(jira.get("summary") or ""))}</strong></p>'
-                       + (f'<p>{esc(mask(ticket["intent"]))}</p>' if ticket.get("intent") else "")
+                       + (f'<p>{esc(mask(ticket["intent"]))}</p>' if isinstance(ticket.get("intent"), str) else "")
                        + ('<div class="scroll"><table><thead><tr><th>Ticket asks for</th><th>Status</th><th>Why</th><th>Refs</th>'
                           f'</tr></thead><tbody>{criteria}</tbody></table></div>' if criteria else "")
                        + "</div>")
+    must_refs = {m.get("ref") for m in as_dicts(expl.get("must_read"))}
+    steps = []
+    for step in as_list(expl.get("reading_order")):
+        rid = step.get("ref") if isinstance(step, dict) else step
+        rid = rid if isinstance(rid, str) else str(rid)
+        note = f' — {esc(mask(step.get("note", "")))}' if isinstance(step, dict) and step.get("note") else ""
+        item = index.get(rid) or {}
+        hunks = hunks_for(item, diff, next_item_start(item, index)) if item else []
+        if hunks:
+            # Must-read hunks start open; the rest fold so a long PR still skims.
+            secret = str(item.get("kind", "")).endswith("Secret") or any(
+                str(r.get("kind", "")).endswith("Secret") for r in facts.get("resources") or [] if r.get("file") == item.get("file"))
+            steps.append(f'<li><details{" open" if rid in must_refs else ""}><summary>{ref_html(rid)}{note}</summary>'
+                         f'{hunk_html(hunks, secret)}</details></li>')
+        else:
+            paths = item.get("changed_paths") or []
+            where = (f'<p class="meta">Changed: {", ".join(f"<code>{esc(x)}</code>" for x in paths)}</p>' if paths
+                     else '<p class="meta">No hunk in the diff for this item.</p>' if item else "")
+            steps.append(f"<li>{ref_html(rid)}{note}{where}</li>")
+
+    quiz = []
+    for q in as_dicts(expl.get("quiz")):
+        opts = "".join(
+            f'<button type="button" class="opt" data-correct="{1 if o.get("correct") is True else 0}" '
+            f'data-why="{esc(mask(o.get("explanation", "")))}">{esc(mask(o.get("text", "")))}</button>'
+            for o in as_dicts(q.get("options")))
+        quiz.append(f'<li class="q"><p>{esc(mask(q.get("question", "")))}</p><div class="opts">{opts}</div>'
+                    f'<div class="why" hidden></div><p class="meta">{refs(q.get("refs", []))}</p></li>')
+
+    scenario = as_dict(expl.get("scenario"))
+    scenario_html = (
+        f'<div class="card"><p><strong>Trigger:</strong> {esc(mask(scenario.get("trigger", "")))}</p>'
+        '<div class="scroll"><table><thead><tr><th>Before this PR</th><th>After this PR</th></tr></thead>'
+        f'<tbody><tr><td>{esc(mask(scenario.get("before", "")))}</td><td>{esc(mask(scenario.get("after", "")))}</td></tr>'
+        f'</tbody></table></div><p class="meta">{refs(scenario.get("refs", []))}</p></div>'
+        if scenario else '<div class="card"><p class="meta">No scenario was written.</p></div>')
+
     subs = {
         "TITLE": esc(f"PR {pr['number']} explainer"),
         "PR_TITLE": esc(pr["title"]),
         "HEADER": header,
         "BANNER": banner,
         "TLDR": esc(mask(expl.get("tldr", ""))),
+        "BACKGROUND": "".join(f'<p>{esc(mask(b.get("text", "")))} <span class="meta">{refs(b.get("refs", []))}</span></p>'
+                              for b in as_dicts(expl.get("background")))
+                      or '<p class="meta">No background was written.</p>',
+        "SCENARIO": scenario_html,
         "TICKET": ticket_html,
         "PLANS": plans,
         "MERMAID": esc(mermaid(facts)),
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'
                             f'<td>{esc(mask(b.get("after", "")))}</td><td>{refs(b.get("refs", []))}</td></tr>'
-                            for b in expl.get("behavior_changes", [])),
+                            for b in as_dicts(expl.get("behavior_changes"))),
         "CALLOUTS": "".join(f'<li class="{SEVERITY_CLASS.get(c.get("severity"), "sev-info")}">'
                             f'<span class="sev">{esc(mask(c.get("severity", "info")))}</span> {esc(mask(c.get("text", "")))} '
-                            f'{refs(c.get("refs", []))}</li>' for c in expl.get("callouts", [])),
+                            f'{refs(c.get("refs", []))}</li>' for c in as_dicts(expl.get("callouts"))),
         "MUST_READ": "".join(f'<li>{ref_html(m.get("ref", ""))} — {esc(mask(m.get("why", "")))}</li>'
-                             for m in expl.get("must_read", []))
+                             for m in as_dicts(expl.get("must_read")))
                      + "".join(f'<li>+{esc(h["more"])} more matching {esc(mask(h.get("rule", "")))} — see the PR\'s Files view</li>'
                                for h in facts.get("policy_hits", []) if h.get("more")),
-        "ORDER": "".join(f"<li>{ref_html(r)}</li>" for r in expl.get("reading_order", [])),
-        "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in expl.get("not_covered", []))
+        "WALKTHROUGH": "".join(steps) or '<li class="meta">No reading order was written.</li>',
+        "QUIZ": "".join(quiz) or '<li class="meta">No quiz was written.</li>',
+        "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in as_list(expl.get("not_covered")))
                        or "<li>Nothing: every changed app was rendered.</li>",
     }
     page = (Path(__file__).resolve().parent.parent / "assets" / "template.html").read_text()
@@ -329,10 +562,12 @@ def main() -> int:
     ap.add_argument("--explainer", required=True)
     ap.add_argument("--errors", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--diff", help="the PR's unified diff (collect.py's diff.patch), for inline walkthrough hunks")
     ap.add_argument("--standalone", action="store_true")
     args = ap.parse_args()
     facts = json.loads(Path(args.facts).read_text())
     expl = json.loads(Path(args.explainer).read_text())
+    diff = parse_diff(Path(args.diff).read_text()) if args.diff and Path(args.diff).is_file() else {}
     errors = []
     if args.errors:
         try:
@@ -341,7 +576,7 @@ def main() -> int:
                 raise ValueError("not a list")
         except Exception:
             errors = ["verify did not complete (errors file missing or invalid)"]
-    page = render(facts, expl, errors)
+    page = render(facts, expl, errors, diff)
     Path(args.out).write_text(STANDALONE_HEAD + page + STANDALONE_TAIL if args.standalone else page)
     print(f"render: wrote {args.out}")
     return 0

@@ -313,13 +313,18 @@ The graph includes every changed resource plus unchanged neighbours one hop away
 The model reads `facts.json` plus diff excerpts for the referenced hunks, and writes **text only**, keyed by fact IDs:
 ```json
 {"tldr": "...",
+ "background": [{"text": "...", "refs": ["r7"]}],
+ "scenario": {"trigger": "...", "before": "...", "after": "...", "refs": ["r1"]},
  "behavior_changes": [{"app": "...", "before": "...", "after": "...", "refs": ["r1"]}],
  "callouts": [{"severity": "high|medium|info", "text": "...", "refs": ["r3"]}],
  "must_read": [{"ref": "r3", "why": "..."}],
- "reading_order": ["r5", "r3", "r1", "f1"],
- "not_covered": ["..."]}
+ "reading_order": [{"ref": "r5", "note": "..."}, {"ref": "r3", "note": "..."}],
+ "not_covered": ["..."],
+ "quiz": [{"question": "...", "options": [{"text": "...", "correct": true, "explanation": "..."}], "refs": ["r1"]}]}
 ```
-Reading order follows the dependency order CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. The model may deviate only with a stated reason.
+Reading order follows the dependency order CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. The model may deviate only with a stated reason. Each step carries a one- or two-sentence note, so the section reads as a literate diff.
+
+**Added 2026-10-15, after Geoffrey Litt's "Understanding is the new bottleneck":** `background` (1–3 paragraphs on what was already there, each citing context resources, the app entry or the ticket), `scenario` (one concrete trigger walked before and after the change), and `quiz` (3–5 multiple-choice questions with exactly one correct option and an explanation per option, each citing the facts that answer it). The quiz is the bar for approving; every field still cites facts, so the page cannot teach more than it can vouch for.
 
 ### 6.4 Verify (deterministic, `verify.py`)
 The page fails verification if any of these hold:
@@ -327,6 +332,10 @@ The page fails verification if any of these hold:
 - a `policy_hits[].ref` is missing from `must_read`
 - an app with `render != rendered` is missing from `not_covered`
 - `tldr` is empty
+- `background` is missing, empty, longer than 3 paragraphs, or a paragraph cites nothing
+- `scenario` is missing or any of `trigger`, `before`, `after` or `refs` is empty
+- a `reading_order` step object has an empty `note`
+- `quiz` has fewer than 3 or more than 5 questions, a question has fewer than 2 or more than 4 options, not exactly one option is `correct`, an option has no explanation, or a question cites nothing
 
 **On failure:** the model gets the error list and fixes the JSON **once**. If it fails again, the page is published with a visible "Unverified" banner listing the problems.
 
@@ -336,12 +345,18 @@ The page fails verification if any of these hold:
 **Page sections, in order**
 1. Header: PR title, head SHA, triage label.
 2. TL;DR.
-3. Mermaid resource map: added resources green, modified amber, removed red, context grey.
-4. Before → after table.
-5. Risk callouts.
-6. Must-read hunks, each linking to `https://github.com/<repo>/pull/<n>/files#diff-<sha256(path)>R<line>`.
-7. Reading order.
-8. Not covered.
+3. Background.
+4. What happens, before and after (the scenario).
+5. Ticket (when one was found).
+6. Mermaid resource map: added resources green, modified amber, removed red, context grey.
+7. Before → after table.
+8. Risk callouts.
+9. Must-read hunks, each linking to `https://github.com/<repo>/pull/<n>/files#diff-<sha256(path)>R<line>`.
+10. Walkthrough in reading order: each step's note with its hunk inline from `diff.patch` (`render.py --diff`), masked and capped at 60 lines, open for must-read items and folded otherwise. An item whose file is not in the diff (rendered from a chart or plan) lists its `changed_paths`.
+11. Not covered.
+12. Check your understanding: the quiz. Clicking an option reveals the explanation and, once every question is answered, the score. Inline JS only, no network.
+
+Every `h2` carries a Comment button, hidden until the Artifact host grants the `comments` capability (`composer_only`); it opens the claude.ai composer on that section.
 
 **Page safety and conventions**
 - Every text field is HTML-escaped.
@@ -351,8 +366,8 @@ The page fails verification if any of these hold:
 
 **Publish**
 1. SKILL.md tells the model to load `artifact-design`, which the Artifact tool requires.
-2. On first run it publishes with the Artifact tool, `icon: diagram`.
-3. On a re-run it reads the URL from the existing `<!-- pr-explainer url=… -->` comment, runs Artifact `read`, then publishes with `url` so the same link updates.
+2. On first run it publishes with the Artifact tool, `icon: diagram`, and `capabilities: {"comments": {"composer_only": true}}`.
+3. On a re-run it reads the URL from the existing `<!-- pr-explainer url=… -->` comment, runs Artifact `read`, then publishes with `url` and the same `capabilities` so the same link updates.
 4. If the Artifact tool is unavailable, it writes `pr-<n>.html` locally and `open`s it.
 
 **Sticky PR comment:** `<!-- pr-explainer url=<artifact-url> sha=<head> -->` followed by `📖 Explainer for <short-sha>: <link> (private link)`.

@@ -7,12 +7,25 @@ multi-source Helm apps with `$values` files; the same app in several environment
 Then it publishes a private page with:
 
 - a TL;DR
+- the background: what was already there, for a reader who has not opened the app in months
+- one concrete scenario (a request, a restart, a push) walked before and after the change
 - a resource map built by a script, never drawn by the model
 - a before→after table
 - risk callouts from `.github/review-policy.yaml`
 - the hunks you must still read
+- a walkthrough in dependency order, one note per item with its hunk inline (must-read hunks
+  start open; items rendered from a chart or plan list their changed paths instead)
+- a quiz of 3–5 multiple-choice questions, each answerable from the page and cited to facts; the
+  bar for approving is passing it
 
-It also posts the page link as a sticky PR comment.
+It also posts the page link as a sticky PR comment. Every section has a Comment button that opens
+the claude.ai composer on that section, so questions land next to what they are about; threads are
+posted and shown by claude.ai, never by the page.
+
+The shape follows Geoffrey Litt's "Understanding is the new bottleneck": background first,
+intuition before details, a literate diff instead of files in alphabetical order, and a quiz as the
+speed regulator. Unlike his `/explain-diff`, every sentence here cites a fact the scripts
+collected, and `verify.py` rejects a page that cites nothing.
 
 Run it from anywhere. Inside a checkout of the PR's repo, `/pr-explainer <PR>` uses that checkout
 and its `.github/review-policy.yaml`. Anywhere else, pass the repo (`/pr-explainer <PR> --repo

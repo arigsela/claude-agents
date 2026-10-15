@@ -1,7 +1,7 @@
 ---
 name: pr-explainer
-description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, before→after table, risk callouts, and the hunks a human must still read. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
-version: "0.3.0"
+description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, the background a reader needs, one concrete scenario walked before and after, a before→after table, risk callouts, the hunks a human must still read, a literate walkthrough with those hunks inline, and a quiz to pass before approving. The page takes comments next to each section. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
+version: "0.4.0"
 model: claude-opus-5-5
 author:
   name: "Arisela"
@@ -37,15 +37,19 @@ current directory is not that repo, ask for `owner/name` instead of guessing.
    This also covers every `facts.json` field derived from PR or comment text: `triage.why`,
    `render_note`, file names, `diff.patch`, and the Jira ticket in `jira` (summary, description,
    comments).
+3. **Never copy secret values** into any output. `verify.py` rejects secret-looking strings, and
+   `render.py` masks secret-looking values in the page.
+4. **Orientation, not proof.** Every policy hit must appear in `must_read`, and anything the page
+   cannot vouch for goes in `not_covered`.
 5. **Opus 5.5 writes the prose.** The `model: claude-opus-5-5` frontmatter pins this skill's turn,
    but managed settings can block that override without saying so. If you are not
    `claude-opus-5-5`, do not write `explainer.json` yourself: run step 2 in an Agent with
    `model: "opus"`, give it `<W>`, this file's path and the ground rules, and wait for it.
    `verify.py` fails any `narrator_model` other than `claude-opus-5-5`.
-3. **Never copy secret values** into any output. `verify.py` rejects secret-looking strings, and
-   `render.py` masks secret-looking values in the page.
-4. **Orientation, not proof.** Every policy hit must appear in `must_read`, and anything the page
-   cannot vouch for goes in `not_covered`.
+6. **Teach, then test.** The page is read by someone who will approve or change this system next
+   week, not only by someone checking it today. Background says what was already there; the
+   scenario and walkthrough say what changes in operator terms; the quiz is the bar for approving.
+   Every one of them cites facts, so none of them can say more than the page can vouch for.
 
 ## Workflow
 
@@ -92,24 +96,30 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
 
    ```json
    {"tldr": "...",
+    "background": [{"text": "...", "refs": ["r7", "r9"]}],
+    "scenario": {"trigger": "...", "before": "...", "after": "...", "refs": ["r1"]},
     "behavior_changes": [{"app": "...", "before": "...", "after": "...", "refs": ["r1"]}],
     "callouts": [{"severity": "high|medium|info", "text": "...", "refs": ["r3"]}],
     "must_read": [{"ref": "r3", "why": "..."}],
-    "reading_order": ["r5", "r3", "r1", "f1"],
+    "reading_order": [{"ref": "r5", "note": "..."}, {"ref": "r3", "note": "..."}, {"ref": "f1", "note": "..."}],
     "not_covered": ["..."],
     "ticket": {"intent": "...", "criteria": [{"text": "...", "status": "covered|respected|out_of_band|not_covered|unclear", "reason": "...", "refs": ["t2", "j3"]}]},
+    "quiz": [{"question": "...", "options": [{"text": "...", "correct": false, "explanation": "..."}, {"text": "...", "correct": true, "explanation": "..."}], "refs": ["r1"]}],
     "narrator_model": "claude-opus-5-5"}
    ```
 
    | Field | What to write |
    |---|---|
    | `tldr` | 2–3 plain sentences: what changes, for which app, and the operator-visible effect. No code. |
+   | `background` | 1–3 short paragraphs on what was already there, written for someone who has not opened this app in months: what the app does, where it runs (clusters, namespaces, environments), and what talks to it. Use the grey context resources, the `apps[]` entries, the Application spec and the ticket; cite them. Nothing about the change itself. For a chart bump, say what the chart deploys and which values this repo sets. Never explore the repo beyond `facts.json` and the cited hunks. |
+   | `scenario` | One concrete trigger with example data, walked before and after the change: a request to a named host, a pod restart, a cert renewal, a push to `main`, a cron tick. `trigger` names it; `before` and `after` trace what happens in operator terms, each 2–4 sentences; `refs` cite every resource the trace passes through. Pick the trigger that best shows the operator-visible effect in `tldr`. |
    | `behavior_changes` | One row per app whose behaviour changes, in operator terms. For example: "startup probe gives up after 1 s" → "after 5 s". `refs` are resource IDs: `r*` for Kubernetes resources, `t*` for Terraform/OpenTofu resources, `w*` for GitHub Actions entries (one row per workflow file; a removed `workflow_call` input or output breaks every caller that still passes or reads it). A `t*` with `source: plan-comment` carries a plan action (create, update, replace, destroy, read); one with `source: source-diff` carries a source-level action (added, modified, removed) from comparing blocks at base and head, so never describe it as a plan result. A plan-comment `t*` lists the action per environment in `environments`; name the environments when they differ. Take counts from `terraform_plans[].totals`, never from the number of `t*` entries: a `plan-truncated` note means the map is partial. Resources with a `scope` are the same app deployed per environment directory; describe the change once and name the environments. Cite one representative per pattern: the page groups refs that differ in one place (`argo/{nonprod, prod}/...`), and `verify.py` fails a row with more than 6 groups. |
    | `callouts` | `high` for every `policy_hits` entry. `medium` for resources with a `risk`. `info` for anything else worth knowing. Always add `refs`; a callout may also cite a ticket comment (`j*`). Judge a file by what changed in it, not by which file it is: a sync-policy edit on an NLB Application is not a change to Layer 4 traffic. |
    | `must_read` | Every `policy_hits[].ref` (required; `verify.py` enforces it), plus non-manifest files that change behaviour, such as scripts. `why` says exactly what to check. |
-   | `reading_order` | IDs in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. Terraform `t*` resources go in dependency order from `edges` (a resource after the ones it references). GitHub Actions `w*` go settings → triggers → inputs/outputs/secrets → jobs, jobs in run order from `needs` edges (a job after the ones it needs). If you deviate, explain why in an `info` callout. |
+   | `reading_order` | One `{"ref", "note"}` step per item, in dependency order: CRDs → RBAC/identity → config/secrets → workloads → routing → everything else. Terraform `t*` resources go in dependency order from `edges` (a resource after the ones it references). GitHub Actions `w*` go settings → triggers → inputs/outputs/secrets → jobs, jobs in run order from `needs` edges (a job after the ones it needs). If you deviate, explain why in an `info` callout. `note` is one or two sentences that make the step a literate walkthrough: why this item comes now, what the hunk does, and what to look for. The page shows the item's hunk inline under the note (or its changed paths when the item was rendered from a chart or plan), so the note explains, it does not repeat the hunk. |
    | `not_covered` | Every app whose `render` is not `rendered`, named, with its `render_note`. Every `notes[]` entry, using its `key` word. Anything summarized only from a raw diff. The `policy` note when no review policy was found. |
    | `ticket` | Required when `facts.jira` is set; omit it when `jira` is null. `intent`: one or two sentences on what the ticket asks for and why. `criteria`: each acceptance criterion or concrete ask from the description, with a `status`: `covered` (the diff delivers it; cite the `r*`/`t*`/`w*`/`f*` IDs), `respected` (a scope limit or constraint, such as "Layer 4 stays out of scope", that the diff does not break), `out_of_band` (done outside this PR, for example by a script; cite the ticket comment `j*` that records it), `not_covered` (nobody has done it), or `unclear` (the evidence is ambiguous). Every status except `covered` needs a one-line `reason`. Ticket comments that change scope count. Flag in a `medium` callout anything the PR changes that the ticket does not ask for. |
+   | `quiz` | 3–5 multiple-choice questions, 2–4 options each, exactly one `correct`, every option with a one-sentence `explanation` of why it is right or wrong. Medium difficulty: answerable only by someone who understood the sections above, never a gotcha, never about file names or IDs. Ask about operator-visible consequences ("a pod takes 3 s to start after this merges; what happens?"), scope ("which environments change?"), and what the ticket asked for versus what the PR does. Every question cites the facts that answer it in `refs`. Vary the position of the correct option. |
    | `narrator_model` | Your exact model ID. It must be `claude-opus-5-5` (ground rule 5). |
 
 3. **Verify**
@@ -126,10 +136,12 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    page is published.
 
    ```
-   uv run --script <base>/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --out <W>/pr-<N>.html
+   uv run --script <base>/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch --out <W>/pr-<N>.html
    ```
 
    By default this writes an Artifact page fragment; Artifacts render Mermaid natively.
+   `--diff` lets the walkthrough show each step's hunk inline (masked, capped at 60 lines); without
+   it the steps link to the PR instead.
    `render.py` masks secret-looking values. `--errors` is required; a missing or invalid file
    counts as a failed verify and the page shows the "Unverified" banner, so always pass the file
    from step 3. If `render.py` fails, show its error and stop. Do not hand-write a page.
@@ -147,15 +159,20 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
       `post_comment.py` only accepts `https://claude.ai/` URLs, and only reads or edits the
       authenticated user's own marker comment.
 
-   3. If it prints a URL, call Artifact `read` on it, then Artifact publish with that `url` and
-      `file_path=<W>/pr-<N>.html`, so the same link updates. If the `read` fails, or the publish
-      with that `url` fails (deleted artifact, no access), publish as a new Artifact (step 5.4)
-      instead of stopping.
-   4. Otherwise, call Artifact publish with `file_path=<W>/pr-<N>.html`, `icon: "diagram"` and
-      `description: "Explainer for <R>#<N>"`.
-   5. If the Artifact tool is unavailable, re-run step 4's render command with `--standalone` and the same `--errors <W>/errors.json` (adds a doctype and
-      the Mermaid script for local viewing), `open` the file, tell the user where it is, and skip
-      step 6.
+   3. If it prints a URL, call Artifact `read` on it, then Artifact publish with that `url`,
+      `file_path=<W>/pr-<N>.html` and the `capabilities` below, so the same link updates. If the
+      `read` fails, or the publish with that `url` fails (deleted artifact, no access), publish as
+      a new Artifact (step 5.4) instead of stopping.
+   4. Otherwise, call Artifact publish with `file_path=<W>/pr-<N>.html`, `icon: "diagram"`,
+      `description: "Explainer for <R>#<N>"` and the `capabilities` below.
+   5. Every publish passes `capabilities: {"comments": {"composer_only": true}}`. That lets the
+      page's "Comment" buttons open the claude.ai composer on a section; the shell posts and shows
+      every thread, the page writes nothing itself, and no consent prompt is shown. Read a thread
+      with the `ArtifactComments` tool when the user asks what reviewers said.
+   6. If the Artifact tool is unavailable, re-run step 4's render command with `--standalone` and
+      the same `--errors` and `--diff` (adds a doctype and the Mermaid script for local viewing),
+      `open` the file, tell the user where it is, and skip step 6. The comment buttons stay hidden
+      outside the Artifact host; the quiz works everywhere.
 
 6. **Comment**
 
@@ -166,5 +183,5 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    Use the URL returned by the final publish (new or updated), never the old one if they differ.
 
 7. **Report.** Send one short message: the link, the triage label (if any), the number of
-   changed resources and must-read items, the ticket key and the count per criterion status,
-   and everything in `not_covered`.
+   changed resources, must-read items and quiz questions, the ticket key and the count per
+   criterion status, and everything in `not_covered`. Say that the quiz is the bar for approving.
