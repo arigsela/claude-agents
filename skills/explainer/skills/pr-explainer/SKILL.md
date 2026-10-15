@@ -1,7 +1,7 @@
 ---
 name: pr-explainer
 description: Explain a Kubernetes GitOps pull request without reading code. Renders the changed Argo CD apps at base and head, maps changed Terraform/OpenTofu resources (from per-environment iac-pr-plan or Atlantis plan comments, or a base/head block comparison when there is none), maps changed GitHub Actions workflows (jobs wired by needs, workflow_call inputs/outputs/secrets, triggers, permissions), reads the linked IFS or DX Jira ticket through acli, builds a deterministic resource map, and publishes a private HTML page with a TL;DR, the background a reader needs, one concrete scenario walked before and after, a before→after table, risk callouts, the hunks a human must still read, a literate walkthrough with those hunks inline, and a quiz to pass before approving. The page takes comments next to each section. Use for "explain PR 650", "visualize this PR", "what does this PR change", or when a pr-triage comment suggests /pr-explainer.
-version: "0.4.0"
+version: "1.0.0"
 model: claude-opus-5-5
 author:
   name: "Arisela"
@@ -53,8 +53,9 @@ current directory is not that repo, ask for `owner/name` instead of guessing.
 
 ## Workflow
 
-The scripts live in `scripts/` next to this file (this skill's base directory, `<base>` below).
-Use a work directory `<W>`: this session's scratchpad if the system prompt lists one, otherwise
+The scripts live in the plugin's `scripts/` directory, shared with the service and ticket
+explainers; `${CLAUDE_PLUGIN_ROOT}` is substituted with the installed plugin path when this file
+loads. Use a work directory `<W>`: this session's scratchpad if the system prompt lists one, otherwise
 `$(mktemp -d)`. Create `<W>` once and reuse its literal path in every later command (shell state
 does not persist between calls).
 
@@ -66,7 +67,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
 1. **Collect**
 
    ```
-   uv run --script <base>/scripts/collect.py --pr <N> [--repo <R>] --out <W>
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/collect_pr.py --pr <N> [--repo <R>] --out <W>
    ```
 
    On a non-zero exit, show the error and stop. `facts.json` records the repo as `pr.repo` and
@@ -125,7 +126,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
 3. **Verify**
 
    ```
-   uv run --script <base>/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --facts <W>/facts.json --explainer <W>/explainer.json --errors-out <W>/errors.json
    ```
 
    - Exit 0: continue.
@@ -136,7 +137,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    page is published.
 
    ```
-   uv run --script <base>/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch --out <W>/pr-<N>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch --out <W>/pr-<N>.html
    ```
 
    By default this writes an Artifact page fragment; Artifacts render Mermaid natively.
@@ -153,7 +154,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    2. Look for an earlier page:
 
       ```
-      uv run --script <base>/scripts/post_comment.py --repo <R> --pr <N> --get-url
+      uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --get-url
       ```
 
       `post_comment.py` only accepts `https://claude.ai/` URLs, and only reads or edits the
@@ -177,7 +178,7 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
 6. **Comment**
 
    ```
-   uv run --script <base>/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha>
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha>
    ```
 
    Use the URL returned by the final publish (new or updated), never the old one if they differ.

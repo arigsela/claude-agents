@@ -1,4 +1,4 @@
-# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/pr_explainer
+# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/explainer
 """GitHub Actions facts in pr-explainer's collect.py, render.py and ref_groups.py."""
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/pr-explainer/skills/pr-explainer/scripts"))
-import collect  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/explainer/scripts"))
+import facts_lib as collect  # noqa: E402
 import ref_groups  # noqa: E402
 import render  # noqa: E402
 

@@ -1,4 +1,4 @@
-# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/pr_explainer
+# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/explainer
 """Ticket key detection in pr-explainer's collect.py."""
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/pr-explainer/skills/pr-explainer/scripts"))
-import collect  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/explainer/scripts"))
+import facts_lib as collect  # noqa: E402
 
 
 def pr(branch: str = "main", title: str = "", body: str = "") -> dict:

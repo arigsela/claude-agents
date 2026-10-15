@@ -1,4 +1,4 @@
-# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/pr_explainer
+# Run: uv run --with pyyaml --with "pathspec<1" python -m unittest discover -s tests/explainer
 """verify.py and render.py for the background, scenario, walkthrough and quiz sections."""
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/pr-explainer/skills/pr-explainer/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/explainer/scripts"))
+import collect_pr  # noqa: E402
+import facts_lib  # noqa: E402
 import render  # noqa: E402
 import verify  # noqa: E402
 
@@ -78,6 +80,33 @@ def bad(**changes) -> dict:
     expl = copy.deepcopy(GOOD)
     expl.update(changes)
     return expl
+
+
+class LayoutTest(unittest.TestCase):
+    """PR 1 of the explainer plugin: shared scripts, thin collect_pr main, template per mode."""
+
+    def test_collect_pr_is_a_thin_main_over_facts_lib(self):
+        self.assertIs(collect_pr.collect, facts_lib.collect)
+        self.assertTrue(callable(collect_pr.main))
+        self.assertFalse(hasattr(facts_lib, "main"))
+
+    def test_template_is_chosen_by_mode(self):
+        self.assertEqual(render.template_path("pr").name, "template-pr.html")
+        self.assertTrue(render.template_path("pr").is_file())
+        self.assertEqual(render.template_path("system").name, "template-system.html")
+
+    def test_collect_marks_pr_mode(self):
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            base, head = Path(tmp) / "base", Path(tmp) / "head"
+            base.mkdir(); head.mkdir()
+            trees = SimpleNamespace(base=base, head=head, dir=Path(tmp), merge_base="0" * 40, local=None)
+            pr = {"number": 1, "title": "t", "html_url": "https://github.com/o/r/pull/1", "body": "",
+                  "base": {"sha": "0" * 40}, "head": {"sha": "1" * 40, "ref": "feature/x"}}
+            facts = facts_lib.collect("o/r", pr, [], [], trees)
+        self.assertEqual(facts["mode"], "pr")
+        self.assertEqual(facts["pr"]["number"], 1)
 
 
 class VerifyTest(unittest.TestCase):

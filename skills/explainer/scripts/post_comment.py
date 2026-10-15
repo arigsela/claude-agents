@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""pr-explainer: read (--get-url) or upsert the sticky explainer comment on a PR."""
+"""explainer: read (--get-url) or upsert the sticky explainer comment on a PR."""
 from __future__ import annotations
 
 import argparse

@@ -12,36 +12,6 @@
         "ref": "skills/architecture-diagrams"
       }
     },
-    "code-review": {
-      "name": "code-review",
-      "version": "1.0.0",
-      "path": "./code-review",
-      "installedAt": "2026-01-19T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/code-review"
-      }
-    },
-    "feature-builder": {
-      "name": "feature-builder",
-      "version": "1.0.0",
-      "path": "./feature-builder",
-      "installedAt": "2026-01-19T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/feature-builder"
-      }
-    },
-    "prompt-engineering-patterns": {
-      "name": "prompt-engineering-patterns",
-      "version": "1.0.0",
-      "path": "./prompt-engineering-patterns",
-      "installedAt": "2026-01-19T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/prompt-engineering-patterns"
-      }
-    },
     "aws-well-architected": {
       "name": "aws-well-architected",
       "version": "1.0.0",
@@ -50,16 +20,6 @@
       "source": {
         "type": "local",
         "ref": "skills/aws-well-architected"
-      }
-    },
-    "devops-architect": {
-      "name": "devops-architect",
-      "version": "1.0.0",
-      "path": "./devops-architect",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/devops-architect"
       }
     },
     "cloud-design-patterns": {
@@ -72,24 +32,14 @@
         "ref": "skills/cloud-design-patterns"
       }
     },
-    "platform-engineering-architect": {
-      "name": "platform-engineering-architect",
+    "code-review": {
+      "name": "code-review",
       "version": "1.0.0",
-      "path": "./platform-engineering-architect",
-      "installedAt": "2026-02-09T00:00:00Z",
+      "path": "./code-review",
+      "installedAt": "2026-01-19T00:00:00Z",
       "source": {
         "type": "local",
-        "ref": "skills/platform-engineering-architect"
-      }
-    },
-    "git-commit-pr": {
-      "name": "git-commit-pr",
-      "version": "1.0.0",
-      "path": "./git-commit-pr",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/git-commit-pr"
+        "ref": "skills/code-review"
       }
     },
     "creating-implementation-plans": {
@@ -100,36 +50,6 @@
       "source": {
         "type": "local",
         "ref": "skills/creating-implementation-plans"
-      }
-    },
-    "executing-implementation-plans": {
-      "name": "executing-implementation-plans",
-      "version": "1.0.0",
-      "path": "./executing-implementation-plans",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/executing-implementation-plans"
-      }
-    },
-    "olympus-customer-deletion": {
-      "name": "olympus-customer-deletion",
-      "version": "1.0.0",
-      "path": "./olympus-customer-deletion",
-      "installedAt": "2026-02-18T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/olympus-customer-deletion"
-      }
-    },
-    "crewai-tool-development": {
-      "name": "crewai-tool-development",
-      "version": "1.0.0",
-      "path": "./crewai-tool-development",
-      "installedAt": "2026-02-26T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/crewai-tool-development"
       }
     },
     "crewai-agent-design": {
@@ -152,16 +72,6 @@
         "ref": "skills/crewai-crew-orchestration"
       }
     },
-    "crewai-testing-observability": {
-      "name": "crewai-testing-observability",
-      "version": "1.0.0",
-      "path": "./crewai-testing-observability",
-      "installedAt": "2026-02-26T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/crewai-testing-observability"
-      }
-    },
     "crewai-memory-knowledge": {
       "name": "crewai-memory-knowledge",
       "version": "1.0.0",
@@ -172,14 +82,104 @@
         "ref": "skills/crewai-memory-knowledge"
       }
     },
-    "pr-explainer": {
-      "name": "pr-explainer",
-      "version": "0.5.0",
-      "path": "./pr-explainer",
+    "crewai-testing-observability": {
+      "name": "crewai-testing-observability",
+      "version": "1.0.0",
+      "path": "./crewai-testing-observability",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-testing-observability"
+      }
+    },
+    "crewai-tool-development": {
+      "name": "crewai-tool-development",
+      "version": "1.0.0",
+      "path": "./crewai-tool-development",
+      "installedAt": "2026-02-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/crewai-tool-development"
+      }
+    },
+    "devops-architect": {
+      "name": "devops-architect",
+      "version": "1.0.0",
+      "path": "./devops-architect",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/devops-architect"
+      }
+    },
+    "executing-implementation-plans": {
+      "name": "executing-implementation-plans",
+      "version": "1.0.0",
+      "path": "./executing-implementation-plans",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/executing-implementation-plans"
+      }
+    },
+    "explainer": {
+      "name": "explainer",
+      "version": "1.0.0",
+      "path": "./explainer",
       "installedAt": "2026-09-30T00:00:00Z",
       "source": {
         "type": "local",
-        "ref": "skills/pr-explainer"
+        "ref": "skills/explainer"
+      }
+    },
+    "feature-builder": {
+      "name": "feature-builder",
+      "version": "1.0.0",
+      "path": "./feature-builder",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/feature-builder"
+      }
+    },
+    "git-commit-pr": {
+      "name": "git-commit-pr",
+      "version": "1.0.0",
+      "path": "./git-commit-pr",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/git-commit-pr"
+      }
+    },
+    "olympus-customer-deletion": {
+      "name": "olympus-customer-deletion",
+      "version": "1.0.0",
+      "path": "./olympus-customer-deletion",
+      "installedAt": "2026-02-18T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/olympus-customer-deletion"
+      }
+    },
+    "platform-engineering-architect": {
+      "name": "platform-engineering-architect",
+      "version": "1.0.0",
+      "path": "./platform-engineering-architect",
+      "installedAt": "2026-02-09T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/platform-engineering-architect"
+      }
+    },
+    "prompt-engineering-patterns": {
+      "name": "prompt-engineering-patterns",
+      "version": "1.0.0",
+      "path": "./prompt-engineering-patterns",
+      "installedAt": "2026-01-19T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/prompt-engineering-patterns"
       }
     },
     "review-retro": {

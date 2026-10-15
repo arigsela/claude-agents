@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""pr-explainer: render facts.json + explainer.json into one HTML page (spec §6.5).
+"""explainer: render facts.json + explainer.json into one HTML page (spec §6.5).
 
 The Mermaid graph comes only from facts.json; every text field is HTML-escaped.
 Default output is an Artifact page fragment (the Artifact host renders <pre class="mermaid">
@@ -380,6 +380,11 @@ def mermaid(facts: dict) -> str:
     return "\n".join(lines)
 
 
+def template_path(mode: str) -> Path:
+    """assets/template-<mode>.html at the plugin root; pr and system pages differ in their sections."""
+    return Path(__file__).resolve().parent.parent / "assets" / f"template-{mode}.html"
+
+
 def as_list(value) -> list:
     return value if isinstance(value, list) else []
 
@@ -550,7 +555,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "NOT_COVERED": "".join(f"<li>{esc(mask(n))}</li>" for n in as_list(expl.get("not_covered")))
                        or "<li>Nothing: every changed app was rendered.</li>",
     }
-    page = (Path(__file__).resolve().parent.parent / "assets" / "template.html").read_text()
+    page = template_path(facts.get("mode") or "pr").read_text()
     for key, value in subs.items():
         page = page.replace("{{" + key + "}}", value)
     return page
