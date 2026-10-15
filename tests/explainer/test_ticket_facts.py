@@ -90,7 +90,8 @@ class TicketFactsTest(SystemFactsBase):
              mock.patch.object(facts_lib, "related_prs", return_value=([], [{"key": "related_prs", "text": "gh failed"}])):
             facts = facts_lib.collect_system("o/r", t, ["grafana"], [], "IFS-9", False)
         self.assertIsNone(facts["jira"])
-        self.assertEqual({n["key"] for n in facts["notes"]}, {"jira", "related_prs", "policy"})
+        # Ticket mode searches the service name like a term, so the search method note joins them.
+        self.assertEqual({n["key"] for n in facts["notes"]}, {"jira", "related_prs", "policy", "search"})
 
 
 class RelatedPrsTest(unittest.TestCase):

@@ -51,6 +51,10 @@ class PlanTermsTest(unittest.TestCase):
         self.assertEqual(facts_lib.plan_terms(docs, "chghealthcare/edp-terraform"),
                          ["github-deploy-tf", "bidw-aws-lambda", "PublicInternetOnly", "chghealthcare/bidw"])
 
+    def test_placeholder_keeps_the_longest_piece(self):
+        docs = [{"text": "`terraform-state-us-west-2-{env}-bidw` and `{env}`"}]
+        self.assertEqual(facts_lib.plan_terms(docs, "o/r"), ["terraform-state-us-west-2"])
+
     def test_dedupes_case_insensitively(self):
         docs = [{"text": "`VpcOnly` then `vpconly` then `VpcOnly`"}]
         self.assertEqual(facts_lib.plan_terms(docs, "o/r"), ["VpcOnly"])

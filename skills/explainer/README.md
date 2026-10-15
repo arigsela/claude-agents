@@ -130,6 +130,15 @@ in `ticket.pr`.
 Without `acli` the run continues with a `jira` note and no card; with no service named anywhere,
 it continues with no apps and a `match` note.
 
+For greenfield tickets (no Application yet), ticket mode searches the identifiers the ticket
+quotes in backticks across Terraform blocks, workflows and tracked text files, as plan mode does,
+so asks cite the repo's existing backends, providers and tags, and a `new` status covers what the
+repo has nothing for yet. `jira.doc_links` lists the Confluence pages the ticket and its parent
+epic link to (the Jira site's own host only); the skill reads them through the Atlassian
+connector and passes them as `--doc`, and the page links each doc that carries a
+`<!-- source: URL -->` first line. Any system page can carry a short `primer` on the technology,
+labelled as general background not checked against facts.
+
 ## plan-explainer
 
 `/plan-explainer <file> --repo R` explains a plan (a project one-pager, a design doc,

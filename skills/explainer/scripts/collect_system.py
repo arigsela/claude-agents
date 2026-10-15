@@ -66,10 +66,14 @@ def main() -> int:
           f"{len(facts['terraform'])} terraform blocks, {len(facts['workflows'])} workflow entries, "
           f"{len(facts['docs'])} docs, ticket: {(facts['jira'] or {}).get('key') or 'none'}, "
           f"unrendered apps: {unrendered or 'none'}")
-    if facts["mode"] == "plan":
+    if "term_hits" in facts["query"]:
         hits = facts["query"]["term_hits"]
-        print(f"collect: {len(hits)} plan terms, {sum(1 for v in hits.values() if v)} found in the repo, "
+        print(f"collect: {len(hits)} {facts['mode']} terms, {sum(1 for v in hits.values() if v)} found in the repo, "
               f"missing: {[t for t, v in hits.items() if not v] or 'none'}")
+    links = (facts.get("jira") or {}).get("doc_links") or []
+    read = {d.get("url") for d in facts["docs"]}
+    if [u for u in links if u not in read]:
+        print(f"collect: Confluence pages the ticket or its epic link to, not yet read: {[u for u in links if u not in read]}")
     print(f"collect: wrote {out / 'facts.json'}")
     return 0
 

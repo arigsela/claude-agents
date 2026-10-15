@@ -45,7 +45,7 @@ Run it from anywhere. Inside a checkout of the GitOps repo, `--repo` is optional
 for `owner/name` instead of guessing. `--ref` defaults to the repo's default branch.
 
 **Docs.** When the user gives a Confluence link, read it in this session with the Atlassian
-connector (`getConfluencePage`) and write its body as Markdown to `<W>/docs/<slug>.md`. When the
+connector (`getConfluencePage`) and write its body as Markdown to `<W>/docs/<slug>.md`. Start the file with the line `<!-- source: <page URL> -->` so the page links back to it. When the
 user pastes requirements, write them to `<W>/docs/requirements.md`. Pass each file with `--doc`.
 The scripts never talk to Confluence themselves.
 
@@ -123,6 +123,7 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    | Field | What to write |
    |---|---|
    | `tldr` | 2–3 plain sentences: what the service is, where it runs, and what reaches it. No code. |
+   | `primer` | Optional, 2-4 sentences, at most 700 characters: `{"topic": "Amazon SageMaker", "text": "..."}`, what the technology is and how it is generally used, for a reader who has never touched it. No `refs`: the page labels it as general background not checked against facts, so it must say nothing about this repo, ticket or plan. Write it when the subject is a technology the reader may not know (a new AWS service, an operator); skip it for a well-known one. With `--infographic`, the first slide draws it. |
    | `background` | 1–3 short paragraphs for someone who has not opened this app in months: what it does, which namespace and environments, what talks to it and what it talks to. Cite resources, config rows or docs. Never explore the repo beyond `facts.json`. |
    | `components` | One row per matched app (`verify.py` enforces one per `apps[].app`): `role` in one or two sentences from its workloads, routes and config keys; `refs` to the resources that show it. |
    | `how_it_works` | 2–3 scenarios, each a concrete trigger with example data and the path it takes in operator terms: a request from outside (route → service → workload, with the real host from `summary.hosts`), a deploy (workflow job → image → Application sync), and a scheduled or event-driven job when there is one. `refs` cite the resources the path passes through, in order, at most 6 (`verify.py` caps a row at 6 ref groups): name the hops that matter and leave out mounts and bindings the walkthrough already covers. |

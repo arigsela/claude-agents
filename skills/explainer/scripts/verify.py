@@ -18,10 +18,13 @@ NARRATOR_MODEL = "claude-opus-5-5"
 # covered: the diff delivers it. respected: a scope limit or constraint the diff does not break.
 # out_of_band: done outside this PR, cited from a ticket comment (j*). not_covered / unclear: neither.
 TICKET_STATUSES = {"covered", "respected", "out_of_band", "not_covered", "unclear"}
-# Ticket mode, before a PR exists: would_change (cite what it touches), already_true, out_of_scope, unclear.
-TICKET_SYSTEM_STATUSES = {"would_change", "already_true", "out_of_scope", "unclear"}
-# Plan mode adds new: the plan builds something the repo has nothing for yet (cite the plan).
-PLAN_STATUSES = TICKET_SYSTEM_STATUSES | {"new"}
+# Ticket and plan modes, before a PR exists: would_change (cite what it touches), already_true,
+# new (the repo has nothing for it yet; cite the ticket or the plan), out_of_scope, unclear.
+TICKET_SYSTEM_STATUSES = {"would_change", "already_true", "new", "out_of_scope", "unclear"}
+PLAN_STATUSES = TICKET_SYSTEM_STATUSES
+# The primer is general background on the technology, the one section not checked against facts,
+# so it stays short enough that it cannot carry claims about this repo.
+MAX_PRIMER_CHARS = 700
 # Refs that differ in one place render as one group; more groups than this per row means the
 # narrator is listing evidence instead of pointing at it.
 MAX_REF_GROUPS = 6
@@ -205,6 +208,8 @@ def verify(facts: dict, expl: dict) -> list[str]:
             errors.append(f"ticket.criteria[{i}] is covered but cites no change from the PR")
         if status == "would_change" and not any(r in ids for r in refs):
             errors.append(f"ticket.criteria[{i}] would change but cites no resource, config row, block or workflow it would touch")
+        if mode == "ticket" and status == "new" and not any(r in comments or str(r).startswith("d") and r in ids for r in refs):
+            errors.append(f"ticket.criteria[{i}] is new but cites neither the ticket nor a doc")
         if status == "out_of_band" and not any(r in comments for r in refs):
             errors.append(f"ticket.criteria[{i}] is out_of_band but cites no ticket comment (j*)")
         if status != cited_status and not text(item.get("reason")):
@@ -223,6 +228,16 @@ def verify(facts: dict, expl: dict) -> list[str]:
         errors.append(f"explainer has a plan section but facts.mode is {mode!r}")
     if system:
         errors += verify_system(facts, expl, ids, comments, check_groups)
+    primer = expl.get("primer")
+    if primer is not None:
+        if not system:
+            errors.append("primer is only for service, ticket and plan pages")
+        elif not isinstance(primer, dict) or not text(primer.get("topic")) or not text(primer.get("text")):
+            errors.append("primer must be an object with a topic and text")
+        elif len(text(primer.get("text"))) > MAX_PRIMER_CHARS:
+            errors.append(f"primer.text is {len(text(primer.get('text')))} characters (max {MAX_PRIMER_CHARS}); keep it to 2-4 sentences")
+        elif "refs" in primer:
+            errors.append("primer takes no refs: it is general background, labelled as not checked against facts")
     if any(SECRET_VALUE_RE.search(s) for s in strings(expl)):
         errors.append("explainer text contains a secret-looking value")
     return errors

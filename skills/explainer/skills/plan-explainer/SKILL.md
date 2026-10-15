@@ -46,7 +46,7 @@ nothing.
 
 **The plan.** A local file: copy it to `<W>/docs/<slug>.md`. A Confluence link: read it in this
 session with the Atlassian connector (`getConfluencePage`) and write its body as Markdown to
-`<W>/docs/<slug>.md`. Pasted text: write it to `<W>/docs/plan.md`. The first `--doc` is the plan;
+`<W>/docs/<slug>.md`, starting with the line `<!-- source: <page URL> -->` so the page links back to it. Pasted text: write it to `<W>/docs/plan.md`. The first `--doc` is the plan;
 more `--doc` files (requirements, a design page) are context. The scripts never talk to
 Confluence themselves.
 
@@ -129,6 +129,7 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    | Field | What to write |
    |---|---|
    | `tldr` | 2–3 plain sentences: what the plan builds, in which repo, and the one existing thing it most depends on or must not break. |
+   | `primer` | Optional, 2-4 sentences, at most 700 characters: `{"topic": "Amazon SageMaker", "text": "..."}`, what the technology is and how it is generally used, for a reader who has never touched it. No `refs`: the page labels it as general background not checked against facts, so it must say nothing about this repo, ticket or plan. Write it when the subject is a technology the reader may not know (a new AWS service, an operator); skip it for a well-known one. With `--infographic`, the first slide draws it. |
    | `background` | 1–3 short paragraphs on what the repo has today that the plan touches: the deploy path, the roles, the state layout, the modules nearby. Cite `t*`, `w*`, `f*`. Never explore the repo beyond `facts.json`. |
    | `plan.steps` | One row per step the plan takes (its major steps, scope items or guardrails, in the plan's order), in the plan's terms. `would_change`: the repo has it and the plan edits it; cite what it edits. `already_true`: the repo already does it; cite where. `new`: the repo has nothing for it; cite `d1`. `out_of_scope`: the plan says it leaves this alone; cite `d1` and what it leaves. `unclear`: the facts cannot tell. Every status but `would_change` needs a `reason`. At most 6 ref groups per row. |
    | `components`, `where_it_runs`, `config_that_matters` | `[]` unless `--service` matched apps; then as in the service explainer, one component per app and one row per environment. |

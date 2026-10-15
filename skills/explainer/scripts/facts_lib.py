@@ -1000,7 +1000,9 @@ def adf_text(node, limit: int) -> str:
             elif isinstance(n, dict):
                 kind = n.get("type")
                 if kind == "text":
-                    out.append(n.get("text", ""))
+                    # Keep inline code as backticks: plan and ticket term search reads them.
+                    code = any(isinstance(m, dict) and m.get("type") == "code" for m in n.get("marks") or [])
+                    out.append(f"`{n.get('text', '')}`" if code else n.get("text", ""))
                 elif kind == "hardBreak":
                     out.append("\n")
                 elif kind == "listItem":
@@ -1012,6 +1014,36 @@ def adf_text(node, limit: int) -> str:
         text = "".join(out)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text if len(text) <= limit else text[:limit].rstrip() + " [...]"
+
+
+def adf_links(node) -> list[str]:
+    """Every URL a Jira ADF document links to: link marks, and inline, block and embed cards."""
+    out: list[str] = []
+
+    def walk(n) -> None:
+        if isinstance(n, list):
+            for child in n:
+                walk(child)
+        elif isinstance(n, dict):
+            if n.get("type") in ("inlineCard", "blockCard", "embedCard") and (n.get("attrs") or {}).get("url"):
+                out.append(n["attrs"]["url"])
+            for mark in n.get("marks") or []:
+                if isinstance(mark, dict) and mark.get("type") == "link" and (mark.get("attrs") or {}).get("href"):
+                    out.append(mark["attrs"]["href"])
+            walk(n.get("content", []))
+    walk(node)
+    return out
+
+
+def confluence_links(urls: list[str], site: str | None) -> list[str]:
+    """The Confluence pages among `urls`, on the Jira site's own host only: ticket text is
+    untrusted, so a link to any other host is never offered for reading."""
+    out: list[str] = []
+    for url in urls:
+        m = re.match(r"^https://([^/]+)(/wiki/[^\s#?]*)", url)
+        if m and site and m.group(1).lower() == site.lower() and url not in out:
+            out.append(url)
+    return out
 
 
 def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
@@ -1046,6 +1078,14 @@ def jira_facts_for_key(key: str, source: str = "argument") -> tuple[dict | None,
     parent = f.get("parent") or None
     comments = ((f.get("comment") or {}).get("comments") or [])[-JIRA_MAX_COMMENTS:]
     url = f"https://{site.group(1)}/browse/{key}" if site else None
+    links = adf_links(f.get("description")) + [u for c in comments for u in adf_links(c.get("body"))]
+    if parent and parent.get("key"):
+        # A story's one-pager and outline usually hang off its epic, not the story itself.
+        try:
+            pdata = json.loads(sh("acli", "jira", "workitem", "view", parent["key"], "--json", "--fields", "description"))
+            links += adf_links((pdata.get("fields") or {}).get("description"))
+        except (RuntimeError, json.JSONDecodeError):
+            pass
     # j* ids let the explainer cite a comment as evidence for work done outside the PR.
     comments_out = [{"id": f"j{i}", "author": (c.get("author") or {}).get("displayName"),
                      "created": (c.get("created") or "")[:10],
@@ -1056,6 +1096,7 @@ def jira_facts_for_key(key: str, source: str = "argument") -> tuple[dict | None,
             "type": (f.get("issuetype") or {}).get("name"),
             "parent": {"key": parent.get("key"), "summary": (parent.get("fields") or {}).get("summary")} if parent else None,
             "description": adf_text(f.get("description") or "", JIRA_DESCRIPTION_CHARS),
+            "doc_links": confluence_links(links, site.group(1) if site else None),
             "comments": comments_out}, []
 
 
@@ -1394,6 +1435,9 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
         except OSError as e:
             notes.append({"key": "docs", "text": f"{p} could not be read ({type(e).__name__}), so it is not on the page."})
             continue
+        # The skill writes a Confluence page it read with a first-line `<!-- source: URL -->`,
+        # so the page can link back to it; the tag strip below would drop the comment.
+        src = re.match(r"\A<!--\s*source:\s*(https://\S+?)\s*-->", raw)
         text = re.sub(r"<[^>]+>", "", raw)
         text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
         # Obsidian and Jekyll notes open with YAML frontmatter; the title is the first line after it.
@@ -1401,6 +1445,7 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
         title = next((line.lstrip("# ").strip() for line in body.splitlines() if line.strip()), "") or Path(p).stem
         title = SECRET_VALUE_RE.sub(r"\1[REDACTED]", title)  # a title reaches the page as a ref label
         docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
+                     "url": src.group(1) if src else None,
                      "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
     return docs, notes
 
@@ -1534,15 +1579,18 @@ PLAN_TERM_OK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*[A-Za-z0-9]$")
 
 
 def plan_terms(docs: list[dict], repo: str) -> list[str]:
-    """The identifiers a plan names in backticks, in order of first use: `{env}`-style placeholders
-    and a leading @ dropped, versions, globs, prose with spaces and the repo's own name skipped.
+    """The identifiers a plan names in backticks, in order of first use: a leading @ dropped and a
+    `{env}`-style placeholder reduced to the longest literal piece around it, versions, globs, prose with spaces and the repo's own name skipped.
     A term must carry a digit, one of - _ . / : or an inner capital, so code-quoted English words
     (`data`, `pip`) do not match half the repo. Deterministic; the model never picks the terms."""
     own = repo.rsplit("/", 1)[-1].lower()
     out: list[str] = []
     for d in docs:
         for m in PLAN_TERM_RE.finditer(d.get("text") or ""):
-            term = re.sub(r"\{[^}]*\}", "", m.group(1).strip()).lstrip("@").strip("-_./:")
+            # A placeholder splits the term: `terraform-state-{region}-{env}-bidw` searches its
+            # longest literal piece, since the joined remainder would never occur in a file.
+            pieces = [x.strip("-_./:") for x in re.split(r"\{[^}]*\}", m.group(1).strip().lstrip("@"))]
+            term = max(pieces, key=len)
             if (len(term) < 3 or not PLAN_TERM_OK_RE.match(term) or PLAN_VERSION_RE.match(term)
                     or term.lower() == own or term.lower() in (t.lower() for t in out)):
                 continue
@@ -1697,40 +1745,47 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     config = config_facts(trees, matched, repo)
     doc_out, notes = doc_facts(docs)
     search, hits = names, {}
-    if plan:
-        search = list(dict.fromkeys(names + plan_terms(doc_out, repo) + list(terms or [])))
+    # Plan and ticket pages search the identifiers their text quotes in backticks, so greenfield
+    # work with no Application still gets the repo's backends, providers and tags as facts.
+    by_terms = plan or bool(ticket_key)
+    if by_terms:
+        quoted = doc_out + ([{"text": f"{jira.get('summary') or ''}\n{jira.get('description') or ''}"}] if jira else [])
+        search = list(dict.fromkeys(names + plan_terms(quoted, repo) + list(terms or [])))
     tf, tf_edges = terraform_mentions(trees.head, search) if search else ([], [])
     wf, wf_edges = workflow_mentions(trees.head, search) if search else ([], [])
     notes = ticket_notes + notes
     files: list[dict] = []
-    if plan:
+    source = "plan" if plan else "ticket"
+    if plan and not doc_out:
+        notes.append({"key": "plan", "text": "No plan document could be read, so the page has nothing to map."})
+    if by_terms and search:
         files, file_notes = file_mentions(trees.head, search, {w["workflow"] for w in wf})
         notes += file_notes
         hits = term_hits(trees.head, search, tf, wf, files)
-        notes.append({"key": "plan", "text": "The plan's terms were matched as case-insensitive substrings in resource and "
-                                             "data blocks, workflows and tracked text files at this ref. A hit means the "
-                                             "repo names the term, not that what the plan proposes is already there; "
-                                             "other repos the plan names were not read."
-                                             if doc_out else "No plan document could be read, so the page has nothing to map."})
+        notes.append({"key": "plan" if plan else "search",
+                      "text": f"The {source}'s terms were matched as case-insensitive substrings in resource and data "
+                              "blocks, workflows and tracked text files at this ref. A hit means the repo names the "
+                              f"term, not that what the {source} asks for is already there; other repos the {source} "
+                              "names were not read."})
         missing = [t for t, ids in hits.items() if not ids]
         if missing:
-            notes.append({"key": "terms", "text": "These plan terms name nothing in this repo's Terraform, workflows or files "
-                                                  f"at this ref: {', '.join(missing)}. Each is something the plan "
+            notes.append({"key": "terms", "text": f"These {source} terms name nothing in this repo's Terraform, workflows or files "
+                                                  f"at this ref: {', '.join(missing)}. Each is something the {source} "
                                                   "adds, or lives in another repo."})
     if wf:
-        notes.append({"key": "actions", "text": f"GitHub Actions entries are the workflows that name the {'plan terms' if plan else 'service'} at this "
+        notes.append({"key": "actions", "text": f"GitHub Actions entries are the workflows that name the {source + ' terms' if by_terms else 'service'} at this "
                                                 "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
                                                 "composite actions and callers in other repositories are not resolved."})
     if tf:
         notes.append({"key": "terraform", "text": "Terraform blocks are the resource and data blocks whose address or "
-                                                  f"body names the {'plan terms' if plan else 'service'} at this ref; no plan was run, so counts, "
+                                                  f"body names the {source + ' terms' if by_terms else 'service'} at this ref; no plan was run, so counts, "
                                                   "for_each instances and module internals are not resolved."})
     if not policy:
         notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
     return {
         "mode": "plan" if plan else "ticket" if ticket_key else "service", "pr": None, "triage": None,
         "query": {"service": names, "matched_by": matched_by, "inferred": inferred, "ref": trees.ref, "sha": trees.sha, "repo": repo,
-                  **({"terms": search, "term_hits": hits} if plan else {})},
+                  **({"terms": search, "term_hits": hits} if by_terms else {})},
         "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
         "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": files,
         "docs": doc_out, "related_prs": prs, "jira": jira, "policy_hits": [], "notes": notes,
