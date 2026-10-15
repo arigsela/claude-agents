@@ -4,8 +4,7 @@ One plugin, three skills that share one facts pipeline:
 
 - `/pr-explainer <PR>` explains a GitOps PR (below).
 - `/service-explainer <name>` explains a service under discovery (below).
-- `/ticket-explainer <KEY>` explains a ticket's system and asks; planned in
-  `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md`, next release.
+- `/ticket-explainer <KEY>` explains a ticket's system and maps its asks onto it (below).
 
 Layout: `scripts/` (shared: `facts_lib.py`, `collect_pr.py`, `verify.py`, `render.py`,
 `ref_groups.py`, `post_comment.py`), `assets/` (one page template per mode), `skills/<name>/SKILL.md`.
@@ -110,3 +109,22 @@ posted; pass `--url` to update an earlier page.
 The page is a private Artifact under your claude.ai account and holds the repo's view of the
 service (hostnames, namespaces, images, config keys). Whether that is acceptable for your
 company's material is your call; `--standalone` writes a local file instead.
+
+## ticket-explainer
+
+`/ticket-explainer IFS-314` explains the system a ticket is about before the change exists.
+`collect_system.py --ticket` reads the ticket through `acli`, lists the PRs that name the key
+(`gh pr list --search`), and infers the service deterministically: the longest Application name
+(or manifest directory name) found in the ticket summary, description, or the related PRs' branch
+names and titles. `--service` overrides the inference. Then it collects everything the service
+explainer collects for that service.
+
+The page adds a Ticket card to the service page: the intent, each ask with a status
+(`would_change` with the resources it would touch, `already_true`, `out_of_scope`, `unclear`,
+each with a reason), and links to related PRs. When an open PR names the ticket, the report
+suggests `/pr-explainer <n>` for the change itself. `verify.py` requires the card in ticket mode,
+a resource cited for every `would_change`, a reason for every other status, and the open PR named
+in `ticket.pr`.
+
+Without `acli` the run continues with a `jira` note and no card; with no service named anywhere,
+it continues with no apps and a `match` note.
