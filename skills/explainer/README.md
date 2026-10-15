@@ -153,11 +153,13 @@ that changes two repos takes two runs. `--service` also renders matching Applica
 
 ## Infographic slides (opt-in)
 
-`--infographic` on the service, ticket or plan explainer asks Codex for up to three slides of the
+`--infographic` on any of the four explainers asks Codex for up to three slides of the
 verified page with the `tech-infographics` skill, and `render.py --infographic <png>` inlines the
 ones Claude checked against the brief in an "At a glance" section, labelled as an illustration,
 not a fact source. `infographic.py` builds `brief.md` from `explainer.json` only (masked; no
 `facts.json`, no repo), runs `codex exec -s workspace-write --ephemeral`, and stops it after 15
 minutes. It is off by default and does nothing with `--standalone`, because the brief leaves the
 machine for OpenAI. Without `codex` on PATH or the skill in `~/.agents/skills/` or
-`~/.codex/skills/`, it exits 2 and the page renders without slides.
+`~/.codex/skills/`, it exits 2 and the page renders without slides. On a PR page the brief holds
+the TL;DR, the before and after, the changes per app and the medium and high risks; the slides
+appear on the claude.ai page only, not in the sticky PR comment.

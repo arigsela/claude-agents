@@ -23,7 +23,12 @@ page from rendered manifests, so a one-line chart bump shows the resources it ac
 ```
 /pr-explainer 650
 /pr-explainer 650 --repo arigsela/kubernetes
+/pr-explainer 650 --infographic
 ```
+
+`--infographic` (opt-in, off by default) adds Codex-drawn slides of the verified page, as in the
+service explainer. It sends the page's text to OpenAI, so only the user turns it on, per run. The
+slides appear on the claude.ai page only, not in the PR comment.
 
 Run it from anywhere. Inside a checkout of the PR's repo, `--repo` is optional and the local
 checkout is used. Anywhere else, `--repo` is required; if the user gave only a PR number and the
@@ -61,7 +66,7 @@ does not persist between calls).
 
 Placeholders: `<R>` is the `--repo` argument if given, otherwise `pr.repo` from `<W>/facts.json`.
 `<N>` is the PR number. `<head_sha>` is `pr.head_sha` from `facts.json`. `<artifact-url>` is the
-URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 always pass
+URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 always pass
 `--repo <R>` to `post_comment.py`.
 
 1. **Collect**
@@ -133,11 +138,16 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    - Exit 1: fix `explainer.json` **once** using the listed errors, then run it again.
    - Still failing: continue anyway. The page will show an "Unverified" banner.
 
-4. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
+4. **Infographic (only with `--infographic`).** Exactly as service-explainer step 4: without the
+   flag, skip it; with it, `infographic.py` asks Codex for slides of the verified page (the brief
+   holds the TL;DR, the before and after, the changes per app and the medium and high risks), and
+   you keep only the slides that match `<W>/infographic/brief.md`.
+
+5. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch --out <W>/pr-<N>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --diff <W>/diff.patch [--infographic <png>]... --out <W>/pr-<N>.html
    ```
 
    By default this writes an Artifact page fragment; Artifacts render Mermaid natively.
@@ -147,10 +157,10 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    counts as a failed verify and the page shows the "Unverified" banner, so always pass the file
    from step 3. If `render.py` fails, show its error and stop. Do not hand-write a page.
 
-5. **Publish**
+6. **Publish**
    1. Publish `<W>/pr-<N>.html` exactly as `render.py` wrote it. Never edit, redesign or merge it
       by hand. An update replaces the whole page with the new render. (`artifact-design` was
-      already loaded in step 4.)
+      already loaded in step 5.)
    2. Look for an earlier page:
 
       ```
@@ -163,19 +173,19 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
    3. If it prints a URL, call Artifact `read` on it, then Artifact publish with that `url`,
       `file_path=<W>/pr-<N>.html` and the `capabilities` below, so the same link updates. If the
       `read` fails, or the publish with that `url` fails (deleted artifact, no access), publish as
-      a new Artifact (step 5.4) instead of stopping.
+      a new Artifact (step 6.4) instead of stopping.
    4. Otherwise, call Artifact publish with `file_path=<W>/pr-<N>.html`, `icon: "diagram"`,
       `description: "Explainer for <R>#<N>"` and the `capabilities` below.
    5. Every publish passes `capabilities: {"comments": {"composer_only": true}}`. That lets the
       page's "Comment" buttons open the claude.ai composer on a section; the shell posts and shows
       every thread, the page writes nothing itself, and no consent prompt is shown. Read a thread
       with the `ArtifactComments` tool when the user asks what reviewers said.
-   6. If the Artifact tool is unavailable, re-run step 4's render command with `--standalone` and
+   6. If the Artifact tool is unavailable, re-run step 5's render command with `--standalone` and
       the same `--errors` and `--diff` (adds a doctype and the Mermaid script for local viewing),
-      `open` the file, tell the user where it is, and skip step 6. The comment buttons stay hidden
+      `open` the file, tell the user where it is, and skip step 7. The comment buttons stay hidden
       outside the Artifact host; the quiz works everywhere.
 
-6. **Comment**
+7. **Comment**
 
    ```
    uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/post_comment.py --repo <R> --pr <N> --url <artifact-url> --sha <head_sha>
@@ -183,6 +193,6 @@ URL returned by the LAST successful Artifact publish in step 5. Steps 5 and 6 al
 
    Use the URL returned by the final publish (new or updated), never the old one if they differ.
 
-7. **Report.** Send one short message: the link, the triage label (if any), the number of
+8. **Report.** Send one short message: the link, the triage label (if any), the number of
    changed resources, must-read items and quiz questions, the ticket key and the count per
    criterion status, and everything in `not_covered`. Say that the quiz is the bar for approving.

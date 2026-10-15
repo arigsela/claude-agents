@@ -706,7 +706,7 @@ def render(facts: dict, expl: dict, errors: list[str], diff: dict[str, list[dict
         "SCENARIO": scenario_html,
         "TICKET": ticket_html,
         "PLAN": plan_html,
-        "INFOGRAPHIC": infographic_html(infographic or []) if system else "",
+        "INFOGRAPHIC": infographic_html(infographic or []),
         "PLANS": plans,
         "MERMAID": esc(mermaid(facts)),
         "BEHAVIOR": "".join(f'<tr><td>{esc(mask(b.get("app", "")))}</td><td>{esc(mask(b.get("before", "")))}</td>'

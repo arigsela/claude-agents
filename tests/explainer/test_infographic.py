@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/explainer/s
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import infographic  # noqa: E402
 import render  # noqa: E402
+from test_explainer_page import FACTS as PR_FACTS, GOOD as GOOD_PR  # noqa: E402
 from test_plan_mode import GOOD_PLAN, PLAN_FACTS  # noqa: E402
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
@@ -35,6 +36,14 @@ class BriefTest(unittest.TestCase):
         self.assertIn("Who approves prod applies?", text)
         self.assertIn("At most 3 landscape 16:9 slides", text)
         self.assertNotIn("terraform/cicd/iam.tf", text)  # refs and facts stay out
+
+    def test_pr_brief_has_before_after_and_changes(self):
+        text = infographic.brief(PR_FACTS, GOOD_PR, 3)
+        self.assertIn("# PR #7: chore: bump grafana (in o/r)", text)
+        self.assertIn("- Before: killed after 1 s", text)
+        self.assertIn("- After: has 5 s", text)
+        self.assertIn("- grafana: 1 s -> 5 s", text)
+        self.assertIn("then how it works (or before and after).", text)
 
     def test_brief_masks_secret_looking_values(self):
         expl = {**GOOD_PLAN, "tldr": "password: hunter2hunter2"}
@@ -67,8 +76,9 @@ class RunTest(unittest.TestCase):
              mock.patch.object(infographic, "find_skill", return_value=None):
             self.assertEqual(self.run_main(), 2)
 
-    def test_skips_pr_pages(self):
-        self.assertEqual(self.run_main({**PLAN_FACTS, "mode": "pr"}), 2)
+    def test_pr_pages_are_not_skipped(self):
+        with mock.patch.object(infographic.shutil, "which", return_value=None):
+            self.assertEqual(self.run_main(PR_FACTS), 2)  # skipped only for the missing codex
 
     def test_fake_codex_writes_a_slide(self):
         codex = self.tmp / "codex"
@@ -112,8 +122,15 @@ class PageTest(unittest.TestCase):
             page = render.render(PLAN_FACTS, GOOD_PLAN, [], infographic=[str(bad), "/nope.png", str(self.png)])
         self.assertNotIn("At a glance", page)
 
-    def test_pr_pages_never_show_slides(self):
+    def test_pr_page_shows_slides_after_tldr(self):
+        page = render.render(PR_FACTS, GOOD_PR, [], infographic=[str(self.png)])
+        self.assertIn('src="data:image/png;base64,', page)
+        self.assertLess(page.index("At a glance"), page.index("Background"))
+        self.assertNotIn("{{", page)
+
+    def test_no_slides_no_section(self):
         self.assertEqual(render.infographic_html([]), "")
+        self.assertNotIn("At a glance", render.render(PR_FACTS, GOOD_PR, []))
 
 
 if __name__ == "__main__":
