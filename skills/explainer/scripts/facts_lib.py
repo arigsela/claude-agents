@@ -19,7 +19,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import difflib
 from collections import Counter
 from pathlib import Path
 
@@ -1227,4 +1229,81 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
         "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
         "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "workflows": wf,
         "jira": jira, "policy_hits": policy_hits, "notes": notes,
+    }
+
+
+# --- service and ticket modes (spec 2026-10-15 §4) -------------------------------------------
+
+MAX_MATCHED_APPS = 8
+
+
+def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], ticket_key: str | None,
+                   all_apps: bool) -> dict:
+    """Facts for a service (or a ticket's system) at one ref: the matched Applications in every
+    environment, their rendered resources as `focus`, generated Secrets, edges, and the shared keys
+    the PR collector fills, empty. Exits with a message when nothing matches or too much does."""
+    policy = read_policy(trees) or {}
+    callouts = policy.get("risk_callouts") or {}
+    found = find_applications(trees.head)
+    matched, matched_by = match_applications(found, names)
+    if names and not matched:
+        close = sorted({n for n, _, _ in found},
+                       key=lambda n: difflib.SequenceMatcher(None, n.lower(), names[0].lower()).ratio(), reverse=True)[:10]
+        sys.exit(f"collect: no Application matches {names}; closest names: {', '.join(close) or 'none'}")
+    if len(matched) > MAX_MATCHED_APPS and not all_apps:
+        sys.exit(f"collect: {len(matched)} Applications match {names}: {', '.join(sorted(matched))}. "
+                 "Narrow the name or pass --all.")
+    scoped = any(len(v) > 1 for v in matched.values())
+    apps_out, universe, owner, where = [], {}, {}, {}
+    for name in sorted(matched):
+        for _, afile, adoc in sorted(matched[name], key=lambda x: x[1]):
+            ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
+            scope = str(Path(afile).parent) if scoped else ""
+            entry = {"app": name, "application_file": afile, "scope": scope,
+                     "source_kind": "unknown", "render": "rendered", "render_note": ""}
+            k = res_key(adoc, "argo-cd", scope)  # the Application object itself is always a fact
+            universe[k], owner[k], where[k] = adoc, name, afile
+            try:
+                entry["source_kind"] = app_source_kind(trees.head, adoc)
+                hdocs, _, hnotes = render_app(trees.head, afile, adoc, trees.dir, repo)
+            except Exception as err:
+                entry["render"], entry["render_note"] = "source-diff", f"{type(err).__name__}: {err}"
+                apps_out.append(entry)
+                continue
+            entry["render_note"] = "; ".join(dict.fromkeys(hnotes))
+            for d, f in hdocs:
+                k = res_key(d, ns, scope)
+                universe[k], owner[k], where[k] = d, name, f
+            apps_out.append(entry)
+    generated: set[tuple] = set()
+    for k, d in list(universe.items()):
+        if k[0] == "ExternalSecret":
+            target = ((d.get("spec") or {}).get("target") or {}).get("name") or k[2]
+            sk = ("Secret", k[1], target, k[3])
+            if sk not in universe:
+                universe[sk] = {"kind": "Secret", "metadata": {"name": target, "namespace": k[1]}}
+                owner[sk] = owner.get(k)
+                generated.add(sk)
+    by_scope: dict[str, dict[tuple, dict]] = {}
+    for k, d in universe.items():
+        by_scope.setdefault(k[3], {})[k] = d
+    edges = [e for part in by_scope.values() for e in build_edges(part)]
+    order = sorted(universe, key=lambda k: (owner.get(k) or "", k[3], k))
+    ids, resources = {}, []
+    for i, k in enumerate(order, start=1):
+        ids[k] = f"r{i}"
+        file = where.get(k)
+        resources.append({"id": ids[k], "app": owner.get(k), "scope": k[3], "kind": k[0], "namespace": k[1], "name": k[2],
+                          "action": "generated" if k in generated else "focus", "changed_paths": [], "file": file,
+                          "lines": find_lines(trees.head, file, k[0], k[2]), "risk": callouts.get(k[0])})
+    edges_out = [{"from": ids[a], "to": ids[b], "type": t} for a, b, t in edges if a in ids and b in ids]
+    notes: list[dict] = []
+    if not policy:
+        notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
+    return {
+        "mode": "ticket" if ticket_key else "service", "pr": None, "triage": None,
+        "query": {"service": names, "matched_by": matched_by, "ref": trees.ref, "sha": trees.sha, "repo": repo},
+        "apps": apps_out, "resources": resources, "edges": edges_out,
+        "config": [], "terraform": [], "terraform_plans": [], "workflows": [], "non_manifest_changes": [],
+        "docs": [], "related_prs": [], "jira": None, "policy_hits": [], "notes": notes,
     }
