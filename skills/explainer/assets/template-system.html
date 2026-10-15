@@ -24,6 +24,7 @@
   .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
   .card p:first-child { margin-top:0; } .card p:last-child { margin-bottom:0; }
   .card + .card { margin-top:10px; }
+  .slides { display:grid; gap:12px; } .slides img { width:100%; height:auto; border-radius:6px; display:block; }
   .scroll { overflow-x:auto; }
   table { border-collapse:collapse; width:100%; font-size:.92rem; }
   th, td { border-bottom:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
@@ -70,8 +71,10 @@
   {{BANNER}}
   <h2>TL;DR <button type="button" class="ask" hidden>Comment</button></h2>
   <div class="card">{{TLDR}}</div>
+  {{INFOGRAPHIC}}
   <h2>Background <button type="button" class="ask" hidden>Comment</button></h2>
   <div class="card">{{BACKGROUND}}</div>
+  {{PLAN}}
   <h2>Components <button type="button" class="ask" hidden>Comment</button></h2>
   <div class="scroll"><table>
     <thead><tr><th>App</th><th>Role</th><th>Refs</th></tr></thead>

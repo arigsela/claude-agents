@@ -91,7 +91,7 @@ pr-triage/                    # GitHub composite action + Python package
 ├── action.yml
 ├── src/pr_triage/            # features, rules, jev, claude, decide, comment, calibrate
 └── calibration/              # calibration reports
-skills/explainer/             # /pr-explainer <PR>, /service-explainer, /ticket-explainer
+skills/explainer/             # /pr-explainer <PR>, /service-explainer, /ticket-explainer, /plan-explainer
 skills/review-retro/          # /review-retro <PR> | --since 14d
 ```
 

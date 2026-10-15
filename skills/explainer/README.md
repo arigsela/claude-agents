@@ -1,10 +1,11 @@
 # explainer
 
-One plugin, three skills that share one facts pipeline:
+One plugin, four skills that share one facts pipeline:
 
 - `/pr-explainer <PR>` explains a GitOps PR (below).
 - `/service-explainer <name>` explains a service under discovery (below).
 - `/ticket-explainer <KEY>` explains a ticket's system and maps its asks onto it (below).
+- `/plan-explainer <file> --repo R` explains where a plan (a one-pager) lands in a repo (below).
 
 Layout: `scripts/` (shared: `facts_lib.py`, `collect_pr.py`, `verify.py`, `render.py`,
 `ref_groups.py`, `post_comment.py`), `assets/` (one page template per mode), `skills/<name>/SKILL.md`.
@@ -128,3 +129,35 @@ in `ticket.pr`.
 
 Without `acli` the run continues with a `jira` note and no card; with no service named anywhere,
 it continues with no apps and a `match` note.
+
+## plan-explainer
+
+`/plan-explainer <file> --repo R` explains a plan (a project one-pager, a design doc,
+requirements) against the repo it changes, before any code exists. It needs no Argo CD
+Application, so it covers Terraform-only and greenfield work. `collect_system.py --plan` takes
+the plan as the first `--doc` and searches the repo at one ref for every identifier the plan
+quotes in backticks (placeholders such as `{env}` dropped; versions, globs, prose and plain
+English words skipped), plus any `--term`:
+
+- the Terraform resource/data blocks and the GitHub Actions workflows that name a term
+- the tracked text files that name a term (`f*`: locals, backends, a Justfile, CODEOWNERS,
+  READMEs), with the lines, capped at 40 files
+- `query.term_hits`: each term and the ids that name it; a term with no hit gets a `terms` note
+
+The page adds a Plan card after the background: each plan step with a status (`would_change`
+citing what it edits, `already_true` citing where, `new` citing the plan, `out_of_scope`,
+`unclear`) and the plan's terms, found or not in this repo. `verify.py` requires the card in plan
+mode, a repo fact for `would_change` and `already_true`, the plan doc for `new`, a reason for
+every status but `would_change`, and at least one open question. One run reads one repo; a plan
+that changes two repos takes two runs. `--service` also renders matching Applications.
+
+## Infographic slides (opt-in)
+
+`--infographic` on the service, ticket or plan explainer asks Codex for up to three slides of the
+verified page with the `tech-infographics` skill, and `render.py --infographic <png>` inlines the
+ones Claude checked against the brief in an "At a glance" section, labelled as an illustration,
+not a fact source. `infographic.py` builds `brief.md` from `explainer.json` only (masked; no
+`facts.json`, no repo), runs `codex exec -s workspace-write --ephemeral`, and stops it after 15
+minutes. It is off by default and does nothing with `--standalone`, because the brief leaves the
+machine for OpenAI. Without `codex` on PATH or the skill in `~/.agents/skills/` or
+`~/.codex/skills/`, it exits 2 and the page renders without slides.

@@ -28,11 +28,17 @@ request, a deploy and a job move through it, with every sentence cited to a coll
 /service-explainer grafana --doc <W>/docs/one-pager.md
 /service-explainer grafana --all
 /service-explainer grafana --standalone
+/service-explainer grafana --infographic
 ```
 
 `--standalone` keeps the page off claude.ai: the skill renders a local file, opens it and publishes
 nothing. Use it when the service's structure (hosts, namespaces, images) must not leave the
 machine.
+
+`--infographic` (opt-in, off by default) asks Codex to draw slides of the verified page with the
+`tech-infographics` skill and adds them to the page. It sends the page's text to OpenAI through
+Codex, so only the user turns it on, per run; never add it yourself. It does nothing with
+`--standalone`.
 
 Run it from anywhere. Inside a checkout of the GitOps repo, `--repo` is optional. Anywhere else,
 `--repo` is required; if the user gave only a name and the current directory is not that repo, ask
@@ -141,18 +147,35 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    - Exit 1: fix `explainer.json` **once** using the listed errors, then run it again.
    - Still failing: continue anyway. The page will show an "Unverified" banner.
 
-4. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
+4. **Infographic (only with `--infographic`).** Without the flag, or with `--standalone`, skip
+   this step. With it, run:
+
+   ```
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/infographic.py --facts <W>/facts.json --explainer <W>/explainer.json --out-dir <W>/infographic
+   ```
+
+   It writes `<W>/infographic/brief.md` from the verified explainer (secret-looking values
+   masked) and runs `codex exec` with the `tech-infographics` skill on that brief only; Codex never
+   sees `facts.json` or the repo.
+   - Exit 2: skipped (no `codex` on PATH, or no `tech-infographics` skill in
+     `~/.agents/skills/` or `~/.codex/skills/`). Say so in the report; continue.
+   - Exit 1: Codex made no slide or timed out (15 minutes). Say so in the report; continue.
+   - Exit 0: open every `<W>/infographic/slide-*.png` and compare it with `brief.md`. Drop a slide
+     that shows a name, box, number or arrow the brief does not, or misspells one. Pass each slide
+     you keep to step 5 as `--infographic <png>`.
+
+5. **Render.** First load the `artifact-design` skill; the Artifact tool requires it before a
    page is published.
 
    ```
-   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json --out <W>/service-<name>.html
+   uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --facts <W>/facts.json --explainer <W>/explainer.json --errors <W>/errors.json [--infographic <png>]... --out <W>/service-<name>.html
    ```
 
    `render.py` picks the system template from `facts.mode`, masks secret-looking values and draws
    this service's resources in blue. `--errors` is required; a missing or invalid file counts as a
    failed verify. If `render.py` fails, show its error and stop. Do not hand-write a page.
 
-5. **Publish**
+6. **Publish**
    1. Publish `<W>/service-<name>.html` exactly as `render.py` wrote it. Never edit, redesign or
       merge it by hand.
    2. If the user passed `--url <artifact-url>` (an earlier page for this service), call Artifact
@@ -163,11 +186,11 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    4. Every publish passes `capabilities: {"comments": {"composer_only": true}}`: the page's
       "Comment" buttons open the claude.ai composer on a section; the page writes nothing itself.
    5. If the user passed `--standalone`, or the Artifact tool is unavailable, do not publish:
-      re-run step 4 with `--standalone`, `open` the file and tell the user where it is.
+      re-run step 5 with `--standalone`, `open` the file and tell the user where it is.
 
    No GitHub or Jira comment is posted in service mode.
 
-6. **Report.** Send one short message: the link, the apps and environments found, the number of
+7. **Report.** Send one short message: the link, the apps and environments found, the number of
    resources, config rows, Terraform blocks and workflow entries, the open questions count, and
    everything in `not_covered`. Say the page holds the repo's view of the service and that the
    quiz is the bar for writing the one-pager.
