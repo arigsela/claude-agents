@@ -107,7 +107,7 @@ class RelatedPrsTest(unittest.TestCase):
         # by listing open PRs and filtering on headRefName.
         def fake_sh(*args, **kw):
             if "--search" in args:
-                return '[{"number": 7, "title": "t", "state": "OPEN", "url": "https://github.com/o/r/pull/7", "headRefName": "feature/IFS-9"}]'
+                return '[{"number": 7, "title": "t", "body": "", "state": "OPEN", "url": "https://github.com/o/r/pull/7", "headRefName": "feature/IFS-9"}]'
             return ('[{"number": 8, "title": "no key here", "state": "OPEN", "url": "https://github.com/o/r/pull/8", "headRefName": "fix/ifs-9-retry"},'
                     ' {"number": 9, "title": "other", "state": "OPEN", "url": "https://github.com/o/r/pull/9", "headRefName": "fix/IFS-90"},'
                     ' {"number": 7, "title": "t", "state": "OPEN", "url": "https://github.com/o/r/pull/7", "headRefName": "feature/IFS-9"}]')
@@ -115,6 +115,19 @@ class RelatedPrsTest(unittest.TestCase):
             prs, notes = facts_lib.related_prs("o/r", "IFS-9")
         self.assertEqual([p["number"] for p in prs], [7, 8])  # deduplicated; IFS-90 is not IFS-9
         self.assertEqual(notes, [])
+
+    def test_search_hits_that_do_not_name_the_key_are_dropped(self):
+        # gh's search tokenises loosely: "IFS-1" also returns PRs that merely contain "1". Keep a
+        # hit only when the key appears in its title, body or branch as a whole token.
+        def fake_sh(*args, **kw):
+            if "--search" in args:
+                return ('[{"number": 9, "title": "Fix/cni recovery", "body": "step 1 of 3", "state": "MERGED", "url": "u9", "headRefName": "fix/cni-recovery"},'
+                        ' {"number": 10, "title": "chore", "body": "Closes IFS-1.", "state": "MERGED", "url": "u10", "headRefName": "chore/x"},'
+                        ' {"number": 11, "title": "IFS-10 widen", "body": "", "state": "OPEN", "url": "u11", "headRefName": "x"}]')
+            return "[]"
+        with mock.patch.object(facts_lib, "sh", side_effect=fake_sh):
+            prs, _ = facts_lib.related_prs("o/r", "IFS-1")
+        self.assertEqual([p["number"] for p in prs], [10])
 
     def test_related_prs_failure_is_a_note(self):
         with mock.patch.object(facts_lib, "sh", side_effect=RuntimeError("gh: not logged in")):

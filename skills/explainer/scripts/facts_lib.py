@@ -1402,16 +1402,22 @@ def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
 
 
 def related_prs(repo: str, key: str) -> tuple[list[dict], list[dict]]:
-    """PRs that name the ticket key: `gh pr list --search` covers titles and bodies, so open PRs
-    are also listed and filtered on their head branch, where CHG branches carry the key."""
+    """PRs that name the ticket key as a whole token in their title, body or head branch.
+    `gh pr list --search` covers titles and bodies but tokenises loosely (IFS-1 also returns
+    "step 1"), so every hit is re-checked; open PRs are also listed and filtered on their head
+    branch, where CHG branches carry the key."""
     def rows(*args: str) -> list[dict]:
-        raw = sh("gh", "pr", "list", "-R", repo, *args, "--json", "number,title,state,url,headRefName")
+        raw = sh("gh", "pr", "list", "-R", repo, *args, "--json", "number,title,body,state,url,headRefName")
         data = json.loads(raw) if raw.strip() else []
         return [r for r in data if isinstance(r, dict)]
 
     key_re = re.compile(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![0-9])", re.I)
+
+    def names_key(r: dict) -> bool:
+        return any(key_re.search(str(r.get(f) or "")) for f in ("title", "body", "headRefName"))
+
     try:
-        found = rows("--search", key, "--state", "all", "--limit", "10")
+        found = [r for r in rows("--search", key, "--state", "all", "--limit", "10") if names_key(r)]
         found += [r for r in rows("--state", "open", "--limit", "100") if key_re.search(str(r.get("headRefName") or ""))]
     except (RuntimeError, json.JSONDecodeError) as e:
         return [], [{"key": "related_prs", "text": f"PRs naming {key} could not be listed ({type(e).__name__})."}]
