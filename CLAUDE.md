@@ -15,7 +15,7 @@ This file provides guidance for Claude Code when working with this repository.
 | **oncall-agent-api/** | FastAPI + Anthropic API | HTTP API, Slack /oncall, GitOps PRs, incident memory |
 | **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
 | **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
-| **skills/pr-explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact); retro of /code-review sessions |
+| **skills/explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact), with service and ticket explainers sharing its scripts; retro of /code-review sessions |
 
 ## Quick Commands
 
@@ -83,3 +83,4 @@ pytest tests/ -v          # Test
 - `*/tests/` - Test suites
 - `pr-triage/calibration/*.md` - Triage calibration reports (re-run after changing thresholds, questions or the Jev model)
 - `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` - PR review toolkit design, with its plan under `docs/superpowers/plans/`
+- `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md` - explainer plugin (pr, service, ticket) design and plan

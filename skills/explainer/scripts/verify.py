@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""pr-explainer: check explainer.json against facts.json (spec §6.4). Exit 1 + errors JSON on failure."""
+"""explainer: check explainer.json against facts.json (spec §6.4). Exit 1 + errors JSON on failure."""
 from __future__ import annotations
 
 import argparse

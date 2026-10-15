@@ -1,4 +1,4 @@
-"""pr-explainer: group refs that differ in one place, shared by render.py and verify.py.
+"""explainer: group refs that differ in one place, shared by render.py and verify.py.
 
 A PR that touches the same file in six environment directories cites six refs that differ only
 in the environment segment. Shown one per line they bury the table, so refs whose display

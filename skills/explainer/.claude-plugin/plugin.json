@@ -1,0 +1,8 @@
+{
+  "name": "explainer",
+  "version": "1.0.0",
+  "description": "Teaching pages for a Kubernetes GitOps PR (pr-explainer), a service under discovery (service-explainer) or a ticket (ticket-explainer): rendered-manifest, Terraform and workflow maps, background, scenarios, a literate walkthrough and a quiz, published as a private HTML page that takes comments.",
+  "author": {
+    "name": "Arisela"
+  }
+}

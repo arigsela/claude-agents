@@ -1,4 +1,16 @@
-# pr-explainer
+# explainer
+
+One plugin, three skills that share one facts pipeline:
+
+- `/pr-explainer <PR>` explains a GitOps PR (below).
+- `/service-explainer <name>` and `/ticket-explainer <KEY>` explain a service under discovery or a
+  ticket's system and asks. They are planned in `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md`
+  and arrive in the next two releases.
+
+Layout: `scripts/` (shared: `facts_lib.py`, `collect_pr.py`, `verify.py`, `render.py`,
+`ref_groups.py`, `post_comment.py`), `assets/` (one page template per mode), `skills/<name>/SKILL.md`.
+
+## pr-explainer
 
 `/pr-explainer <PR>` explains a GitOps PR without reading code. It renders the changed Argo CD
 apps at the PR's base and head, so a one-line chart bump shows its real resource changes.
@@ -67,6 +79,6 @@ the explainer was written by any other model. The page header names the model.
 
 Apps that cannot be rendered are listed under "Not covered".
 
-Design: `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` §6.
+Design: `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` §6 and `2026-10-15-explainer-plugin-design.md`.
 
-Install: `/plugin install pr-explainer@claude-agents-marketplace`
+Install: `/plugin install explainer@claude-agents-marketplace` (replaces `pr-explainer`; uninstall that one first).

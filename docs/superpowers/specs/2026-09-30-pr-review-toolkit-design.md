@@ -259,7 +259,7 @@ if decision == skip and hot_components_touched:                          skim
 - **Optional:** `helm`, for Helm-sourced Applications. Without it, those apps fall back to the source diff.
 - **kustomize:** uses `kubectl kustomize`.
 
-**Layout**
+**Layout** (as built on 2026-09-30; on 2026-10-15 the plugin moved to `skills/explainer/` with shared `scripts/` and `assets/template-pr.html`, see `2026-10-15-explainer-plugin-design.md` §3)
 ```
 skills/pr-explainer/.claude-plugin/plugin.json
 skills/pr-explainer/README.md
