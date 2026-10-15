@@ -94,35 +94,26 @@ def repo_from_origin() -> str | None:
     return m.group(1) if m else None
 
 
+def local_root() -> Path:
+    """Top level of the current checkout; a function so tests can point it at a fixture repo."""
+    return Path(sh("git", "rev-parse", "--show-toplevel").strip())
+
+
 class Trees:
-    """Detached worktrees of the PR's base and head commits.
+    """Detached worktrees of the PR's base and head commits, or of one ref (`Trees.at`).
 
     Uses the current checkout when its origin is the PR's repo. Anywhere else it fetches into a
     temporary bare repo, so the skill runs without a local clone and never fetches the wrong remote.
     """
 
     def __init__(self, repo: str, pr: int, base_sha: str, head_sha: str):
-        self.dir = Path(tempfile.mkdtemp(prefix="pr-explainer-"))
+        self.base: Path | None
+        self.ref: str | None = None
+        self.sha: str | None = head_sha
+        self._open(repo)
         self.base, self.head = self.dir / "base", self.dir / "head"
-        origin = repo_from_origin()
-        if origin and origin.lower() == repo.lower():
-            self.local: Path | None = Path(sh("git", "rev-parse", "--show-toplevel").strip())
-            self.git = self.local
-            fetch = ["git", "fetch", "--quiet", "origin"]
-        else:
-            self.local = None
-            self.git = self.dir / "repo.git"
-            # Blobless: commits and trees for merge-base, file contents only for the two checkouts.
-            fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
         try:
-            if not self.local:
-                sh("git", "init", "--quiet", "--bare", str(self.git))
-                sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
-                # gh's token covers private repos, including the lazy blob fetches worktree add makes.
-                # The empty entry drops inherited helpers so a stale keychain credential cannot win.
-                sh("git", "config", "credential.helper", "", cwd=self.git)
-                sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
-            sh(*fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
+            sh(*self.fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
             self.merge_base = sh("git", "merge-base", base_sha, head_sha, cwd=self.git).strip()
             sh("git", "worktree", "add", "--detach", "--quiet", str(self.base), self.merge_base, cwd=self.git)
             sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), head_sha, cwd=self.git)
@@ -130,10 +121,51 @@ class Trees:
             self.close()
             raise
 
+    @classmethod
+    def at(cls, repo: str, ref: str) -> "Trees":
+        """One worktree at `ref` (a branch, tag or sha); `base` is None and `merge_base` is None."""
+        self = cls.__new__(cls)
+        self.ref, self.merge_base = ref, None
+        self._open(repo)
+        self.base, self.head = None, self.dir / "head"
+        try:
+            sh(*self.fetch, ref, cwd=self.git)
+            self.sha = sh("git", "rev-parse", "FETCH_HEAD", cwd=self.git).strip()
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), self.sha, cwd=self.git)
+        except BaseException:
+            self.close()
+            raise
+        return self
+
+    def _open(self, repo: str) -> None:
+        """The temp dir, the git dir to fetch into (local checkout or a bare blobless repo), the fetch command."""
+        self.dir = Path(tempfile.mkdtemp(prefix="explainer-"))
+        origin = repo_from_origin()
+        if origin and origin.lower() == repo.lower():
+            self.local: Path | None = local_root()
+            self.git = self.local
+            self.fetch = ["git", "fetch", "--quiet", "origin"]
+            return
+        self.local = None
+        self.git = self.dir / "repo.git"
+        # Blobless: commits and trees for merge-base, file contents only for the checkouts.
+        self.fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
+        try:
+            sh("git", "init", "--quiet", "--bare", str(self.git))
+            sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
+            # gh's token covers private repos, including the lazy blob fetches worktree add makes.
+            # The empty entry drops inherited helpers so a stale keychain credential cannot win.
+            sh("git", "config", "credential.helper", "", cwd=self.git)
+            sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
+        except BaseException:
+            shutil.rmtree(self.dir, ignore_errors=True)
+            raise
+
     def close(self) -> None:
         if self.local:
-            for tree in (self.base, self.head):
-                subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
+            for tree in (getattr(self, "base", None), getattr(self, "head", None)):
+                if tree is not None:
+                    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
         shutil.rmtree(self.dir, ignore_errors=True)
         if self.local:
             subprocess.run(["git", "worktree", "prune"], cwd=self.local, capture_output=True)
@@ -562,6 +594,8 @@ def read_policy(trees: Trees) -> dict | None:
     """Policy from the local checkout (spec §3), else the base worktree, else the head worktree."""
     roots = [trees.local] if trees.local else []
     for root in (*roots, trees.base, trees.head):
+        if root is None:
+            continue
         f = root / POLICY_PATH
         if f.exists():
             return yaml.safe_load(f.read_text()) or {}
