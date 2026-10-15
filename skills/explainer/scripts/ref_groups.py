@@ -15,7 +15,7 @@ def entry(item: dict | None, rid: str) -> tuple[str, list[str], set[int]]:
     """(id, display segments, positions allowed to vary). Only the environment of a resource, the
     key of a Terraform instance, or a path segment may vary, so unrelated refs never merge."""
     segs = segments(item, rid)
-    if not item or "created" in item or "keys" in item or "chars" in item:
+    if not item or "created" in item or "keys" in item or "chars" in item or "summary" in item and "key" in item:
         allowed: set[int] = set()
     elif "element" in item:  # GitHub Actions: vary on the input, output or job name
         allowed = {1}
@@ -43,6 +43,8 @@ def segments(item: dict | None, rid: str) -> list[str]:
         return [f'{item["element"]} ', item["name"], f' ({item["action"]}) · {item["workflow"].rsplit("/", 1)[-1]}']
     if "created" in item:  # ticket comment
         return [f'ticket comment {item["created"]}', " · ", item.get("author") or "unknown author"]
+    if "key" in item and "summary" in item:  # the ticket itself
+        return [f'ticket {item["key"]}']
     if "keys" in item:  # config row: values · <app> · <file>
         return [f'values · {item.get("app") or "?"} · {item.get("file") or item.get("source") or "?"}']
     if "chars" in item:  # doc
