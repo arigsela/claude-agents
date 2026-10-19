@@ -87,12 +87,15 @@ STRUCTURED_KEYS = frozenset({"raw", "parsed", "parsing_error"})
 
 
 async def request_id_hook(response: Any) -> None:
-    """httpx2 response event hook: copy the response's ``request-id`` and replay
-    marker into the current attempt's recorder. A no-op outside ``call_model``."""
+    """httpx2 response event hook: copy the response's ``request-id`` (Bedrock's
+    ``x-amzn-requestid``) and replay marker into the current attempt's recorder. A
+    no-op outside ``call_model``."""
     recorder = RESPONSE_RECORDER.get()
     if recorder is None:
         return
-    recorder["request_id"] = response.headers.get("request-id")
+    recorder["request_id"] = response.headers.get("request-id") or response.headers.get(
+        "x-amzn-requestid"
+    )
     recorder["replayed"] = response.headers.get(REPLAYED_HEADER) == "1"
 
 

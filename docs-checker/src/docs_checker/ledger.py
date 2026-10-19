@@ -91,7 +91,22 @@ RATE_CARDS: dict[str, RateCard] = {
                 (None, Rates(0.50, 0.625, 1.00, 0.05, 2.50)),
             ),
         },
-    )
+    ),
+    # Source: AWS Pricing API (AmazonBedrock, us-west-2, global_standard), read
+    # 2026-10-19. The global inference profiles cost the same as the Anthropic API;
+    # the us. profiles are 10% more and are not used. Haiku's long-context threshold
+    # on Bedrock is not published; 100k is the Anthropic API's.
+    "bedrock-global-2026-10-19": RateCard(
+        version="bedrock-global-2026-10-19",
+        source="AWS Pricing API, AmazonBedrock, us-west-2, global_standard (2026-10-19)",
+        models={
+            "claude-sonnet-5-5": ((None, Rates(2.00, 2.50, 4.00, 0.10, 10.00)),),
+            "claude-haiku-5-5": (
+                (100_000, Rates(0.10, 0.125, 0.20, 0.01, 0.50)),
+                (None, Rates(0.50, 0.625, 1.00, 0.05, 2.50)),
+            ),
+        },
+    ),
 }
 
 

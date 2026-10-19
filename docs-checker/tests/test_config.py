@@ -160,3 +160,40 @@ def test_the_replay_dir_must_be_an_existing_directory(tmp_path):
     assert load_settings({"DOCS_CHECKER_REPLAY_DIR": str(tmp_path)}).replay_dir == str(tmp_path)
     with pytest.raises(ValueError, match="DOCS_CHECKER_REPLAY_DIR .* is not a directory"):
         load_settings({"DOCS_CHECKER_REPLAY_DIR": str(tmp_path / "absent")})
+
+
+BEDROCK_ENV = {
+    "DOCS_CHECKER_MODEL_PROVIDER": "bedrock",
+    "AWS_REGION": "us-west-2",
+    "DOCS_CHECKER_RATE_CARD": "bedrock-global-2026-10-19",
+}
+
+
+def test_bedrock_models_need_a_full_id_map():
+    env = dict(
+        BEDROCK_ENV,
+        DOCS_CHECKER_BEDROCK_MODEL_IDS=json.dumps({"claude-haiku-5-5": "arn:haiku"}),
+    )
+    with pytest.raises(ValueError, match="claude-sonnet-5-5"):
+        load_settings(env)
+
+
+def test_bedrock_settings_parsed():
+    ids = {"claude-haiku-5-5": "arn:haiku", "claude-sonnet-5-5": "arn:sonnet"}
+    settings = load_settings(
+        dict(
+            BEDROCK_ENV,
+            DOCS_CHECKER_BEDROCK_MODEL_IDS=json.dumps(ids),
+            DOCS_CHECKER_BEDROCK_EFFORT="true",
+        )
+    )
+    assert settings.model_provider == "bedrock"
+    assert settings.bedrock_model_ids == ids
+    assert settings.aws_region == "us-west-2"
+    assert settings.bedrock_effort is True
+    assert load_settings({}).model_provider == "anthropic"
+
+
+def test_unknown_model_provider_is_refused():
+    with pytest.raises(ValueError, match="DOCS_CHECKER_MODEL_PROVIDER"):
+        load_settings({"DOCS_CHECKER_MODEL_PROVIDER": "openai"})

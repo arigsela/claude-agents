@@ -7,7 +7,7 @@ from docs_checker.config import NODES, load_settings
 from docs_checker.ledger import CostLedger
 from docs_checker.levers import Levers
 from docs_checker.llm import RetryBudget, call_model, request_id_hook
-from docs_checker.models import AnthropicModels, no_tools_choice
+from docs_checker.models import AnthropicModels, BedrockModels, no_tools_choice
 from tests.test_llm import message_body
 
 SONNET = "claude-sonnet-5-5"
@@ -120,3 +120,90 @@ async def test_request_id_reaches_the_ledger_through_anthropic_models():
         max_tokens=256,
     )
     assert ledger.entries[0].request_id == "req_models"
+
+
+BEDROCK_IDS = {
+    HAIKU: "arn:aws:bedrock:us-west-2:414696729697:application-inference-profile/haiku0000001",
+    SONNET: "arn:aws:bedrock:us-west-2:414696729697:application-inference-profile/sonnet000001",
+}
+
+
+@pytest.fixture
+def aws_test_credentials(monkeypatch):
+    """Static fake credentials, so SigV4 signing never reaches a real profile or IMDS."""
+    for name in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SESSION_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIDTESTTESTTESTTEST")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+
+
+def bedrock_models(handler, *, send_effort: bool = False) -> BedrockModels:
+    settings = load_settings({})
+    return BedrockModels(
+        settings.node_models,
+        Levers.all_on(),
+        model_ids=BEDROCK_IDS,
+        aws_region="us-west-2",
+        http_timeout_s=60.0,
+        transport=httpx2.MockTransport(handler),
+        on_response=request_id_hook,
+        send_effort=send_effort,
+    )
+
+
+async def _call(models: BedrockModels, node: str, ledger: CostLedger) -> None:
+    await call_model(
+        models.get(node),
+        [HumanMessage("q")],
+        node=node,
+        model_name=models.name(node),
+        ledger=ledger,
+        budget=RetryBudget(max_attempts=3),
+        max_tokens=256,
+    )
+
+
+async def test_bedrock_models_invoke_the_profile_arn(aws_test_credentials):
+    from urllib.parse import quote
+
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(
+            200, headers={"x-amzn-requestid": "bedrock-req"}, json=message_body("ok")
+        )
+
+    models = bedrock_models(handler)
+    ledger = CostLedger("r", emit=False)
+    await _call(models, "extract", ledger)
+    path = requests[0].url.raw_path.decode()
+    assert quote(BEDROCK_IDS[HAIKU], safe=":") in path  # the SDK keeps ":" and encodes "/"
+    assert path.endswith("/invoke")
+    assert requests[0].headers["authorization"].startswith("AWS4-HMAC-SHA256")
+    assert models.name("extract") == HAIKU
+    assert ledger.entries[0].model == HAIKU
+    assert ledger.entries[0].request_id == "bedrock-req"
+
+
+async def test_bedrock_models_send_effort_only_when_asked(aws_test_credentials):
+    import json
+
+    bodies: list[dict] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(200, json=message_body("ok"))
+
+    ledger = CostLedger("r", emit=False)
+    await _call(bedrock_models(handler, send_effort=False), "judge", ledger)
+    await _call(bedrock_models(handler, send_effort=True), "judge", ledger)
+    assert "effort" not in json.dumps(bodies[0])
+    assert bodies[1]["output_config"]["effort"] == "low"
+    assert "model" not in bodies[0]  # the profile ARN travels in the URL
+
+
+def test_anthropic_path_unchanged():
+    from docs_checker.server import build_models
+
+    assert type(build_models(load_settings({}))) is AnthropicModels

@@ -25,6 +25,7 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 from urllib.parse import urlsplit
 
 from docs_checker.levers import Levers, parse_levers
@@ -118,6 +119,14 @@ class Settings:
     # A test seam, off unless set: every model response comes from the cassettes in this
     # directory (replay only, never recorded, nothing sent). The image smoke test runs on it.
     replay_dir: str = ""
+    # Where model calls go: the Anthropic API (kagent, local) or Amazon Bedrock
+    # (AgentCore). On Bedrock each logical model in ALLOWED_MODELS maps to an
+    # application inference profile ARN, and effort is sent only when the profile
+    # accepts it.
+    model_provider: Literal["anthropic", "bedrock"] = "anthropic"
+    bedrock_model_ids: dict[str, str] = field(default_factory=dict)
+    aws_region: str = ""
+    bedrock_effort: bool = False
 
     @property
     def under_kagent(self) -> bool:
@@ -241,6 +250,28 @@ def _replay_dir(value: str) -> str:
     return value
 
 
+def _model_provider(env: Mapping[str, str]) -> tuple[str, dict[str, str], str]:
+    """``(provider, model ids, region)``; Bedrock needs a profile for every allowed model."""
+    provider = env.get("DOCS_CHECKER_MODEL_PROVIDER", "anthropic")
+    if provider == "anthropic":
+        return provider, {}, ""
+    if provider != "bedrock":
+        raise ValueError(
+            f"DOCS_CHECKER_MODEL_PROVIDER {provider!r} is not allowed; allowed: anthropic, bedrock"
+        )
+    ids = json.loads(env.get("DOCS_CHECKER_BEDROCK_MODEL_IDS") or "{}")
+    if not isinstance(ids, dict) or set(ids) != ALLOWED_MODELS or not all(ids.values()):
+        missing = sorted(ALLOWED_MODELS - set(ids)) if isinstance(ids, dict) else []
+        raise ValueError(
+            "DOCS_CHECKER_BEDROCK_MODEL_IDS must map exactly "
+            f"{', '.join(sorted(ALLOWED_MODELS))} to profile ARNs; missing: {', '.join(missing)}"
+        )
+    region = env.get("AWS_REGION", "")
+    if not region:
+        raise ValueError("AWS_REGION is required with DOCS_CHECKER_MODEL_PROVIDER=bedrock")
+    return provider, {str(k): str(v) for k, v in ids.items()}, region
+
+
 def _num(env: Mapping[str, str], name: str, default: float) -> float:
     return float(env.get(f"DOCS_CHECKER_{name}", default))
 
@@ -259,6 +290,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     prompt_caching, cache_ttl = _prompt_cache(model)
     levers = parse_levers(env.get("DOCS_CHECKER_LEVERS", "all"))
     data_dir = env.get("DOCS_CHECKER_DATA_DIR", "/data/docs-checker")
+    model_provider, bedrock_model_ids, aws_region = _model_provider(env)
 
     return Settings(
         agent_name=runtime.get("name") or "docs-checker",
@@ -298,4 +330,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         data_dir=data_dir,
         checkpoint_db=env.get("DOCS_CHECKER_CHECKPOINT_DB") or f"{data_dir}/checkpoints.sqlite",
         replay_dir=_replay_dir(env.get("DOCS_CHECKER_REPLAY_DIR", "")),
+        model_provider=model_provider,
+        bedrock_model_ids=bedrock_model_ids,
+        aws_region=aws_region,
+        bedrock_effort=_flag(env, "BEDROCK_EFFORT", False),
     )

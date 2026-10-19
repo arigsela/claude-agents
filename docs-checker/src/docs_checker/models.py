@@ -106,3 +106,89 @@ class AnthropicModels:
             http_client=anthropic.DefaultAsyncHttpxClient(**http_kwargs),
         )
         return chat
+
+
+class BedrockModels(AnthropicModels):
+    """The same per-node models through Amazon Bedrock (the AgentCore runtime).
+
+    ChatAnthropic keeps the logical model name, so the request body, the prompt cache
+    blocks and everything keyed on the name (the ledger's pricing, langchain's model
+    checks) are the Anthropic path's. Only the SDK client differs: it signs with SigV4
+    and, just before the URL is built, swaps the logical name for its application
+    inference profile ARN (``/model/<arn>/invoke``). ``send_effort`` is off unless the
+    profile accepts ``output_config.effort`` (docs/agentcore-probes.md).
+    """
+
+    def __init__(
+        self,
+        node_models: dict[str, NodeModel],
+        levers: Levers,
+        *,
+        model_ids: dict[str, str],
+        aws_region: str,
+        http_timeout_s: float,
+        transport: Any = None,
+        on_response: Callable[[Any], Awaitable[None]] | None = None,
+        send_effort: bool,
+    ):
+        super().__init__(
+            node_models,
+            levers,
+            http_timeout_s=http_timeout_s,
+            transport=transport,
+            on_response=on_response,
+            api_key="bedrock-unused",
+        )
+        self._model_ids = dict(model_ids)
+        self._aws_region = aws_region
+        self._send_effort = send_effort
+
+    def _build(self, spec: NodeModel) -> Any:
+        import anthropic
+        from langchain_anthropic import ChatAnthropic
+
+        retry_limits = self._levers.retry_limits
+        max_retries = 0 if retry_limits else 2
+        timeout = self._timeout_s if retry_limits else None
+        chat = ChatAnthropic(
+            model=spec.model,
+            max_tokens=spec.max_tokens,
+            effort=spec.effort if self._send_effort else None,
+            max_retries=max_retries,
+            default_request_timeout=timeout,
+            api_key=self._api_key,
+        )
+        http_kwargs: dict[str, Any] = {"timeout": timeout}
+        if self._transport is not None:
+            http_kwargs["transport"] = self._transport
+        if self._on_response is not None:
+            http_kwargs["event_hooks"] = {"response": [self._on_response]}
+        chat.__dict__["_async_client"] = _profile_client_class()(
+            model_ids=self._model_ids,
+            aws_region=self._aws_region,
+            max_retries=max_retries,
+            timeout=timeout,
+            http_client=anthropic.DefaultAsyncHttpxClient(**http_kwargs),
+        )
+        return chat
+
+
+def _profile_client_class() -> type:
+    """``AsyncAnthropicBedrock`` that sends each logical model to its profile ARN.
+
+    Built on first use so importing this module never imports the Bedrock client."""
+    import anthropic
+
+    class ProfileBedrock(anthropic.AsyncAnthropicBedrock):
+        def __init__(self, *, model_ids: dict[str, str], **kwargs: Any):
+            super().__init__(**kwargs)
+            self._model_ids = model_ids
+
+        async def _prepare_options(self, options: Any) -> Any:
+            data = options.json_data
+            if isinstance(data, dict) and data.get("model") in self._model_ids:
+                remapped = {**data, "model": self._model_ids[data["model"]]}
+                options = options.model_copy(update={"json_data": remapped})
+            return await super()._prepare_options(options)
+
+    return ProfileBedrock

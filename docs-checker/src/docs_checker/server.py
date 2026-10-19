@@ -60,7 +60,7 @@ from docs_checker.executor import DocsCheckerExecutor
 from docs_checker.gate import AllowGate, FixGate, build_fix_gate
 from docs_checker.graph import build_graph, checkpoint_serde, open_checkpointer
 from docs_checker.llm import request_id_hook
-from docs_checker.models import AnthropicModels
+from docs_checker.models import AnthropicModels, BedrockModels
 from docs_checker.paused import PausedTasks
 
 logger = logging.getLogger(__name__)
@@ -247,7 +247,8 @@ async def load_mcp_tools(settings: Settings) -> dict[str, list[Any]]:
 
 
 def build_models(settings: Settings) -> AnthropicModels:
-    """The models production serves: Anthropic through the SDK's own transport.
+    """The models production serves: Anthropic through the SDK's own transport, or
+    Bedrock when ``settings.model_provider`` says so (the AgentCore runtime).
 
     ``settings.replay_dir`` (``DOCS_CHECKER_REPLAY_DIR``, unset in production) is a
     test seam: every response then comes from the cassettes there, in ``replay`` mode
@@ -263,6 +264,17 @@ def build_models(settings: Settings) -> AnthropicModels:
             "model replay is active: every response comes from %s; nothing is recorded "
             "and nothing reaches the API (DOCS_CHECKER_REPLAY_DIR)",
             settings.replay_dir,
+        )
+    if settings.model_provider == "bedrock":
+        return BedrockModels(
+            settings.node_models,
+            settings.levers,
+            model_ids=settings.bedrock_model_ids,
+            aws_region=settings.aws_region,
+            http_timeout_s=settings.http_timeout_s,
+            on_response=request_id_hook,
+            transport=transport,
+            send_effort=settings.bedrock_effort,
         )
     return AnthropicModels(
         settings.node_models,

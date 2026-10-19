@@ -430,3 +430,11 @@ def test_prompt_chars_counts_text_blocks_and_tool_calls():
     assert prompt_chars([HumanMessage(blocks)]) == len(json.dumps(blocks))
     with_call = AIMessage(content="", tool_calls=[tool_call])
     assert prompt_chars([with_call]) >= len(json.dumps(with_call.tool_calls))
+
+
+async def test_request_id_hook_reads_bedrock_header():
+    from docs_checker.llm import _recording
+
+    with _recording() as recorder:
+        await request_id_hook(httpx2.Response(200, headers={"x-amzn-requestid": "abc"}))
+    assert recorder["request_id"] == "abc"

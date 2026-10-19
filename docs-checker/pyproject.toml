@@ -14,7 +14,8 @@ dependencies = [
     "langchain-core>=1.6.12,<2",
     "langchain-anthropic>=1.7.6,<2",
     # Imported directly (nodes.py: transform_schema), not only through langchain-anthropic.
-    "anthropic>=1.15.0,<2",
+    # [bedrock]: AsyncAnthropicBedrock (SigV4 through botocore) for the AgentCore runtime.
+    "anthropic[bedrock]>=1.15.0,<2",
     "langchain-mcp-adapters>=0.3.2,<0.4",
     # The production checkpointer (AsyncSqliteSaver on the actor's /data disk), so a
     # paused run survives the snapshot between turns (ruling P5/A1).

@@ -9,6 +9,7 @@ from docs_checker.ledger import (
     REPLAYED_METADATA_KEY,
     Budget,
     CostLedger,
+    Rates,
     Usage,
     cost_per_verified_outcome,
     usage_from_message,
@@ -266,3 +267,10 @@ async def test_the_summary_reports_reservations_still_open():
     assert summary.reserved_unsettled_usd == pytest.approx(0.05)
     assert summary.to_dict()["reserved_unsettled_usd"] == pytest.approx(0.05)
     assert summary.complete is False  # an open reservation may have been billed
+
+
+def test_bedrock_rate_card_matches_pricing_api():
+    card = RATE_CARDS["bedrock-global-2026-10-19"]
+    assert card.rates_for("claude-sonnet-5-5", 1000) == Rates(2.00, 2.50, 4.00, 0.10, 10.00)
+    assert card.rates_for("claude-haiku-5-5", 1000) == Rates(0.10, 0.125, 0.20, 0.01, 0.50)
+    assert card.rates_for("claude-haiku-5-5", 100_001) == Rates(0.50, 0.625, 1.00, 0.05, 2.50)
