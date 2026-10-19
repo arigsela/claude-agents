@@ -54,10 +54,18 @@ kagent = [
     # `import kagent.core` fails without it.
     "fastapi>=0.115.2",
 ]
-# Includes the kagent extra, so `uv sync --extra dev` installs the runtime contract
-# and its contract tests always run (never skip). The image installs `--extra kagent`.
+# The AgentCore Runtime contract (Dockerfile.agentcore): A2A JSON-RPC over HTTP on 9000
+# with an on-disk task store on session storage, and boto3 for CloudWatch findings.
+agentcore = [
+    "a2a-sdk[http-server,sqlite]>=1.2.2,<2",
+    "uvicorn>=0.54,<1",
+    "boto3>=1.40",
+]
+# Includes both runtime extras, so `uv sync --extra dev` installs every runtime contract
+# and its contract tests always run (never skip). The kagent image installs
+# `--extra kagent`; the AgentCore image installs `--extra agentcore`.
 dev = [
-    "docs-checker[kagent]",
+    "docs-checker[kagent,agentcore]",
     "pytest>=8.0",
     "pytest-asyncio>=1.0",
     "black>=25.0",
@@ -68,6 +76,7 @@ dev = [
 
 [project.scripts]
 docs-checker = "docs_checker.front:main"
+docs-checker-agentcore = "docs_checker.agentcore:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

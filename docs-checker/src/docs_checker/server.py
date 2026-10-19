@@ -82,7 +82,11 @@ SKILL_DESCRIPTION = (
 )
 
 
-def build_agent_card(settings: Settings) -> a2a_pb2.AgentCard:
+def build_agent_card(
+    settings: Settings, *, url: str | None = None, binding: str = "GRPC"
+) -> a2a_pb2.AgentCard:
+    """The card both runtimes serve. kagent's gateway dials gRPC on the runtime port (the
+    defaults); AgentCore passes its runtime URL and ``JSONRPC``."""
     card = a2a_pb2.AgentCard(
         name=settings.agent_name.replace("-", "_"),
         description=prompts.AGENT_DESCRIPTION,
@@ -91,8 +95,8 @@ def build_agent_card(settings: Settings) -> a2a_pb2.AgentCard:
         default_output_modes=["text"],
         supported_interfaces=[
             a2a_pb2.AgentInterface(
-                url=f"http://127.0.0.1:{settings.a2a_port}",
-                protocol_binding="GRPC",
+                url=url or f"http://127.0.0.1:{settings.a2a_port}",
+                protocol_binding=binding,
                 protocol_version="1.0",
             )
         ],
