@@ -41,6 +41,7 @@ NODES = ("intake", "extract", "judge", "judge_escalate", "fix", "report")
 
 HAIKU = "claude-haiku-5-5"
 SONNET = "claude-sonnet-5-5"
+ALLOWED_MODELS = frozenset({HAIKU, SONNET})
 
 # node -> (model with right_size on, effort, max_tokens). With right_size off every
 # node defaults to Sonnet. A DOCS_CHECKER_<NODE>_MODEL value still wins.
@@ -189,8 +190,14 @@ def _node_models(env: Mapping[str, str], levers: Levers) -> dict[str, NodeModel]
         key = node.upper()
         if not levers.right_size:
             model = SONNET
+        chosen = env.get(f"DOCS_CHECKER_{key}_MODEL", model)
+        if chosen not in ALLOWED_MODELS:
+            raise ValueError(
+                f"DOCS_CHECKER_{key}_MODEL {chosen!r} is not allowed; "
+                f"allowed: {', '.join(sorted(ALLOWED_MODELS))}"
+            )
         result[node] = NodeModel(
-            model=env.get(f"DOCS_CHECKER_{key}_MODEL", model),
+            model=chosen,
             effort=env.get(f"DOCS_CHECKER_{key}_EFFORT", effort),
             max_tokens=int(env.get(f"DOCS_CHECKER_{key}_MAX_TOKENS", max_tokens)),
         )

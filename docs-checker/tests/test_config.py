@@ -137,3 +137,8 @@ def test_the_repository_setting_must_be_owner_slash_name():
     assert load_settings({"DOCS_CHECKER_REPO": "arigsela/kubernetes"}).repo == "arigsela/kubernetes"
     with pytest.raises(ValueError, match="owner/name"):
         load_settings({"DOCS_CHECKER_REPO": "kubernetes"})
+
+
+def test_a_model_outside_the_allowed_set_fails_at_startup():
+    with pytest.raises(ValueError, match="DOCS_CHECKER_JUDGE_MODEL.*claude-opus-5-5"):
+        load_settings({"DOCS_CHECKER_JUDGE_MODEL": "claude-opus-5-5"})
