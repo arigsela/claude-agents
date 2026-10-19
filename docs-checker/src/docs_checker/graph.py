@@ -105,7 +105,12 @@ class DecisionMemo:
     """In-run reuse of judgements, single-flight (C#8): one ``asyncio.Future`` per
     key, so concurrent misses on the same key compute once and the others wait.
     Keyed by ``Claim.semantic_key(CHECKER_VERSION, evidence_hash)``; the caller
-    attaches its own claim id afterwards. A failed computation is not kept."""
+    attaches its own claim id afterwards.
+
+    A failed computation is not kept, and it fails only the doc that ran it: a
+    waiter whose owner raised treats the key as a miss and computes it itself
+    (ruling L1), so one doc's provider error never decides another doc's claim. A
+    cancellation is passed on as is."""
 
     def __init__(self) -> None:
         self._futures: dict[str, asyncio.Future[Decision]] = {}
@@ -119,10 +124,15 @@ class DecisionMemo:
     async def get_or_compute(
         self, key: str, factory: Callable[[], Awaitable[Decision]]
     ) -> Decision:
-        future = self._futures.get(key)
-        if future is not None:
-            # shield: a waiter cancelled must not cancel the shared future
-            return await asyncio.shield(future)
+        while (future := self._futures.get(key)) is not None:
+            try:
+                # shield: a waiter cancelled must not cancel the shared future
+                return await asyncio.shield(future)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - the owner failed, its key is gone
+                logger.info("shared judgement failed (%s); computing it here", type(error).__name__)
+                continue
         future = asyncio.get_running_loop().create_future()
         self._futures[key] = future
         try:
@@ -316,8 +326,10 @@ async def scope(state: RunState, runtime: Runtime[RunDeps]) -> dict:
             known = [k for k in stored.get("fingerprint", {}) if k != CHECKER_KEY]
             current = await fingerprint(meta, reader, known, CHECKER_VERSION)
             if skip_unchanged(meta, stored, current):
+                # Rebased onto this run's commit (C#18): the lines are still there,
+                # at this commit, and the report names only this commit.
                 carried = [
-                    Finding.model_validate(f).model_copy(update={"carried": True})
+                    Finding.model_validate(f).model_copy(update={"carried": True, "commit": commit})
                     for f in stored.get("open_findings", [])
                 ]
                 outcomes[path] = DocOutcome(
@@ -519,6 +531,9 @@ async def _report_from_transcripts(deps: RunDeps, outcomes: dict[str, DocOutcome
         )
     except BudgetExceeded:
         return "(the model-written report was skipped: the run budget is spent)"
+    except Exception as error:  # noqa: BLE001 - ruling L1: the typed report stands
+        logger.warning("the model-written report failed: %s", type(error).__name__)
+        return f"(the model-written report failed: {type(error).__name__})"
     content = getattr(result, "content", result)
     if isinstance(content, list):
         content = "\n".join(

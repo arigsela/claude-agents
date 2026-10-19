@@ -13,10 +13,17 @@ ledger before any call) ends the doc's model work: its status is ``skipped-budge
 and the findings it already has go on to the gate.
 
 What makes a doc ``incomplete`` (Review Focus 1): a source read that is
-``transient``, ``denied`` or ``error``, the call cap, or an extraction that could
-not be read. Only a read the server confirms ``absent`` is a ``missing`` finding,
-on the source's own front-matter line. A claim with no evidence after the
-fallbacks (ruling S3) is ``unsupported`` and the doc stays complete.
+``transient``, ``denied`` or ``error`` (a listed source or a file inside a ``dir``
+source alike), the call cap, or an extraction that could not be read. Only a read
+the server confirms ``absent`` is a ``missing`` finding, on the source's own
+front-matter line. A claim with no evidence after the fallbacks (ruling S3) is
+``unsupported`` and the doc stays complete.
+
+A model call that fails for good (a provider error ``llm.call_model`` gave up on)
+fails that doc alone (ruling L1): its status is ``failed`` with the error's type,
+the findings it already has are kept, no further model call is made for it, and
+the run goes on with the other docs. ``BudgetExceeded`` keeps its own path and a
+cancellation is never caught.
 
 Repeated work is never paid twice: extractions, fixes and decisions are kept in
 the task's replay memo (``RunDeps.replay``) and decisions also in the single-flight
@@ -85,6 +92,8 @@ _NO_FIX_BUDGET = "no fix was proposed: the run budget was exhausted"
 _NO_FIX_CAP = "no fix was proposed: the per-doc call cap was reached"
 _NO_FIX_PROPOSED = "the fixer proposed no fix that passes the replacement rule"
 _NO_FIX_REJECTED = "a human rejected the fix"
+_NO_FIX_FAILED = "no fix was proposed: a model call failed"
+_UNREADABLE = frozenset({"transient", "denied", "error"})
 
 
 class DocState(TypedDict, total=False):
@@ -107,6 +116,7 @@ class DocState(TypedDict, total=False):
     incomplete: bool
     reasons: list[str]
     budget_exceeded: bool
+    failed: str  # why the doc failed (ruling L1), once a model call did
     tool_events: list[ToolEvent]
     transcript: list[str]
     outcome: DocOutcome
@@ -165,6 +175,10 @@ def _transcribing(deps: RunDeps, state: DocState):
         yield log
     finally:
         TRANSCRIPT.reset(token)
+
+
+def _failure(error: Exception) -> str:
+    return f"model call failed ({type(error).__name__})"
 
 
 def _unsupported(reason: str, judged_by: str) -> Decision:
@@ -248,6 +262,11 @@ async def load(state: DocState, runtime: Runtime[RunDeps]) -> dict:
             )
         else:
             reasons.append(f"{result.path}: {result.status}")
+    # Files inside a dir source are not listed in the front matter: a failed read of
+    # one is just as much a hole in the evidence (review I1).
+    for path, result in sources.items():
+        if result.status in _UNREADABLE and f"{path}: {result.status}" not in reasons:
+            reasons.append(f"{path}: {result.status}")
     return {
         "doc_text": doc.text or "",
         "sources": sources,
@@ -272,6 +291,7 @@ async def extract(state: DocState, runtime: Runtime[RunDeps]) -> dict:
     reasons = list(state.get("reasons") or [])
     incomplete = state.get("incomplete", False)
     budget_exceeded = state.get("budget_exceeded", False)
+    failed = state.get("failed", "")
     memo_key = f"extract:{commit}:{meta.path}"
     cached = _memo_get(deps, memo_key)
     claims: list[Claim] = []
@@ -292,12 +312,15 @@ async def extract(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                 reasons.append(f"claims could not be extracted: {error}")
             except BudgetExceeded:
                 budget_exceeded = True
+            except Exception as error:  # noqa: BLE001 - ruling L1: this doc fails, not the run
+                failed = _failure(error)
     return {
         "claims": claims,
         "calls_used": used,
         "incomplete": incomplete,
         "reasons": reasons,
         "budget_exceeded": budget_exceeded,
+        "failed": failed,
         "transcript": transcript,
     }
 
@@ -390,10 +413,18 @@ async def locate(state: DocState, runtime: Runtime[RunDeps]) -> dict:
 # --- judge -----------------------------------------------------------------------------
 
 
-def _known_decision(deps: RunDeps, key: str, mode: Mode) -> Decision | None:
-    """A decision already made: this task's memo, the run's single-flight memo, or
-    (scheduled mode, ``short_circuit`` on) the memory store."""
-    cached = _memo_get(deps, f"decision:{key}")
+def _replay_key(commit: str, claim: Claim, key: str) -> str:
+    """The task's replay memo serves a resume or continuation of the SAME doc and
+    claim only (review I2): with ``short_circuit`` off, two docs with the same claim
+    are judged twice, as the lever means."""
+    return f"decision:{commit}:{claim.doc}:{claim.id}:{key}"
+
+
+def _known_decision(deps: RunDeps, commit: str, claim: Claim, key: str, mode: Mode):
+    """A decision already made: this task's memo for this doc and claim, then, with
+    ``short_circuit`` on, the run's single-flight memo and (scheduled mode) the
+    memory store."""
+    cached = _memo_get(deps, _replay_key(commit, claim, key))
     if cached is not None:
         return Decision.model_validate(cached)
     if not deps.levers.short_circuit:
@@ -404,8 +435,8 @@ def _known_decision(deps: RunDeps, key: str, mode: Mode) -> Decision | None:
     return decision
 
 
-def _remember(deps: RunDeps, key: str, decision: Decision, mode: Mode) -> None:
-    _memo_put(deps, f"decision:{key}", decision.model_dump())
+def _remember(deps: RunDeps, commit: str, claim: Claim, key: str, decision: Decision, mode):
+    _memo_put(deps, _replay_key(commit, claim, key), decision.model_dump())
     if deps.levers.short_circuit and mode == "scheduled" and deps.store is not None:
         deps.store.put_decision(key, decision)
 
@@ -440,6 +471,7 @@ async def judge(state: DocState, runtime: Runtime[RunDeps]) -> dict:
     absent = {p for p, r in sources.items() if r.status == "absent"}
     used = state.get("calls_used", 0)
     budget_exceeded = state.get("budget_exceeded", False)
+    failed = state.get("failed", "")
     reasons = list(state.get("reasons") or [])
     decisions: dict[str, Decision] = {}
     unjudged = 0
@@ -451,9 +483,11 @@ async def judge(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                 decision = _unsupported("No evidence was found in the doc's sources.", "code")
             if decision is None:
                 key = claim.semantic_key(CHECKER_VERSION, evidence_hash(windows))
-                decision = _known_decision(deps, key, mode)
+                decision = _known_decision(deps, commit, claim, key, mode)
             if decision is None:
-                if budget_exceeded:
+                if failed:
+                    decision = _unsupported("Not judged: a model call failed.", "failed")
+                elif budget_exceeded:
                     decision = _unsupported("Not judged: the run budget was exhausted.", "budget")
                 elif not _can_call(deps, used, _judge_calls(deps)):
                     unjudged += 1
@@ -470,10 +504,13 @@ async def judge(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                         decision = _unsupported(
                             "Not judged: the run budget was exhausted.", "budget"
                         )
+                    except Exception as error:  # noqa: BLE001 - ruling L1
+                        failed = _failure(error)
+                        decision = _unsupported("Not judged: a model call failed.", "failed")
                     else:
                         if paid:
                             used += _judge_calls(deps)
-                        _remember(deps, key, decision, mode)
+                        _remember(deps, commit, claim, key, decision, mode)
             decisions[claim.id] = decision
     if unjudged:
         cap = deps.settings.max_calls_per_doc
@@ -484,6 +521,7 @@ async def judge(state: DocState, runtime: Runtime[RunDeps]) -> dict:
         "incomplete": state.get("incomplete", False) or unjudged > 0,
         "reasons": reasons,
         "budget_exceeded": budget_exceeded,
+        "failed": failed,
         "transcript": transcript,
     }
 
@@ -509,6 +547,7 @@ async def fix(state: DocState, runtime: Runtime[RunDeps]) -> dict:
     findings = list(state.get("findings") or [])
     used = state.get("calls_used", 0)
     budget_exceeded = state.get("budget_exceeded", False)
+    failed = state.get("failed", "")
     incomplete = state.get("incomplete", False)
     reasons = list(state.get("reasons") or [])
     with _transcribing(deps, state) as transcript:
@@ -529,6 +568,8 @@ async def fix(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                 cached = _memo_get(deps, memo_key)
                 if cached is not None:
                     replacement = cached
+                elif failed:
+                    withheld = _NO_FIX_FAILED
                 elif budget_exceeded:
                     withheld = _NO_FIX_BUDGET
                 elif not _can_call(deps, used, 1):
@@ -543,6 +584,9 @@ async def fix(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                     except BudgetExceeded:
                         budget_exceeded = True
                         withheld = _NO_FIX_BUDGET
+                    except Exception as error:  # noqa: BLE001 - ruling L1
+                        failed = _failure(error)
+                        withheld = _NO_FIX_FAILED
                     else:
                         used += 1
                         _memo_put(deps, memo_key, replacement)
@@ -571,6 +615,7 @@ async def fix(state: DocState, runtime: Runtime[RunDeps]) -> dict:
         "findings": findings,
         "calls_used": used,
         "budget_exceeded": budget_exceeded,
+        "failed": failed,
         "incomplete": incomplete,
         "reasons": reasons,
         "transcript": transcript,
@@ -681,7 +726,9 @@ async def finish(state: DocState, runtime: Runtime[RunDeps]) -> dict:
     if state["mode"] == "scheduled" and deps.levers.short_circuit:
         reader = reader_for(deps, commit, state.get("search", False))
         fp = await fingerprint(meta, reader, evidence_paths, CHECKER_VERSION)
-    if state.get("budget_exceeded"):
+    if state.get("failed"):
+        status, reason = "failed", state["failed"]
+    elif state.get("budget_exceeded"):
         status = "skipped-budget"
         judged = sum(1 for d in decisions.values() if d.judged_by != "budget")
         reason = f"the run budget was exhausted after {judged} of {len(claims)} claims"

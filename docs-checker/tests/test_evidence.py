@@ -80,8 +80,8 @@ def test_comment_lines_are_not_hits():
 
 
 def test_values_match_whole_tokens():
-    def hit(value, line):
-        return bool(windows_for(claim(values=(value,)), {"base-apps/x/v.yaml": line}))
+    def hit(value, line):  # value matching alone: no key, so no key-position hit (K1)
+        return bool(windows_for(claim(values=(value,), keys=()), {"base-apps/x/v.yaml": line}))
 
     assert not hit("1.2", "version: 1.23")
     assert not hit("1.2", "version: 0.1.2")
@@ -156,10 +156,39 @@ def test_trailing_inline_comments_do_not_support_or_hit():
     assert decide_in_code(c, w("version: 1.2.4 # was 1.2.3"), set()) is None
     assert decide_in_code(c, w("image: app:1.2.4  # bumped from 1.2.3"), set()) is None
     assert decide_in_code(c, w("version: 1.2.3 # pinned"), set()) is not None
-    assert windows_for(c, {"base-apps/x/v.yaml": "version: 1.2.4 # was 1.2.3"}) == []
+    # the value in the comment is not a hit: the line is only a key-position window (K1)
+    ws = windows_for(c, {"base-apps/x/v.yaml": "version: 1.2.4 # was 1.2.3"})
+    assert insufficient(ws, c)
+    assert windows_for(c.model_copy(update={"keys": []}), {"base-apps/x/v.yaml": ws[0].text}) == []
 
 
 def test_missing_needs_every_path_absent():
     c = claim(values=("old.yaml", "new.yaml"), keys=(), kind="path")
     assert decide_in_code(c, [], {"old.yaml"}) is None
     assert decide_in_code(c, [], {"old.yaml", "new.yaml"}) is not None
+
+
+def test_a_key_in_key_position_is_a_hit_ranked_last():
+    # Ruling K1: a value that changed in the manifest is still found through its key.
+    planted = lines(20, {5: "version: 0.31.0"})
+    ws = windows_for(claim(), {"base-apps/x/v.yaml": planted})
+    assert [(w.start, w.end) for w in ws] == [(2, 8)]
+    port = claim(values=("8201",), keys=("port",), kind="port")
+    for line in ("port: 8200", "  - port: 8200", "PORT : 8200"):
+        assert windows_for(port, {"base-apps/x/s.yaml": lines(9, {5: line})}), line
+    for line in ("ports: 8200", "myport: 8200", "# port: 8200", "name: port", "x: port"):
+        assert windows_for(port, {"base-apps/x/s.yaml": lines(9, {5: line})}) == [], line
+    # ranked after a key+value line and after a value-only line
+    srcs = {
+        "base-apps/x/a.yaml": lines(20, {2: "version: 0.31.0"}),
+        "base-apps/x/b.yaml": lines(20, {2: "pin 0.30.1"}),
+        "base-apps/x/c.yaml": lines(20, {2: "version: 0.30.1"}),
+    }
+    assert [w.source for w in windows_for(claim(), srcs)] == [
+        "base-apps/x/c.yaml",
+        "base-apps/x/b.yaml",
+        "base-apps/x/a.yaml",
+    ]
+    # a key-only window does not satisfy insufficient(): widening may still add evidence
+    assert insufficient(ws, claim())
+    assert windows_for(claim(keys=()), {"base-apps/x/v.yaml": planted}) == []

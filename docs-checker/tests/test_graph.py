@@ -27,6 +27,7 @@ from langgraph.types import Command
 from mcp.types import CallToolResult, TextContent
 
 from docs_checker.evals.localrepo import LocalRepoSession, local_repo_tools
+from docs_checker.executor import resume_map
 from docs_checker.gate import FixGate, RecordingGate, Thresholds
 from docs_checker.graph import (
     DecisionMemo,
@@ -41,7 +42,14 @@ from docs_checker.levers import Levers
 from docs_checker.request import RunRequest
 from docs_checker.state import Decision
 from docs_checker.tools import ToolBelt
-from tests.fakes import FAKE_BINDINGS, FakeModels, RoutedModel, fake_settings, reply
+from tests.fakes import (
+    FAKE_BINDINGS,
+    BadRequestError,
+    FakeModels,
+    RoutedModel,
+    fake_settings,
+    reply,
+)
 from tests.test_scope import commit_all, make_tree
 
 HAIKU = "claude-haiku-5-5"
@@ -311,30 +319,43 @@ async def test_every_read_uses_the_resolved_commit(tmp_path, monkeypatch):
     assert {f.commit for o in result["outcomes"].values() for f in o.findings} == {old}
 
 
+UNAVAILABLE = "failed to get git tree: GET https://api.github.com/x: 503 Service Unavailable []"
+
+
 @pytest.mark.parametrize(
-    "status, text",
+    "doc, path, status, text",
     [
+        (VAULT_DOC, "base-apps/vault/service.yaml", "transient", UNAVAILABLE),
         (
-            "transient",
-            "failed to get git tree: GET https://api.github.com/x: 503 Service Unavailable []",
+            VAULT_DOC,
+            "base-apps/vault/service.yaml",
+            "denied",
+            "failed to get git tree: GET https://api.github.com/x: 403 Forbidden []",
         ),
-        ("denied", "failed to get git tree: GET https://api.github.com/x: 403 Forbidden []"),
-        ("error", "failed to get git tree: GET https://api.github.com/x: 404 Not Found []"),
+        (
+            VAULT_DOC,
+            "base-apps/vault/service.yaml",
+            "error",
+            "failed to get git tree: GET https://api.github.com/x: 404 Not Found []",
+        ),
+        # a file inside a dir source whose listing succeeded (review I1)
+        (REDIS_DOC, "base-apps/redis/deploy/deployment.yaml", "transient", UNAVAILABLE),
     ],
 )
 async def test_transient_source_read_is_incomplete_not_missing(
-    fixture_repo, monkeypatch, status, text
+    fixture_repo, monkeypatch, doc, path, status, text
 ):
     # Review Focus 1: a read that fails is not a deleted file.
     repo, commit = fixture_repo
-    fail_reads_of(monkeypatch, "base-apps/vault/service.yaml", text)
-    result = await Harness(repo, commit).run(RunRequest(scope=[VAULT_DOC]))
+    fail_reads_of(monkeypatch, path, text)
+    result = await Harness(repo, commit).run(RunRequest(scope=[doc]))
 
-    outcome = result["outcomes"][VAULT_DOC]
+    outcome = result["outcomes"][doc]
     assert outcome.status == "incomplete"
-    assert f"base-apps/vault/service.yaml: {status}" in outcome.reason
-    assert [f.verdict for f in outcome.findings] == ["stale"]  # the other source still served
-    assert result["report_data"].incomplete == [f"{VAULT_DOC}: {outcome.reason}"]
+    assert f"{path}: {status}" in outcome.reason
+    expected = ["stale"] if doc == VAULT_DOC else []  # the other source still served
+    assert [f.verdict for f in outcome.findings] == expected
+    assert result["report_data"].incomplete == [f"{doc}: {outcome.reason}"]
     assert result["outcome"] == "unverified"
 
 
@@ -371,18 +392,15 @@ async def test_doc_text_elsewhere_never_supports_a_claim(tmp_path, levers):
     result = await h.run(RunRequest(scope=[doc]))
 
     outcome = result["outcomes"][doc]
-    assert outcome.status == "checked"  # no evidence is "unsupported", never "incomplete"
-    assert all(not p.endswith(".md") for p in outcome.evidence_paths)
-    if levers.shrink_results:
-        # windows come from values, and the only value is in the doc: no evidence at all
-        assert outcome.counts == {"claims": 1, "unsupported": 1}
-        assert outcome.findings == [] and h.judge.calls == []
-    else:
-        # whole files go to the judge, the manifest alone: it sees 0.31.0 and says stale
-        assert outcome.counts == {"claims": 1, "stale": 1}
-        (call,) = h.judge.calls
-        assert "values.yaml" in call[1].content and notes not in call[1].content
-        assert "0.30.1" not in call[1].content.split("Evidence windows:")[1]
+    assert outcome.status == "checked"
+    assert outcome.evidence_paths == ["base-apps/vault/values.yaml"]  # never the .md
+    # The manifest alone reaches the judge (its version line as a key window with
+    # shrink_results on, K1; the whole file with it off): it sees 0.31.0 and says stale.
+    # The notes file that states 0.30.1 is never a window, so 0.30.1 is nowhere in them.
+    assert outcome.counts == {"claims": 1, "stale": 1}
+    (call,) = h.judge.calls
+    assert "values.yaml" in call[1].content and notes not in call[1].content
+    assert "0.30.1" not in call[1].content.split("Evidence windows:")[1]
 
 
 async def test_insufficient_evidence_widens_to_the_app_directory(tmp_path, monkeypatch):
@@ -441,12 +459,24 @@ async def test_search_fallback_is_one_search_at_head_only(tmp_path, monkeypatch)
 
 async def test_same_claim_in_two_docs_is_judged_once_even_concurrently(fixture_repo):
     repo, commit = fixture_repo
-    # no warm-up round: every doc is sent at once, so the two branches reach judge together
-    judge = judge_model(VERDICTS, delay=0.05)
+    # no warm-up round: every doc is sent at once, so the two branches reach judge together;
+    # no replay memo either, so only the single-flight memo can share the judgement
+    judge = judge_model(VERDICTS, delay=0.1)
     h = Harness(repo, commit, levers=Levers.without("cache_prefix"), judge=judge)
+    h.deps.replay = None
+    entered: list[int] = []  # judge calls in flight when a doc asked the memo
+    memo = h.deps.decisions
+    original = memo.get_or_compute
+
+    async def spy(key, factory):
+        entered.append(judge.active)
+        return await original(key, factory)
+
+    memo.get_or_compute = spy
     result = await h.run()
 
     assert len(judge.calls) == 1
+    assert sorted(entered) == [0, 1]  # the second doc asked while the first's call was in flight
     assert [f.verdict for f in findings_of(result, VAULT_DOC)] == ["stale"]
     assert [f.verdict for f in findings_of(result, RUNBOOK)] == ["missing", "stale"]  # line order
     assert (
@@ -531,6 +561,11 @@ async def test_unchanged_doc_is_skipped_in_scheduled_mode_only(fixture_repo):
     snapshot = first.deps.store.snapshot(set(result["outcomes"]))
     assert set(snapshot["docs"]) == {VAULT_DOC, REDIS_DOC, RUNBOOK}
 
+    # the trigger's snapshot came from an earlier commit: carried findings are rebased (C#18)
+    old_commit = "0" * 40
+    for entry in snapshot["docs"].values():
+        for finding in entry["open_findings"]:
+            finding["commit"] = old_commit
     second = Harness(repo, commit)
     result = await second.run(RunRequest(scope="all", mode="scheduled", memory=snapshot))
     statuses = {doc: o.status for doc, o in result["outcomes"].items()}
@@ -546,6 +581,7 @@ async def test_unchanged_doc_is_skipped_in_scheduled_mode_only(fixture_repo):
     assert [(f.verdict, f.carried, f.replacement) for f in carried] == [
         ("stale", True, VAULT_FIXED)
     ]
+    assert carried[0].commit == commit and old_commit[:12] not in result["report"]
     assert result["report_data"].counts["carried"] == 1
     assert [f.carried for f in findings_of(result, RUNBOOK)] == [False, False]
 
@@ -879,3 +915,114 @@ async def test_a_malformed_front_matter_and_an_absent_doc_fail_without_a_model(t
     assert statuses["docs/nosources.md"] == ("failed", "the front matter lists no sources")
     assert statuses["docs/nope.md"] == ("failed", "the doc could not be read (absent)")
     assert h.extract.calls == [] and len(result["report_data"].failed) == 3
+
+
+# --- fix round 1 -----------------------------------------------------------------------
+
+
+async def test_a_changed_value_is_still_found_through_its_key(tmp_path):
+    # Ruling K1: the doc says 8201, the manifest says port: 8200. No line holds the
+    # claim's value, so the key line is the window and the judge sees the current value.
+    doc = "base-apps/vault/docs.md"
+    files = {
+        "base-apps/vault/service.yaml": "kind: Service\nspec:\n  ports:\n    - port: 8200\n",
+        doc: "---\nsources:\n  - base-apps/vault/service.yaml\n---\nThe UI listens on port 8201.\n",
+    }
+    repo, commit = make_tree(tmp_path, files)
+    port = {"line_start": 5, "line_end": 5, "text": "The UI listens on port 8201", "kind": "port",
+            "keys": ["port"], "values": ["8201"], "source_hint": ""}  # fmt: skip
+    h = Harness(
+        repo,
+        commit,
+        claims={doc: [port]},
+        verdicts={port["text"]: ("stale", 0.9)},
+        fixes={"The UI listens on port 8201.": "The UI listens on port 8200."},
+    )
+    result = await h.run(RunRequest(scope=[doc]))
+
+    (finding,) = findings_of(result, doc)
+    assert (finding.verdict, finding.replacement) == ("stale", "The UI listens on port 8200.")
+    assert finding.evidence.source == "base-apps/vault/service.yaml"
+    assert "port: 8200" in finding.evidence.text
+    assert len(h.judge.calls) == 1 and result["outcomes"][doc].status == "checked"
+
+
+async def test_short_circuit_off_judges_each_doc_on_its_own(fixture_repo):
+    # Lever 3 off means every claim is judged, even the same one in two docs, and
+    # the task's replay memo must not reuse one doc's judgement for another.
+    h = Harness(*fixture_repo, levers=Levers.without("short_circuit"), settings={"concurrency": 1})
+    result = await h.run(RunRequest(scope=[VAULT_DOC, RUNBOOK]))
+    assert len(h.judge.calls) == 2
+    assert [f.verdict for f in findings_of(result, VAULT_DOC)] == ["stale"]
+    assert [f.verdict for f in findings_of(result, RUNBOOK)] == ["missing", "stale"]
+
+
+async def test_one_docs_model_failure_fails_that_doc_only(fixture_repo):
+    # Ruling L1: a provider error on one doc's call fails that doc, not the run.
+    repo, commit = fixture_repo
+    h = Harness(repo, commit, levers=Levers.without("cache_prefix"))
+    h.judge.raise_next = BadRequestError("bad request")  # non-retryable: raised at once
+    result = await h.run(RunRequest(scope=[VAULT_DOC, REDIS_DOC]))
+
+    vault, redis = result["outcomes"][VAULT_DOC], result["outcomes"][REDIS_DOC]
+    assert (vault.status, vault.reason) == ("failed", "model call failed (BadRequestError)")
+    assert redis.status == "checked"
+    assert result["outcome"] == "unverified" and "__interrupt__" not in result
+    assert result["report_data"].failed == [f"{VAULT_DOC}: {vault.reason}"]
+
+    # The owner of a shared judgement failing must not poison the doc waiting on it:
+    # the waiter judges the claim itself.
+    h = Harness(
+        repo, commit, levers=Levers.without("cache_prefix"), judge=judge_model(VERDICTS, delay=0.05)
+    )
+    h.deps.replay = None
+    h.judge.raise_next = BadRequestError("bad request")
+    result = await h.run(RunRequest(scope=[VAULT_DOC, RUNBOOK]))
+    statuses = sorted(o.status for o in result["outcomes"].values())
+    assert statuses == ["checked", "failed"] and len(h.judge.calls) == 2
+    checked = next(o for o in result["outcomes"].values() if o.status == "checked")
+    assert "stale" in [f.verdict for f in checked.findings]
+
+
+async def test_a_failed_fix_call_keeps_the_partial_findings(tmp_path):
+    repo, commit = make_tree(tmp_path, TWO_CLAIM_FILES)
+    h = Harness(repo, commit, claims=TWO_CLAIMS, verdicts=TWO_VERDICTS, fixes=TWO_FIXES)
+    h.fix.raise_next = BadRequestError("bad request")
+    result = await h.run(RunRequest(scope=[TWO_CLAIM_DOC]))
+    outcome = result["outcomes"][TWO_CLAIM_DOC]
+    assert outcome.status == "failed" and "BadRequestError" in outcome.reason
+    (finding,) = outcome.findings  # the stale claim is still reported, its fix withheld
+    assert finding.verdict == "stale" and finding.replacement == "" and finding.fix_withheld
+    assert outcome.counts == {"claims": 2, "stale": 1, "supported": 1}
+
+
+async def test_report_model_failure_falls_back_to_the_typed_report(fixture_repo):
+    repo, commit = fixture_repo
+    report = RoutedModel(lambda _user: reply("never"))
+    report.raise_next = BadRequestError("bad request")
+    h = Harness(repo, commit, levers=Levers.without("typed_handoffs"), report=report)
+    result = await h.run(RunRequest(scope=[VAULT_DOC]))
+    assert result["outcomes"][VAULT_DOC].status == "checked"
+    assert VAULT_FIXED in result["report"] and "BadRequestError" in result["report"]
+    assert result["report_data"].counts["findings"] == 1
+
+
+async def test_parallel_asks_resume_the_right_branch(fixture_repo):
+    # Two branches pause in one superstep; approving one fix keeps only that one
+    # (the executor splits one approval response per pending interrupt).
+    repo, commit = fixture_repo
+    h = Harness(repo, commit, levers=Levers.without("cache_prefix"), fix_gate=asking_gate())
+    paused = await h.run(RunRequest(scope=[VAULT_DOC, RUNBOOK], mode="interactive"))
+    interrupts = paused["__interrupt__"]
+    assert len(interrupts) == 2 and len({i.id for i in interrupts}) == 2
+    pending = list((await h.graph.aget_state(h.config)).interrupts)
+    assert len(pending) == 2
+    runbook = next(i for i in pending if i.value["action_requests"][0]["args"]["doc"] == RUNBOOK)
+    payload = approval(runbook.value["action_requests"][0])
+    done = await h.resume(resume_map(payload, pending))
+
+    assert "__interrupt__" not in done
+    runbook_stale = next(f for f in findings_of(done, RUNBOOK) if f.verdict == "stale")
+    (vault,) = findings_of(done, VAULT_DOC)
+    assert runbook_stale.replacement == VAULT_FIXED and runbook_stale.fix_withheld is None
+    assert vault.replacement == "" and "rejected" in vault.fix_withheld

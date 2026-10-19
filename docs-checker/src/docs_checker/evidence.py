@@ -6,7 +6,10 @@ only the clear cases without a model; everything else goes on to a model.
 Choices: values match case-sensitively as whole tokens, keys case-insensitively as whole
 tokens. A YAML comment is a line starting with ``#`` (after spaces); lines inside a block
 scalar are not recognised, which is deliberately simple. A hit is a non-comment line
-holding a claim value; a key on the same line only ranks it higher.
+holding a claim value (a key on the same line ranks it higher), or, ranked last, a line
+with a claim key in YAML key position (``key:`` or ``- key:``, ruling K1): that is how a
+value that changed in the manifest is still found. Only a value makes evidence
+"sufficient" (``insufficient``): a key-only window still lets the caller widen.
 """
 
 from __future__ import annotations
@@ -53,6 +56,15 @@ def _has_key(line: str, keys: list[str]) -> bool:
     return any(_token(k, re.IGNORECASE).search(line) for k in keys if k)
 
 
+def _key_line(key: str) -> re.Pattern[str]:
+    """``key`` in YAML key position: the line's first token (after a list dash), then ``:``."""
+    return re.compile(r"^\s*-?\s*" + re.escape(key) + r"\s*:", re.IGNORECASE)
+
+
+def _in_key_position(line: str, keys: list[str]) -> bool:
+    return any(_key_line(k).match(line) for k in keys if k)
+
+
 _INLINE_COMMENT = re.compile(r"\s#.*$")
 
 
@@ -77,7 +89,8 @@ def windows_for(
     radius: int = 3,
     max_windows: int = 5,
 ) -> list[Window]:
-    """Up to ``max_windows`` windows of ±``radius`` lines around hits, best first."""
+    """Up to ``max_windows`` windows of ±``radius`` lines around hits, best first:
+    key+value lines, then value-only lines, then key-position lines (ruling K1)."""
     values = [v for v in claim.values if v]
     if not values:
         return []
@@ -86,9 +99,15 @@ def windows_for(
         if not is_evidence_source(path):
             continue
         for n, line in enumerate(text.split("\n"), start=1):
-            if _is_comment(line) or not _has_value(_code(line), values):
+            if _is_comment(line):
                 continue
-            tier = 0 if _has_key(_code(line), claim.keys) else 1
+            code = _code(line)
+            if _has_value(code, values):
+                tier = 0 if _has_key(code, claim.keys) else 1
+            elif _in_key_position(code, claim.keys):
+                tier = 2
+            else:
+                continue
             hits.append((tier, order, path, n))
     hits.sort()
 
@@ -134,9 +153,11 @@ def whole_files(sources: dict[str, str]) -> list[Window]:
 
 
 def insufficient(windows: list[Window], claim: Claim) -> bool:
-    """True when no window holds any claim value; this triggers the search fallback."""
+    """True when no window holds any claim value in its code (comments never count):
+    this triggers the widening and search fallbacks. A key-only window (K1) is
+    insufficient, so widening can still add real evidence."""
     values = [v for v in claim.values if v]
-    return not any(_has_value(w.text, values) for w in windows)
+    return not any(_has_value(code_only(w.text), values) for w in windows)
 
 
 def decide_in_code(claim: Claim, windows: list[Window], absent_paths: set[str]) -> Decision | None:
