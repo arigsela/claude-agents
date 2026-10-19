@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docs-checker"
+version = "0.1.0"
+description = "Read-only LangGraph agent that checks the arigsela/kubernetes docs against their manifests, built as a kagent 1.0 BYO runtime"
+readme = "README.md"
+requires-python = ">=3.13"
+
+dependencies = [
+    "langgraph>=1.2.16,<2",
+    "langchain-core>=1.6.12,<2",
+    "langchain-anthropic>=1.7.6,<2",
+    "langchain-mcp-adapters>=0.3.2,<0.4",
+    # A2A v1 (proto package lf.a2a.v1): the gRPC handler and the protobuf types.
+    # kagent-core 1.0.0a11 requires >=1.1.5,<2.
+    "a2a-sdk[grpc]>=1.2.2,<2",
+    "grpcio>=1.84.0",
+    # kagent-proto (generated with protobuf 6) needs protobuf<7; grpcio-health-checking
+    # 1.75+ needs protobuf>=7.35. Same pin as kagent-adk 1.0.0a11.
+    "grpcio-health-checking>=1.74.0,<1.75",
+    "pydantic>=2.12",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+# The kagent 1.0 runtime contract: the controller TaskStore client, the request
+# handler that settles task boundaries, and the HITL extension helpers. Pinned to
+# the controller version running in the cluster (v1.0.0-alpha11): alpha14 renames
+# the TaskStore proto package (kagent.api.v1alpha1 -> kagent.runtime.v1), so the
+# image must move in lockstep with the controller. kagent-proto is not on PyPI;
+# its generated stubs are committed in the kagent repo, so it installs from git at
+# the tag's commit.
+kagent = [
+    "kagent-core==1.0.0a11",
+    "kagent-proto @ git+https://github.com/kagent-dev/kagent@30e8a2c2ceb9a1fadc16e969aa7ee0107a42d7b2#subdirectory=python/packages/kagent-proto",
+    # Undeclared by kagent-core 1.0.0a11: kagent.core.telemetry._boot imports
+    # fastapi unconditionally, so `import kagent.core` fails without it.
+    "fastapi>=0.115.2",
+]
+# Includes the kagent extra, so `uv sync --extra dev` installs the runtime contract
+# and its contract tests always run (never skip). The image installs `--extra kagent`.
+dev = [
+    "docs-checker[kagent]",
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "black>=25.0",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+docs-checker = "docs_checker.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
