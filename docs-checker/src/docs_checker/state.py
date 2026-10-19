@@ -118,6 +118,12 @@ class Finding(BaseModel):
     old_text: str
     replacement: str
     needs_look: bool = False
+    # Ruling F1: the fix gate withheld the fix for containment reasons. The finding is
+    # still reported, with replacement "" and the reason here. Not part of action_digest:
+    # there is no fix to approve.
+    fix_withheld: str | None = None
+    # Carried from memory for an unchanged doc (still open), not found by this run.
+    carried: bool = False
 
     @computed_field  # type: ignore[prop-decorator]
     @property
