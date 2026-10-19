@@ -579,3 +579,29 @@ async def test_a_cancelled_running_task_leaves_no_checkpoint_thread(tmp_path):
 
     assert queue.states()[-1] == a2a_pb2.TaskState.TASK_STATE_CANCELED
     assert thread_rows(db, "task-k") == 0
+
+
+async def test_nolock_checkpointer_pragmas(tmp_path):
+    from docs_checker.graph import open_checkpointer
+
+    async with open_checkpointer(str(tmp_path / "c.sqlite"), nolock=True) as saver:
+        async with saver.conn.execute("PRAGMA journal_mode") as cursor:
+            assert (await cursor.fetchone())[0] == "memory"
+        async with saver.conn.execute("PRAGMA synchronous") as cursor:
+            assert (await cursor.fetchone())[0] == 0
+
+
+async def test_nolock_checkpoint_survives_reopen(tmp_path):
+    from langgraph.checkpoint.base import empty_checkpoint
+
+    from docs_checker.graph import open_checkpointer
+
+    path = str(tmp_path / "nested" / "c.sqlite")
+    config = {"configurable": {"thread_id": "t1", "checkpoint_ns": ""}}
+    async with open_checkpointer(path, nolock=True) as saver:
+        await saver.setup()
+        checkpoint = empty_checkpoint()
+        await saver.aput(config, checkpoint, {"source": "input", "step": -1}, {})
+    async with open_checkpointer(path, nolock=True) as saver:
+        found = await saver.aget_tuple(config)
+    assert found is not None and found.checkpoint["id"] == checkpoint["id"]

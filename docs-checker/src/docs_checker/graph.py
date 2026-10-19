@@ -226,14 +226,23 @@ def checkpoint_serde() -> JsonPlusSerializer:
 
 
 @asynccontextmanager
-async def open_checkpointer(path: str) -> AsyncIterator[Any]:
+async def open_checkpointer(path: str, *, nolock: bool = False) -> AsyncIterator[Any]:
     """The production checkpointer: ``AsyncSqliteSaver`` at ``path`` (its parent
-    directory created first, C#5), open for the server's lifetime."""
+    directory created first, C#5), open for the server's lifetime.
+
+    ``nolock`` is for AgentCore session storage, which has no POSIX locks: SQLite then
+    skips file locking and keeps its journal in memory, and one process owns the db."""
     import aiosqlite
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(path) as conn:
+    if not nolock:
+        async with aiosqlite.connect(path) as conn:
+            yield AsyncSqliteSaver(conn, serde=checkpoint_serde())
+        return
+    async with aiosqlite.connect(f"file:{path}?nolock=1", uri=True) as conn:
+        await conn.execute("PRAGMA journal_mode=MEMORY")
+        await conn.execute("PRAGMA synchronous=OFF")
         yield AsyncSqliteSaver(conn, serde=checkpoint_serde())
 
 

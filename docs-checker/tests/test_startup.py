@@ -85,7 +85,7 @@ async def test_an_unwritable_data_dir_leaves_checkpoints_in_memory(tmp_path, cap
 
 async def test_a_db_that_blocks_leaves_checkpoints_in_memory_in_time(monkeypatch, tmp_path, caplog):
     @asynccontextmanager
-    async def blocking(path):
+    async def blocking(path, *, nolock=False):
         await asyncio.Event().wait()  # SQLite stuck on the sandbox's file system
         yield None
 

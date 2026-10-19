@@ -197,3 +197,41 @@ def test_bedrock_settings_parsed():
 def test_unknown_model_provider_is_refused():
     with pytest.raises(ValueError, match="DOCS_CHECKER_MODEL_PROVIDER"):
         load_settings({"DOCS_CHECKER_MODEL_PROVIDER": "openai"})
+
+
+AGENTCORE_ENV = {
+    "DOCS_CHECKER_RUNTIME": "agentcore",
+    "DOCS_CHECKER_MCP_URL": "https://gw.example/mcp",
+}
+
+
+def test_agentcore_runtime_defaults():
+    settings = load_settings(AGENTCORE_ENV)
+    assert settings.runtime == "agentcore"
+    assert settings.a2a_port == 9000
+    assert settings.data_dir == "/mnt/workspace/docs-checker"
+    assert settings.checkpoint_db == "/mnt/workspace/docs-checker/checkpoints.sqlite"
+    assert settings.sqlite_nolock is True
+    assert settings.under_kagent is False
+    [server] = settings.mcp_servers
+    assert (server.name, server.url, server.headers) == ("github", "https://gw.example/mcp", {})
+    assert set(server.tools) == {"get_file_contents", "search_code", "list_commits", "get_commit"}
+
+
+def test_agentcore_ignores_kagent_config():
+    env = dict(AGENTCORE_ENV, KAGENT_CONFIG_JSON=compiled(RUNTIME, AGENT))
+    settings = load_settings(env)
+    assert settings.a2a_port == 9000
+    assert [s.name for s in settings.mcp_servers] == ["github"]
+
+
+def test_agentcore_requires_mcp_url():
+    with pytest.raises(ValueError, match="DOCS_CHECKER_MCP_URL"):
+        load_settings({"DOCS_CHECKER_RUNTIME": "agentcore"})
+
+
+def test_runtime_default_follows_kagent_config():
+    assert load_settings({}).runtime == "local"
+    assert load_settings({}).sqlite_nolock is False
+    with pytest.raises(ValueError, match="DOCS_CHECKER_RUNTIME"):
+        load_settings({"DOCS_CHECKER_RUNTIME": "lambda"})

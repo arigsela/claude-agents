@@ -34,6 +34,9 @@ from docs_checker.levers import Levers, parse_levers
 # readiness port Substrate probes. Neither is configurable upstream.
 DEFAULT_A2A_PORT = 80
 READY_PORT = 8081
+# AgentCore Runtime's A2A contract: JSON-RPC on 9000, session storage at /mnt/workspace.
+AGENTCORE_A2A_PORT = 9000
+AGENTCORE_DATA_DIR = "/mnt/workspace/docs-checker"
 
 _ENV_REF = re.compile(r"__KAGENT_ENV\[([A-Z0-9_]+)\]__")
 
@@ -127,6 +130,10 @@ class Settings:
     bedrock_model_ids: dict[str, str] = field(default_factory=dict)
     aws_region: str = ""
     bedrock_effort: bool = False
+    # Which runtime contract this process serves. On AgentCore, SQLite runs without
+    # file locks (session storage has none).
+    runtime: Literal["kagent", "agentcore", "local"] = "local"
+    sqlite_nolock: bool = False
 
     @property
     def under_kagent(self) -> bool:
@@ -250,6 +257,28 @@ def _replay_dir(value: str) -> str:
     return value
 
 
+def _runtime(env: Mapping[str, str]) -> str:
+    default = "kagent" if env.get("KAGENT_CONFIG_JSON") else "local"
+    runtime = env.get("DOCS_CHECKER_RUNTIME", default)
+    if runtime not in ("kagent", "agentcore", "local"):
+        raise ValueError(
+            f"DOCS_CHECKER_RUNTIME {runtime!r} is not allowed; allowed: kagent, agentcore, local"
+        )
+    return runtime
+
+
+def _agentcore_mcp_servers(env: Mapping[str, str]) -> tuple[McpServer, ...]:
+    """The Gateway's MCP endpoint, the one server on AgentCore. Requests are SigV4
+    signed by the tool client (no headers here), and the binding names exactly the
+    read tools, so the belt's allowlist is the same as in-cluster."""
+    from docs_checker.tools import READ_ONLY_TOOLS
+
+    url = env.get("DOCS_CHECKER_MCP_URL", "")
+    if not url:
+        raise ValueError("DOCS_CHECKER_MCP_URL is required with DOCS_CHECKER_RUNTIME=agentcore")
+    return (McpServer(name="github", url=url, tools=tuple(sorted(READ_ONLY_TOOLS))),)
+
+
 def _model_provider(env: Mapping[str, str]) -> tuple[str, dict[str, str], str]:
     """``(provider, model ids, region)``; Bedrock needs a profile for every allowed model."""
     provider = env.get("DOCS_CHECKER_MODEL_PROVIDER", "anthropic")
@@ -285,18 +314,23 @@ def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
-    runtime, agent = _adk_config(env)
+    runtime_kind = _runtime(env)
+    agentcore = runtime_kind == "agentcore"
+    # AgentCore has no kagent controller: its ADKConfig, if one is set, is ignored.
+    runtime, agent = ({}, {}) if agentcore else _adk_config(env)
     model = agent.get("model") or {}
     prompt_caching, cache_ttl = _prompt_cache(model)
     levers = parse_levers(env.get("DOCS_CHECKER_LEVERS", "all"))
-    data_dir = env.get("DOCS_CHECKER_DATA_DIR", "/data/docs-checker")
+    data_dir = env.get(
+        "DOCS_CHECKER_DATA_DIR", AGENTCORE_DATA_DIR if agentcore else "/data/docs-checker"
+    )
     model_provider, bedrock_model_ids, aws_region = _model_provider(env)
 
     return Settings(
         agent_name=runtime.get("name") or "docs-checker",
         namespace=runtime.get("namespace") or "kagent",
         # Absent selects the listener default; the BYO compiler always sends 80.
-        a2a_port=int(runtime.get("port") or DEFAULT_A2A_PORT),
+        a2a_port=AGENTCORE_A2A_PORT if agentcore else int(runtime.get("port") or DEFAULT_A2A_PORT),
         ready_port=READY_PORT,
         listen_a2a=env.get("DOCS_CHECKER_LISTEN_A2A", ""),
         listen_ready=env.get("DOCS_CHECKER_LISTEN_READY", ""),
@@ -304,7 +338,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         template_model=model.get("model") or "",
         prompt_caching=prompt_caching,
         cache_ttl=cache_ttl,
-        mcp_servers=parse_mcp_servers(agent, env),
+        mcp_servers=_agentcore_mcp_servers(env) if agentcore else parse_mcp_servers(agent, env),
         node_models=_node_models(env, levers),
         # LangGraph 1.2's default recursion limit is 10007; an explicit limit is
         # the circuit breaker.
@@ -334,4 +368,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         bedrock_model_ids=bedrock_model_ids,
         aws_region=aws_region,
         bedrock_effort=_flag(env, "BEDROCK_EFFORT", False),
+        runtime=runtime_kind,
+        sqlite_nolock=agentcore,
     )

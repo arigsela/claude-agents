@@ -340,7 +340,9 @@ async def _open_checkpoints(stack: AsyncExitStack, settings: Settings) -> tuple[
     resume that finds nothing)."""
 
     async def durable() -> tuple[Any, PausedTasks]:
-        checkpointer = await stack.enter_async_context(open_checkpointer(settings.checkpoint_db))
+        checkpointer = await stack.enter_async_context(
+            open_checkpointer(settings.checkpoint_db, nolock=settings.sqlite_nolock)
+        )
         await checkpointer.setup()
         paused = PausedTasks(checkpointer.conn, lock=checkpointer.lock)
         await paused.setup()
