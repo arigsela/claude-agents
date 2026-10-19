@@ -145,3 +145,21 @@ def test_whole_files_and_insufficient():
     assert insufficient([], claim())
     assert insufficient([Window(source="a.yaml", start=1, end=1, text="nope")], claim())
     assert not insufficient([Window(source="a.yaml", start=1, end=1, text="x 0.30.1")], claim())
+
+
+def test_trailing_inline_comments_do_not_support_or_hit():
+    c = claim(values=("1.2.3",))
+
+    def w(text):
+        return [Window(source="base-apps/x/v.yaml", start=1, end=1, text=text)]
+
+    assert decide_in_code(c, w("version: 1.2.4 # was 1.2.3"), set()) is None
+    assert decide_in_code(c, w("image: app:1.2.4  # bumped from 1.2.3"), set()) is None
+    assert decide_in_code(c, w("version: 1.2.3 # pinned"), set()) is not None
+    assert windows_for(c, {"base-apps/x/v.yaml": "version: 1.2.4 # was 1.2.3"}) == []
+
+
+def test_missing_needs_every_path_absent():
+    c = claim(values=("old.yaml", "new.yaml"), keys=(), kind="path")
+    assert decide_in_code(c, [], {"old.yaml"}) is None
+    assert decide_in_code(c, [], {"old.yaml", "new.yaml"}) is not None

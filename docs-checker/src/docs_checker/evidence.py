@@ -53,6 +53,14 @@ def _has_key(line: str, keys: list[str]) -> bool:
     return any(_token(k, re.IGNORECASE).search(line) for k in keys if k)
 
 
+_INLINE_COMMENT = re.compile(r"\s#.*$")
+
+
+def _code(line: str) -> str:
+    """The line without a trailing ``  # comment`` (a quoted ``#`` is not handled)."""
+    return _INLINE_COMMENT.sub("", line)
+
+
 def _is_comment(line: str) -> bool:
     return bool(_COMMENT.match(line))
 
@@ -73,9 +81,9 @@ def windows_for(
         if not is_evidence_source(path):
             continue
         for n, line in enumerate(text.split("\n"), start=1):
-            if _is_comment(line) or not _has_value(line, values):
+            if _is_comment(line) or not _has_value(_code(line), values):
                 continue
-            tier = 0 if _has_key(line, claim.keys) else 1
+            tier = 0 if _has_key(_code(line), claim.keys) else 1
             hits.append((tier, order, path, n))
     hits.sort()
 
@@ -136,8 +144,9 @@ def decide_in_code(claim: Claim, windows: list[Window], absent_paths: set[str]) 
         for i, w in enumerate(windows):
             if not is_evidence_source(w.source):
                 continue
-            for line in w.text.split("\n"):
-                if not _is_comment(line) and _has_key(line, keys) and _has_all_values(line, values):
+            for raw in w.text.split("\n"):
+                line = _code(raw)
+                if not _is_comment(raw) and _has_key(line, keys) and _has_all_values(line, values):
                     return Decision(
                         verdict="supported",
                         confidence=0.95,
@@ -145,7 +154,7 @@ def decide_in_code(claim: Claim, windows: list[Window], absent_paths: set[str]) 
                         window_index=i,
                         judged_by="code",
                     )
-    if claim.kind == "path" and any(v in absent_paths for v in values):
+    if claim.kind == "path" and all(v in absent_paths for v in values):
         return Decision(
             verdict="missing",
             confidence=0.9,
