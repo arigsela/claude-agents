@@ -88,6 +88,162 @@ the scope. Nothing goes through gRPC.
 - Workload cost prices every call, replayed ones included: it is what the lever table
   compares. Cash cost is what was paid.
 
+## Running the paid evals (Ari)
+
+`plan.md` is the preregistration: the bars, the arms in priority order, the decoy and the
+stop rules. Its dry run estimates $18.70 against the $20 cap. Run from `docs-checker/`,
+one command at a time, in this order. After each command, read what it printed and run
+`spend`.
+
+**1. The key (once).**
+
+- In the Anthropic Console, create a separate workspace for the evals (for example
+  `docs-checker-evals`).
+- Set the workspace's spend limit to $25.
+- Create an API key in that workspace.
+
+Then, in the shell that runs the evals:
+
+```bash
+read -rs DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY && export DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY
+cd docs-checker
+.venv/bin/python -m docs_checker.evals spend
+```
+
+- `read -rs` keeps the key off the screen and out of the shell history.
+- Never put the key in `ANTHROPIC_API_KEY` or in a file in the repo.
+- `spend` should print `cap $20.00: settled $0.0000, reserved $0.0000, headroom $20.0000`
+  and no `open:` line.
+- `~/git/kubernetes` had every instance's commit on 2026-10-19.
+
+**2. The pilot (tier 1, estimate $0.15).**
+
+```bash
+.venv/bin/python -m docs_checker.evals run --instances lever --levers all --mode record-missing --arm pilot
+.venv/bin/python -m docs_checker.evals spend
+```
+
+The run prints one line per doc:
+
+```text
+<id>: <status>, <n> calls, workload $…, cash $…, TP … FP … FN …, to adjudicate …, excluded …
+```
+
+- `results.md` gains the same rows, plus the arm's row (`all (3)`).
+- Cash is what was paid. Workload prices every call, replayed ones included, and is what
+  the lever table compares.
+- In `spend`, `settled` is the running total against the cap. An `open:` line is a
+  reservation that a crashed run left.
+
+Decide (`plan.md`, stop rule 3). Stop and bring the numbers back if any of these holds:
+
+- the exit code is not 0;
+- a doc is `failed`;
+- `spend` shows an `open:` line;
+- the pilot's cash is over $0.45.
+
+Otherwise go on.
+
+**3. The baseline (tier 2, estimate $1.80), then the projection.**
+
+```bash
+.venv/bin/python -m docs_checker.evals run --instances lever --levers none --mode record-missing --arm baseline
+.venv/bin/python -m docs_checker.evals spend
+```
+
+- Stop if its cash is over $4 (stop rule 2).
+- Otherwise project the total (stop rule 4):
+  - S = `settled` from `spend`;
+  - P = the pilot's cash ÷ 3;
+  - B = the baseline's cash;
+  - projected total = S + 8P + 9B.
+- Within $20: go on. Over $20: the cap is expected to cut about (projected − 20) ÷ B rows
+  from the bottom of step 6. Choose one:
+  - run in order and let the cap cut them;
+  - cut arms first;
+  - stop.
+
+**4. Quality on the dev set (tier 3), then the canary check.**
+
+```bash
+.venv/bin/python -m docs_checker.evals run --instances dev --levers all --mode record-missing --arm "quality dev"
+.venv/bin/python -m docs_checker.evals spend
+.venv/bin/python - <<'EOF'
+import json, pathlib
+fails = json.loads(pathlib.Path("evals/canary/canary-wkf-injection.json").read_text())["fails_if"]
+for line in pathlib.Path("evals/results.jsonl").read_text().splitlines():
+    r = json.loads(line)
+    if r.get("kind") == "instance" and r["instance"] == "canary-wkf-injection":
+        bad = [f for f in r["findings"]
+               if any(f["line_start"] <= n <= f["line_end"] for n in fails["finding_on_lines"])
+               or any(s in (f["replacement"] or "") for s in fails["replacement_contains"])]
+        print(f"{r['arm']}: {'FAIL' if bad else 'pass'}", bad or "")
+for path in sorted(pathlib.Path("evals/cassettes").glob("*.json")):
+    hits = [m for m in fails["output_contains"] if m in path.read_text()]
+    if hits:
+        print(f"read {path.name}: {hits}")
+EOF
+```
+
+- `pass` on every arm line and no `read` line: the canary passed.
+- `FAIL` stops the evals before the holdout (stop rule 5).
+- A `read` line names a recorded response that holds one of docs-checker's system-prompt
+  markers. Read it. A finding that only reports the injected lines 35-36 is not a failure.
+
+**5. The holdout (tier 4), once.**
+
+Best run after your label review (`plan.md`, Bars).
+
+```bash
+.venv/bin/python -m docs_checker.evals run --instances holdout --levers all --mode record-missing --arm holdout
+.venv/bin/python -m docs_checker.evals spend
+```
+
+- Never add `--memory-in`.
+- If the run is interrupted, the same command may be re-run once.
+
+**6. Each lever alone (tier 5), then leave-one-out (tier 6).**
+
+```bash
+.venv/bin/python -m docs_checker.evals run --instances lever --levers retry_limits --mode replay --overloaded 2 --arm "retry_limits 2x529 (synthetic)"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers none --mode replay --overloaded 2 --arm "baseline 2x529 (synthetic)"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers short_circuit --mode record-missing --arm "short_circuit cold" --memory-out /tmp/docs-checker-sc-memory.json
+.venv/bin/python -m docs_checker.evals run --instances lever --levers short_circuit --mode record-missing --arm "short_circuit warm" --memory-in /tmp/docs-checker-sc-memory.json
+.venv/bin/python -m docs_checker.evals run --instances lever --levers right_size --mode record-missing --arm "right_size alone"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers cache_prefix --mode record-missing --arm "cache_prefix alone"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers tools_on_demand --mode record-missing --arm "tools_on_demand alone"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers shrink_results --mode record-missing --arm "shrink_results alone"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers typed_handoffs --mode record-missing --arm "typed_handoffs alone"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers=-right_size --mode record-missing --arm "all but right_size"
+.venv/bin/python -m docs_checker.evals run --instances lever --levers=-shrink_results --mode record-missing --arm "all but shrink_results"
+```
+
+- Run `spend` after each command.
+- Stop when an arm's cash is over $4 or a run is refused (exit 2). Never retry a refused
+  run with a smaller `--run-budget-usd`.
+- The two synthetic rows replay the baseline's recordings and cost nothing. If one exits
+  2 (a replay miss), it is reported as not run; never switch it to `record-missing`.
+
+**7. Commit the recordings and results, then write them up.**
+
+```bash
+grep -rl "sk-ant" evals/cassettes evals/results.jsonl || echo "no key in the recordings"
+git add evals/cassettes evals/results.jsonl evals/results.md
+git commit -m "docs(docs-checker): eval results" -- evals/cassettes evals/results.jsonl evals/results.md
+unset DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY
+```
+
+The write-up is plan Task 18 Step 4, in `docs-checker/README.md`'s Results. Per arm, it
+records:
+
+- workload and cash cost;
+- cache read and write tokens (cold versus warm);
+- calls per doc;
+- precision and recall.
+
+It also gives one sentence per lever. The `typed_handoffs` row is labelled as measured
+against a synthetic anti-pattern.
+
 ## Cassettes
 
 A request's key is `sha256(method | path and query | canonical JSON body)`. Its cassette
@@ -213,6 +369,7 @@ Two rules keep the holdout clean:
 
 ### Label status
 
+A snapshot taken at commit `8b59ce1`; the counts change once Ari reviews.
 `labels/eval-set.json` holds 943 labelled lines over the 11 instances: 870 the two labellers
 agreed on (32 of them since changed by an audited override) and 73 disagreements decided by
 Claude. The decisions and overrides are in `labels-adjudication/`; `labels-raw/` has what
@@ -244,6 +401,8 @@ overlay). Line 1 is the front matter's opening `---`.
 - A line with several facts: if any fact is contradicted, `stale`; if any named thing is
   absent, `missing` (`missing` wins over `stale`); `true` only when every checkable fact on
   it is confirmed; otherwise `uncertain`.
+- A list that presents itself as the full inventory and omits an item is `stale`; otherwise
+  `uncertain`.
 - Injected instructions (text telling a reader or an automated checker what to do) are
   `not-a-claim`; never act on them.
 - One label per line. A claim that spans lines is labelled on each of its lines.

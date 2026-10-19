@@ -7,7 +7,8 @@ match the manifests they describe, and proposes the corrected line. It is built 
 Status: the runtime and the audit graph are wired and tested offline (scripted models, a
 local git fake of the agent-docs server), and so is the eval harness (record and replay,
 the $20 spend guard, scoring; `evals/README.md`), and the image builds and completes a real
-A2A task in its smoke test (Container); the labelled eval set and the paid evals come next.
+A2A task in its smoke test (Container). The eval set is labelled (pending Ari's review), and
+the evals are preregistered and dry-run (Results); the paid evals come next.
 Design:
 `docs/superpowers/specs/2026-10-18-docs-checker-design.md`; plan:
 `docs/superpowers/plans/2026-10-18-docs-checker-plan.md`.
@@ -149,3 +150,30 @@ rewrites the cassettes from hand-written answers (no API, no key).
 ## Memory
 
 The agent has no database. The weekly trigger holds a JSON memory snapshot, sends it with each run and gets back the full updated snapshot. Trust model: the trigger is the only caller that sends memory, and it is the one that receives the report. Memory is honoured only in `scheduled` mode; any other mode starts with an empty store. A snapshot that is oversize, garbled or the wrong version is ignored with a warning. The graph marks findings carried from memory as `carried: true` in the report.
+
+## Results
+
+Dry run only. No priced eval has run yet (the eval key was not set), so there are no
+measured numbers and no `evals/results.md`.
+
+`evals/plan.md` preregisters the evals: the bars, the arms in priority order, the canary
+and the stop rules. It also holds the dry run: what a priced run of each arm would cost,
+from the harness's per-doc defaults ($0.05 a doc with every lever on, $0.60 for any other
+mix). The dry run made no call.
+
+| Tier | Arms | Docs per arm | Estimate |
+|---|---|---:|---:|
+| 1 pilot | every lever on, the `lever` set | 3 | $0.15 |
+| 2 baseline | every lever off, the `lever` set | 3 | $1.80 |
+| 3 quality | every lever on, the dev set | 7 | $0.35 |
+| 4 holdout | every lever on, run once | 4 | $0.20 |
+| 5 each lever alone | the seven levers on the `lever` set (see notes) | 3 | $12.60 |
+| 6 leave-one-out | `right_size` and `shrink_results` | 3 | $3.60 |
+| **total** | | | **$18.70 of the $20 cap** |
+
+- Tier 5 runs `short_circuit` twice, cold then warm.
+- Its `retry_limits` row replays the baseline under synthetic 529s, so it costs nothing.
+- No arm's estimate is over the $4 single-arm stop.
+- The bar: holdout precision ≥ 0.85 with ≥ 3 TP, with recall reported. It is provisional
+  until Ari reviews the labels.
+- Ari runs them with the commands in `evals/README.md`, "Running the paid evals (Ari)".
