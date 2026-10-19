@@ -1,0 +1,233 @@
+[
+  {
+    "instance": "h658-vault-runbook",
+    "line": 5,
+    "label": "true",
+    "source": "base-apps/vault.yaml:6",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 6,
+    "label": "true",
+    "source": "base-apps/vault/catalog-info.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 8,
+    "label": "true",
+    "source": "base-apps/vault.yaml:23",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 13,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 14,
+    "label": "true",
+    "source": "base-apps/vault/services.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 15,
+    "label": "true",
+    "source": "base-apps/vault/configmaps.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 16,
+    "label": "true",
+    "source": "base-apps/vault/httproute.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 17,
+    "label": "true",
+    "source": "base-apps/vault/certificate.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 18,
+    "label": "true",
+    "source": "terraform/roots/asela-cluster/vault-kms.tf",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 19,
+    "label": "true",
+    "source": "base-apps/dex/configmap.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 20,
+    "label": "true",
+    "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 21,
+    "label": "true",
+    "source": "scripts/vault-backup.sh",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 22,
+    "label": "true",
+    "source": "scripts/vault-restore.sh",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 23,
+    "label": "true",
+    "source": "recovery/CLUSTER-RECOVERY.md",
+    "note": "Path exists."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 30,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml:11",
+    "note": "StatefulSet vault, replicas 1, so pod vault-0."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 31,
+    "label": "true",
+    "source": "base-apps/vault/configmaps.yaml:27",
+    "note": "awskms us-east-2; env vars from vault-kms-credentials at statefulsets.yaml:97-116; plan doc path exists."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 34,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml:50",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 35,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml:50",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 36,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml:50",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 39,
+    "label": "true",
+    "source": "terraform/roots/asela-cluster/vault-kms.tf:93",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 40,
+    "label": "true",
+    "source": "terraform/roots/asela-cluster/vault-kms.tf:91",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 43,
+    "label": "true",
+    "source": "base-apps/vault/cluster_role_bindings.yaml:16",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 44,
+    "label": "true",
+    "source": "base-apps/donetick/db-secret-store.yaml:11",
+    "note": "SecretStores use KV v2 at k8s-secrets."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 47,
+    "label": "true",
+    "source": "base-apps/istio-ingress/authorizationpolicy.yaml:165",
+    "note": "Certificate vault-arigsela-tls (certificate.yaml:4); dex vault client redirectURIs at dex/configmap.yaml:36."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 48,
+    "label": "true",
+    "source": "base-apps/vault/services.yaml:48",
+    "note": "No Vault OIDC config in git; istio-ingress runbook exists."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 52,
+    "label": "true",
+    "source": "base-apps/vault/statefulsets.yaml:197",
+    "note": "OnDelete; resizePolicy NotRequired at :164."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 55,
+    "label": "true",
+    "source": "base-apps/vault/configmaps.yaml:26",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 58,
+    "label": "true",
+    "source": "scripts/vault-backup.sh:13",
+    "note": "Suspends Argo app, scales to 0, helper pod tar, scales to 1, verifies unseal, writes .sha256."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 61,
+    "label": "true",
+    "source": "scripts/vault-backup.sh:21",
+    "note": ""
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 64,
+    "label": "true",
+    "source": "scripts/vault-backup.sh:130",
+    "note": "Refuses without --argo-app when a selfHeal app manages the StatefulSet."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 65,
+    "label": "true",
+    "source": "scripts/vault-backup.sh:91",
+    "note": "Online needs --allow-inconsistent and names the artifact INCONSISTENT; in-cluster destinations refused."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 66,
+    "label": "true",
+    "source": "terraform/roots/asela-cluster/vault-kms.tf:40",
+    "note": "prevent_destroy at :28; ciphertext/Shamir note at vault-backup.sh:17-18."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 69,
+    "label": "true",
+    "source": "scripts/vault-restore.sh:14",
+    "note": "Checksum (:64), INCONSISTENT refusal (:46), aside (:72), extract (:78); argo-sync-window pause covers master-app and PVC apps incl. vault."
+  }
+]

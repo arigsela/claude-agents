@@ -1,0 +1,478 @@
+[
+ {
+  "instance": "h751-suc-docs",
+  "line": 4,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:49",
+  "note": "concurrency 1, cordon true (:63), no drain; control plane manual (:3)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller.yaml:30",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/crd.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 17,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 18,
+  "label": "true",
+  "source": "scripts/hop-verify.sh",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 19,
+  "label": "true",
+  "source": "scripts/argo-sync-window.sh",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 20,
+  "label": "true",
+  "source": "scripts/k3s-backup.sh",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 21,
+  "label": "true",
+  "source": "scripts/k3s-restore.sh",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 22,
+  "label": "true",
+  "source": "docs/plans/k3s-1.36-upgrade-plan.md",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 23,
+  "label": "true",
+  "source": "SPEC.md",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 29,
+  "label": "stale",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:288",
+  "note": "The controller image is rancher/system-upgrade-controller:v0.20.2, not v0.20.1."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 31,
+  "label": "stale",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+  "note": "The Plan is at v1.37.1+k3s1 and ansible/playbooks/k3s-authn.yml:37 names v1.37.1 as the cluster's version, so 1.36 is not the last hop and 1.36 -> 1.37 is not the next."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 34,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller.yaml:36",
+  "note": "Namespace system-upgrade (:30); ignores .spec.conversion (:44-47); docs/plans/argocd-drift-diagnosis.md exists."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 35,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/crd.yaml:6",
+  "note": "controller.yaml objects are wave -1 (:8 etc.), the Plan has none; test_suc_plan.py:96 checks the order."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 36,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:243",
+  "note": "Recreate; nodeAffinity control-plane Exists (:256); runAsUser 65534 (:298); ConfigMap default-controller-env (:226)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 37,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:216",
+  "note": "Backoff 99 (:217), TTL 900 (:222)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 38,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:221",
+  "note": "Polling 15m (:223), leader election (:214)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 39,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:219",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 41,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 42,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:49",
+  "note": "cordon true at :63; no drain key."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 43,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:61",
+  "note": "upgrade.image at :66."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 44,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:53",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 45,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:13",
+  "note": "Mechanism per plan-agent.yaml:8-14 and privileged jobs (controller.yaml:221); timings are history."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 46,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:12",
+  "note": "Backstop term at :58-59."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 49,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:56",
+  "note": "No plan-server.yaml in the directory; controller pinned to the control plane (controller.yaml:256)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 51,
+  "label": "stale",
+  "source": "ansible/playbooks/k3s-authn.yml:35",
+  "note": "k3s-authn.yml also installs config.yaml.d/20-disable-bundled.yaml, so the directory no longer holds only config.yaml and 10-authn.yaml."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 54,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 55,
+  "label": "stale",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:288",
+  "note": "controller.yaml runs v0.20.2 (a Renovate tag bump), so it is not the v0.20.1 release manifest as stated."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 56,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:64",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 57,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:64",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 58,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:41",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 59,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:56",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 60,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:74",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 61,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:89",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 62,
+  "label": "true",
+  "source": "tests/k3s-upgrade/test_suc_plan.py:96",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 64,
+  "label": "true",
+  "source": "scripts/hop-verify.sh:7",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 65,
+  "label": "true",
+  "source": "scripts/argo-sync-window.sh:24",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 66,
+  "label": "true",
+  "source": "scripts/k3s-backup.sh",
+  "note": "All four scripts exist (k3s-restore.sh, pg-backup.sh, vault-backup.sh)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 68,
+  "label": "true",
+  "source": ".github/workflows/validate.yaml:323",
+  "note": "Drills in tests/k3s-upgrade/test_backup_scripts.py, test_pg_backup.py, test_vault_backup.py."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 69,
+  "label": "true",
+  "source": "tests/admission-policies/conftest.py:34",
+  "note": "k3s_image at ansible/playbooks/k3s-authn.yml:37; TARGETS at tests/k3s-upgrade/test_api_scan.py:25."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 70,
+  "label": "true",
+  "source": "SPEC.md",
+  "note": "path exists."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 71,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:45",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 72,
+  "label": "uncertain",
+  "source": "",
+  "note": "No non-doc file states V.4; only SPEC.md (documentation) does."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 73,
+  "label": "true",
+  "source": "scripts/hop-verify.sh:228",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 74,
+  "label": "uncertain",
+  "source": "scripts/hop-verify.sh:10",
+  "note": "hop-verify.sh measures the V.9 window but no non-doc file states the 15 min bound."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 75,
+  "label": "true",
+  "source": "scripts/k3s-backup.sh:9",
+  "note": "V.16 at scripts/k3s-restore.sh:6."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 76,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller.yaml:7",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 77,
+  "label": "true",
+  "source": "scripts/argo-sync-window.sh:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 78,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:16",
+  "note": "V.51 (IPAM) at scripts/hop-verify.sh:155."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 81,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:29",
+  "note": "CRD says unspecified drain means no drain (crd.yaml:94-95); test_suc_plan.py:64."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 82,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 83,
+  "label": "true",
+  "source": "base-apps/istio-cni.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 84,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 85,
+  "label": "true",
+  "source": "scripts/hop-verify.sh:38",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 86,
+  "label": "true",
+  "source": "scripts/hop-verify.sh:155",
+  "note": "219 of 254 and 14 h are incident history (hop-verify.sh:157-158)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 87,
+  "label": "true",
+  "source": "scripts/argo-sync-window.sh:43",
+  "note": "Pauses master-app (:73) plus PVC/StatefulSet apps; this app has no PVC."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 88,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:256",
+  "note": ""
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 89,
+  "label": "true",
+  "source": "scripts/k3s-backup.sh:4",
+  "note": "WAL handling at :146-152."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 90,
+  "label": "true",
+  "source": "scripts/k3s-backup.sh:96",
+  "note": "The script stops k3s and has no start step."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 91,
+  "label": "true",
+  "source": "scripts/k3s-restore.sh:78",
+  "note": "Artifact holds only server/ (k3s-backup.sh:141); installer re-run at k3s-restore.sh:103; drills use --skip-service (tests/k3s-upgrade/test_backup_scripts.py:195)."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 92,
+  "label": "true",
+  "source": "base-apps/kyverno.yaml:15",
+  "note": "Param-informer denial ridden out per scripts/hop-verify.sh:332."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 93,
+  "label": "stale",
+  "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+  "note": "The cluster has already hopped to v1.37.1 with structured authn in place (ansible/playbooks/k3s-authn.yml:37), so the next hop is not the first with it."
+ },
+ {
+  "instance": "h751-suc-docs",
+  "line": 94,
+  "label": "true",
+  "source": "base-apps/system-upgrade-controller/controller.yaml:219",
+  "note": ""
+ }
+]

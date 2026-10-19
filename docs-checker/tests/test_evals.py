@@ -350,6 +350,18 @@ def test_an_eval_set_holding_a_placeholder_does_not_load(tmp_path, capsys):
     assert [lab.label for lab in load_eval_set(evals).labels] == ["stale"]
 
 
+def test_an_eval_set_reads_labels_only_from_labels(tmp_path):
+    """``labels-raw/`` keeps the labellers' own outputs for provenance; never scored."""
+    evals = tmp_path / "evals"
+    write_eval_set(evals, [Instance(id="a", doc=DOC, commit="c" * 40)])
+    raw = evals / "labels-raw" / "a"
+    raw.mkdir(parents=True)
+    (raw / "a.json").write_text(json.dumps([{"instance": "a", "line": 5, "label": "stale"}]))
+    (evals / "labels").mkdir()
+    (evals / "labels" / "set.json").write_text(json.dumps([label("a", 7, "true").model_dump()]))
+    assert [(lab.line, lab.label) for lab in load_eval_set(evals).labels] == [(7, "true")]
+
+
 def test_results_and_the_console_show_excluded_findings(tmp_path):
     base = {
         "ts": "t1",

@@ -34,7 +34,7 @@ def decisions(*items: dict) -> list[labels.Decision]:
     return [labels.Decision.model_validate(item) for item in items]
 
 
-def override(line: int, expected: str, label: str, source: str = "", note: str = "why") -> dict:
+def override(line: int, expected: str | None, label: str, source: str = "") -> dict:
     """An override row as the adjudicator writes it (``from`` is a JSON key)."""
     return {"instance": "i", "line": line, "from": expected, "label": label, "source": source}
 
@@ -192,7 +192,7 @@ def test_only_a_blank_line_disagreement_can_be_dropped():
     result = merged()
     dropping = [{"instance": "i", "line": 2, "drop": True}, *DECISIONS[1:]]
     with pytest.raises(
-        ValueError, match="drop is only for a claim label on a blank line: i line 2"
+        ValueError, match="drop is only for a claim label on a blank line or past the end: i line 2"
     ):
         labels.adjudicate(result.labels, decisions(*dropping), result.disagreements)
     for both_or_neither in ({**DECISIONS[0], "drop": True}, {"instance": "i", "line": 2}):
@@ -240,7 +240,8 @@ def test_adjudicate_cli_requires_the_disagreements_and_names_a_malformed_row(tmp
         == 0
     )
     first = LabelledLine.model_validate(json.loads(path.read_text())[0])
-    assert (first.line, first.label, first.note) == (1, "stale", "audit: f.yaml:1 moved")
+    assert (first.line, first.label) == (1, "stale")
+    assert first.note == "audit (was true, source f.yaml:1): f.yaml:1 moved"
 
 
 # --- overrides ---------------------------------------------------------------------------------
@@ -259,7 +260,7 @@ def test_an_override_changes_an_agreed_row_audited():
         "line": 1,
         "label": "stale",
         "source": "f.yaml:1",
-        "note": "audit: the tag moved",
+        "note": "audit (was true, source f.yaml:1): the tag moved",
         "labeller_a": "true",
         "labeller_b": "true",
         "adjudicated_by": "claude",
@@ -276,6 +277,8 @@ def test_an_override_changes_an_agreed_row_audited():
         ),
         ([override(2, "uncertain", "true")], "i line 2 is a disagreement: decide it"),
         ([override(10, "true", "stale")], "an override for i line 10, which has no label"),
+        ([override(1, None, "stale")], "an added row for i line 1, which has one \\(true\\)"),
+        ([override(8, None, "true")], "i line 8 is a disagreement: decide it"),
         (
             [override(1, "true", "stale"), override(1, "true", "missing")],
             "the overrides labels i line 1 twice",
@@ -288,6 +291,63 @@ def test_an_override_must_name_an_agreed_row_and_its_current_label(items, error)
         labels.adjudicate(
             result.labels, decisions(*DECISIONS), result.disagreements, overrides(*items)
         )
+
+
+def test_an_override_from_null_adds_a_row_no_labeller_wrote():
+    result = merged()
+    added = {**override(10, None, "true", "f.yaml:10"), "note": "the claim A put on line 8"}
+    done = labels.adjudicate(
+        result.labels, decisions(*DECISIONS), result.disagreements, overrides(added)
+    )
+    assert done[-1].model_dump() == {
+        "instance": "i",
+        "line": 10,
+        "label": "true",
+        "source": "f.yaml:10",
+        "note": "audit (added): the claim A put on line 8",
+        "labeller_a": None,
+        "labeller_b": None,
+        "adjudicated_by": "claude",
+        "reviewed_by_ari": False,
+    }
+
+
+def test_an_override_note_keeps_what_it_replaced():
+    result = merged()
+    done = labels.adjudicate(
+        result.labels,
+        decisions(*DECISIONS),
+        result.disagreements,
+        overrides(
+            {**override(3, "not-a-claim", "true", "f.yaml:3"), "note": "a claim after all"},
+            {**override(9, "true", "stale", "f.yaml:9"), "note": "the tag moved"},
+        ),
+    )
+    by_line = {lab.line: lab for lab in done}
+    assert by_line[3].note == "audit (was not-a-claim): a claim after all"  # it had no source
+    assert by_line[9].note == "audit (was true, source f.yaml:9): the tag moved"
+    assert (by_line[9].labeller_a, by_line[9].labeller_b) == ("true", "true")
+
+
+def test_a_blank_line_disagreement_takes_only_drop():
+    result = merged()
+    labelled = [*DECISIONS[:4], row(8, "true", "f.yaml:8")]
+    with pytest.raises(ValueError, match="past the end can only be dropped .*: i line 8"):
+        labels.adjudicate(result.labels, decisions(*labelled), result.disagreements)
+
+
+def test_a_row_past_the_end_of_the_doc_is_treated_like_a_blank_line():
+    past = labels.merge(
+        rows(row(10, "true", "f.yaml:1"), row(11, "not-a-claim")),
+        rows(row(10, "true", "f.yaml:1")),
+        DOCS,  # "i" has 9 lines
+    )
+    assert [(d.line, d.blank_line) for d in past.disagreements] == [(10, True)]
+    assert past.dropped == [{"labeller": "a", "instance": "i", "line": 11}]
+    done = labels.adjudicate(
+        past.labels, decisions({"instance": "i", "line": 10, "drop": True}), past.disagreements
+    )
+    assert done == []
 
 
 def test_an_override_needs_a_note():
@@ -345,7 +405,7 @@ def test_merged_disagreements_fail_validate_until_adjudicated(evals, tmp_path, c
     assert cli.main([*merge, "--out", str(out), "--disagreements", str(dis), *repo_args]) == 0
     printed = capsys.readouterr().out
     assert "3 disagreements (1 of them a claim label on a blank line" in printed
-    assert "1 not-a-claim rows on blank lines dropped" in printed
+    assert "1 not-a-claim rows on blank lines or past the end dropped" in printed
     assert "dropped: labeller a, h-app line 9" in printed
 
     assert cli.main(["validate", *repo_args]) == 1

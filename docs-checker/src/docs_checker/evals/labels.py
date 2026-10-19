@@ -4,8 +4,9 @@ Run through ``python -m docs_checker.evals.curate`` (``cli.py``: ``merge``, ``ad
 ``validate``); ``curate.py`` builds the instances these labels name.
 
 - ``merge`` joins two labellers' rows (``{instance, line, label, source, note}``) over the
-  served docs. A ``not-a-claim`` row on a blank line is dropped and counted; any other row
-  on a blank line makes that line a disagreement (``blank_line``: probably off by one). The
+  served docs. A ``not-a-claim`` row on a blank line or past the end of the doc is dropped
+  and counted; any other row there makes that line a disagreement (``blank_line``:
+  probably off by one). The
   same label from both is an agreed label; a line one labeller marked ``not-a-claim`` and
   the other left out stays ``not-a-claim``. Every other line, ``stale`` against ``missing``
   included, is a disagreement: a row in the disagreements file, and a placeholder row in
@@ -13,10 +14,12 @@ Run through ``python -m docs_checker.evals.curate`` (``cli.py``: ``merge``, ``ad
   said; note ``AWAITING``). ``validate`` refuses a placeholder, and loading an eval set or
   scoring raises ``AwaitingAdjudication`` on one, until it is adjudicated.
 - ``adjudicate`` replaces each placeholder with its decision (``adjudicated_by: "claude"``):
-  every disagreement must be decided once and every decision must answer one. A decision
-  ``{"drop": true}`` removes a blank-line disagreement instead (the label belongs on another
-  line: decide or override that one). ``overrides`` change agreed rows, audited: each names
-  the label it expects (``from``) and its note gets the prefix ``audit: ``.
+  every disagreement must be decided once and every decision must answer one. A
+  ``blank_line`` disagreement takes only ``{"drop": true}``, which removes it (the label
+  belongs on another line: decide or override that one). ``overrides`` are audited changes
+  to rows that are not disagreements: each names the label it replaces (``from``), and its
+  note becomes ``audit (was <from>[, source <old source>]): <note>``; ``"from": null`` adds
+  a row no labeller wrote (none may exist there), noted ``audit (added): <note>``.
 - ``validate`` lists every problem; see ``validate``.
 """
 
@@ -60,7 +63,7 @@ class Disagreement(_Row):
     line: int = Field(ge=1)
     a: Side | None
     b: Side | None
-    blank_line: bool = False  # a claim label on a blank line: probably off by one
+    blank_line: bool = False  # a claim label on a blank line or past the end: off by one?
 
 
 class Decision(_Row):
@@ -81,11 +84,12 @@ class Decision(_Row):
 
 
 class Override(_Row):
-    """An audited change to an agreed row: ``from`` must be the row's current label."""
+    """An audited change to a row that is not a disagreement. ``from`` must be the row's
+    current label; ``"from": null`` adds a row no labeller wrote, where there is none."""
 
     instance: str
     line: int = Field(ge=1)
-    expected: Label = Field(alias="from")
+    expected: Label | None = Field(alias="from")  # required; null adds a row
     label: Label
     source: str = ""
     note: str = Field(min_length=1)  # why: an audited change says what it fixes
@@ -157,7 +161,7 @@ def merge(
     for who, rows in (("a", by_a), ("b", by_b)):
         for key in sorted(rows):
             lines = docs[key[0]]
-            if key[1] <= len(lines) and not lines[key[1] - 1].strip():
+            if key[1] > len(lines) or not lines[key[1] - 1].strip():  # no text there
                 if rows[key].label == "not-a-claim":
                     del rows[key]
                     dropped.append({"labeller": who, "instance": key[0], "line": key[1]})
@@ -243,14 +247,30 @@ def adjudicate(
     if stray:
         raise ValueError(f"placeholders missing from the disagreements file: {_where(stray)}")
     if bad_drops := {k for k, d in decided.items() if d.drop and not sides[k].blank_line}:
-        raise ValueError(f"drop is only for a claim label on a blank line: {_where(bad_drops)}")
+        raise ValueError(
+            f"drop is only for a claim label on a blank line or past the end: {_where(bad_drops)}"
+        )
+    if labelled := {k for k, d in decided.items() if not d.drop and sides[k].blank_line}:
+        raise ValueError(
+            "a claim label on a blank line or past the end can only be dropped (label the "
+            f"line it belongs to with an override): {_where(labelled)}"
+        )
     audited = _keyed(overrides, "the overrides")
     for key, override in audited.items():
         row = by_key.get(key)
-        if row is None:
-            raise ValueError(f"an override for {_where([key])}, which has no label")
-        if row.awaiting or key in sides:
+        if key in sides or (row is not None and row.awaiting):
             raise ValueError(f"{_where([key])} is a disagreement: decide it, don't override it")
+        if override.expected is None:
+            if row is not None:
+                raise ValueError(
+                    f"an added row for {_where([key])}, which has one ({row.label}): override "
+                    f'it with "from": "{row.label}"'
+                )
+            continue
+        if row is None:
+            raise ValueError(
+                f'an override for {_where([key])}, which has no label ("from": null adds one)'
+            )
         if row.label != override.expected:
             raise ValueError(
                 f"the override for {_where([key])} expects {override.expected}; the row is "
@@ -273,12 +293,24 @@ def adjudicate(
             reviewed_by_ari=False,
         )
     for key, override in audited.items():
+        if override.expected is None:  # no labeller wrote it: say so
+            by_key[key] = LabelledLine(
+                instance=key[0],
+                line=key[1],
+                label=override.label,
+                source=override.source,
+                note=f"audit (added): {override.note}",
+                adjudicated_by="claude",
+                reviewed_by_ari=False,
+            )
+            continue
         row = by_key[key]
+        was = f"was {row.label}" + (f", source {row.source}" if row.source else "")
         by_key[key] = row.model_copy(
             update={
                 "label": override.label,
                 "source": override.source,
-                "note": f"audit: {override.note}",
+                "note": f"audit ({was}): {override.note}",
                 "adjudicated_by": "claude",
                 "reviewed_by_ari": False,
             }

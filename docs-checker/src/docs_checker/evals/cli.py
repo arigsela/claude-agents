@@ -43,7 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     adjudicate.add_argument("--labels", type=Path, required=True)
     adjudicate.add_argument("--decisions", type=Path, help="with --disagreements")
     adjudicate.add_argument("--disagreements", type=Path, help="with --decisions")
-    adjudicate.add_argument("--overrides", type=Path, help="audited changes to agreed rows")
+    adjudicate.add_argument("--overrides", type=Path, help="audited changes and additions")
     with_repo("validate", "check the labels against the served docs")
     return parser
 
@@ -57,8 +57,9 @@ def _merge(args: argparse.Namespace) -> None:
     blank = sum(d.blank_line for d in merged.disagreements)
     print(
         f"{agreed} agreed lines, {len(merged.disagreements)} disagreements ({blank} of them a "
-        f"claim label on a blank line; in {args.out} as rows awaiting adjudication), "
-        f"{len(merged.dropped)} not-a-claim rows on blank lines dropped"
+        f"claim label on a blank line or past the end; in {args.out} as rows awaiting "
+        f"adjudication), {len(merged.dropped)} not-a-claim rows on blank lines or past the "
+        "end dropped"
     )
     for row in merged.dropped:
         print(f"  dropped: labeller {row['labeller']}, {row['instance']} line {row['line']}")

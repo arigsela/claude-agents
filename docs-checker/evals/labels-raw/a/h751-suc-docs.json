@@ -1,0 +1,471 @@
+[
+  {
+    "instance": "h751-suc-docs",
+    "line": 5,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller.yaml:17",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 6,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/catalog-info.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 8,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller.yaml:30",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 13,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 14,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 15,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/crd.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 16,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 17,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 18,
+    "label": "true",
+    "source": "scripts/hop-verify.sh",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 19,
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 20,
+    "label": "true",
+    "source": "scripts/k3s-backup.sh",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 21,
+    "label": "true",
+    "source": "scripts/k3s-restore.sh",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 22,
+    "label": "true",
+    "source": "docs/plans/k3s-1.36-upgrade-plan.md",
+    "note": "Path exists."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 23,
+    "label": "true",
+    "source": "SPEC.md",
+    "note": "Path exists."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 29,
+    "label": "stale",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:288",
+    "note": "Doc says SUC v0.20.1; controller image is v0.20.2. Plan/workers/control-plane/SQLite facts confirmed."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 31,
+    "label": "stale",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+    "note": "Plan pins v1.37.1+k3s1, so 1.35.6->1.36.4 is no longer the last hop and 1.36->1.37 is no longer next."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 34,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller.yaml:36",
+    "note": "prune true; ignores .spec.conversion at :47; drift doc path exists."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 35,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/crd.yaml:6",
+    "note": "CRD -2, controller.yaml objects -1, Plan unannotated; test_suc_plan.py:96 checks order."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 36,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:243",
+    "note": "Recreate, control-plane nodeAffinity (:256), tolerations, UID 65534 (:298), ConfigMap default-controller-env (:226)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 37,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:216",
+    "note": "900 s deadline, backoff 99 (:217), TTL 900 (:222)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 38,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:221",
+    "note": "Privileged, 15m polling (:223), leader elect (:214)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 39,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:219",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 41,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 42,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:49",
+    "note": "concurrency 1, cordon true (:63), no drain key."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 43,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:61",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 44,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:53",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 45,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:10",
+    "note": "Mechanism and shim survival (:13) confirmed; 1.36-hop timings are history, not checkable."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 46,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:12",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 49,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:56",
+    "note": "plan-server.yaml absent and test-enforced."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 51,
+    "label": "stale",
+    "source": "ansible/playbooks/k3s-authn.yml:35",
+    "note": "The playbook also installs config.yaml.d/20-disable-bundled.yaml into /etc/rancher/k3s, so the listed contents are incomplete."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 54,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 55,
+    "label": "stale",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:288",
+    "note": "Manifests are v0.20.2, not v0.20.1."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 56,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 57,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:64",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 58,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:41",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 59,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:56",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 60,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:74",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 61,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:89",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 62,
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:96",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 64,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:7",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 65,
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh:24",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 66,
+    "label": "true",
+    "source": "scripts/vault-backup.sh",
+    "note": "All four scripts exist."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 68,
+    "label": "true",
+    "source": ".github/workflows/validate.yaml:323",
+    "note": "Drills use k3s, postgres (test_pg_backup.py:24) and vault (test_vault_backup.py:29) images."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 69,
+    "label": "true",
+    "source": "tests/admission-policies/conftest.py:34",
+    "note": "k3s_image at ansible/playbooks/k3s-authn.yml:37; TARGETS at tests/k3s-upgrade/test_api_scan.py:25."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 70,
+    "label": "true",
+    "source": "SPEC.md",
+    "note": "Path exists."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 71,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:45",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 72,
+    "label": "uncertain",
+    "source": "",
+    "note": "V.4's content is only in SPEC.md (a doc)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 73,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:228",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 74,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:447",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 75,
+    "label": "true",
+    "source": "scripts/k3s-backup.sh:9",
+    "note": "V.16 proven restore at k3s-restore.sh:6."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 76,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller.yaml:7",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 77,
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh:4",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 78,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:155",
+    "note": "V.50 istio-cni at plan-agent.yaml:16."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 81,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:29",
+    "note": "Test fails on drain (test_suc_plan.py:66)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 82,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:16",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 83,
+    "label": "true",
+    "source": "base-apps/istio-cni.yaml:22",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 84,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:22",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 85,
+    "label": "true",
+    "source": "base-apps/istio-cni.yaml:18",
+    "note": "Ambient profile; no namespace carries istio.io/dataplane-mode."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 86,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:157",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 87,
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh:43",
+    "note": "Pauses master-app (:66) plus PVC apps; SUC app has no PVC."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 88,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:256",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 89,
+    "label": "true",
+    "source": "scripts/k3s-backup.sh:4",
+    "note": "WAL handling at :146."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 90,
+    "label": "true",
+    "source": "scripts/k3s-backup.sh:97",
+    "note": "Cold mode stops k3s; no start follows."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 91,
+    "label": "true",
+    "source": "scripts/k3s-restore.sh:76",
+    "note": "Artifact holds only server/ (k3s-backup.sh tar -C STAGE server); --skip-service at :14."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 92,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:285",
+    "note": ""
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 93,
+    "label": "stale",
+    "source": "ansible/playbooks/k3s-authn.yml:37",
+    "note": "Cluster is on v1.37.1 (also plan-agent.yaml:46), so the hop after authn landed has happened; it is no longer \"the next hop\"."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 94,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/controller.yaml:219",
+    "note": ""
+  }
+]

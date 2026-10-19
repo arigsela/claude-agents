@@ -1,0 +1,443 @@
+[
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/catalog-info.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/catalog-info.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/agent-audit-web.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/agent-audit-web.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/service.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/httproute.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/reference-grant.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 18,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/certificate.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/serviceaccounts.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 20,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/secret-stores.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 21,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/external-secrets.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 22,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-s3-read.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 23,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-s3-read-key.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 24,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-ecr-push.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 25,
+  "label": "true",
+  "source": "base-apps/postgresql/init-agent-audit-web-role.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 26,
+  "label": "true",
+  "source": "base-apps/postgresql/external-secrets-agent-audit-web-db.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 27,
+  "label": "true",
+  "source": "base-apps/dex/configmap.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 28,
+  "label": "true",
+  "source": "scripts/agent-audit-acknowledged.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 36,
+  "label": "uncertain",
+  "source": "",
+  "note": "How the app defines a finding lives in the app repo (kagent 1.0 judges per call per agent-audit-cronjob.yaml:14)."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 37,
+  "label": "uncertain",
+  "source": "",
+  "note": "App page features live in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 38,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:41",
+  "note": "Reads the database (AUDIT_DB_*) and the S3 export (AUDIT_S3_BUCKET :64)."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 39,
+  "label": "uncertain",
+  "source": "",
+  "note": "Response-body handling is app behaviour, not in this repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 41,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:27",
+  "note": "The ungated alert's --summary line is argument-free."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 42,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:28",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 43,
+  "label": "uncertain",
+  "source": "base-apps/agent-audit-web/catalog-info.yaml:14",
+  "note": "Repo slug confirmed; its visibility (private) is not settled by the repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 47,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/httproute.yaml:15",
+  "note": "Gateway main; allow-list gateway-allow covers the host (istio-ingress/authorizationpolicy.yaml:250)."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 48,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/httproute.yaml:27",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 49,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 50,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:132",
+  "note": "oauth2-proxy :4180, OIDC via Dex, S256 PKCE, authenticated-emails-file."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 51,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:121",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 52,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:29",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 53,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:37",
+  "note": "Role kagent_audit_web_ro per postgresql/init-agent-audit-web-role.yaml:3."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 54,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:46",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 55,
+  "label": "uncertain",
+  "source": "base-apps/postgresql/init-agent-audit-web-role.yaml:2",
+  "note": "SELECT-only confirmed; read-only transactions and a statement timeout are app-side, not in the repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 56,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-s3-read.yaml:20",
+  "note": "Bucket asela-agent-audit-record at deployment.yaml:64."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 57,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-s3-read.yaml:54",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 60,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:132",
+  "note": "Allow-list host at istio-ingress/authorizationpolicy.yaml:250; Dex admits any GitHub account (dex/configmap.yaml:95)."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 61,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:31",
+  "note": "Service exposes only 4180 (service.yaml:16)."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 62,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:101",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 63,
+  "label": "stale",
+  "source": "base-apps/agent-audit-web/deployment.yaml:34",
+  "note": "The deployed image is v0.3.0, which reads kagent_v1; the line says v0.2.0 is deployed and ignores it."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 64,
+  "label": "uncertain",
+  "source": "",
+  "note": "Archive-only labelling and per-session precedence are app behaviour."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 65,
+  "label": "uncertain",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:343",
+  "note": "kind: risk, the -risk.jsonl key, /risk and the Grafana rule (logging/grafana-alerting.yaml:181) confirmed; the app-side reading details are not."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 68,
+  "label": "uncertain",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-ecr-push.yaml:16",
+  "note": "Digest pin, release.yml v* tags, OIDC role and us-east-2 repo confirmed; immutable tags is not settled by the repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 69,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/secret-stores.yaml:11",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 70,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/external-secrets.yaml:21",
+  "note": "Role agent-audit-web and SA eso-agent-audit-web at secret-stores.yaml:16-18."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 71,
+  "label": "uncertain",
+  "source": "base-apps/agent-audit-web/external-secrets.yaml:45",
+  "note": "Listed properties and both ESO SAs confirmed (postgresql/eso-agent-audit-web-db-serviceaccount.yaml), but the key also holds db-name-v1 (:61), which this list omits."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 72,
+  "label": "true",
+  "source": "base-apps/dex/external-secret.yaml:7",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 73,
+  "label": "true",
+  "source": "base-apps/postgresql/init-agent-audit-web-role.yaml:3",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 74,
+  "label": "true",
+  "source": "base-apps/agent-audit-aws-infrastructure/web-s3-read-key.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 75,
+  "label": "true",
+  "source": "base-apps/dex/configmap.yaml:98",
+  "note": "Confidential (secretEnv) with S256 PKCE per dex/configmap.yaml:91-93."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 76,
+  "label": "true",
+  "source": "base-apps/wan-ip-monitor/cronjob.yaml:131",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 79,
+  "label": "uncertain",
+  "source": "",
+  "note": "The app's code is in another repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 80,
+  "label": "uncertain",
+  "source": "",
+  "note": "Vendoring is in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 81,
+  "label": "uncertain",
+  "source": "",
+  "note": "Re-vendoring is in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 82,
+  "label": "uncertain",
+  "source": "",
+  "note": "vendor_sync.py is in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 83,
+  "label": "uncertain",
+  "source": "",
+  "note": "The upstream-drift workflow is in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 85,
+  "label": "uncertain",
+  "source": "",
+  "note": "Whether the app vendors the acknowledged list is in the app repo."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 86,
+  "label": "uncertain",
+  "source": "scripts/agent-audit-acknowledged.yaml:4",
+  "note": "What the app vendors is in the app repo; the acknowledged-list description is confirmed."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 87,
+  "label": "true",
+  "source": "scripts/agent-audit-acknowledged.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 88,
+  "label": "uncertain",
+  "source": "",
+  "note": "App behaviour."
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 89,
+  "label": "true",
+  "source": "scripts/agent-audit-acknowledged.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "h751-agent-audit-web-docs",
+  "line": 90,
+  "label": "true",
+  "source": "scripts/agent-audit.py:1149",
+  "note": ""
+ }
+]

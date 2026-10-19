@@ -1,0 +1,1248 @@
+[
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:154",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/kagent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 18,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 20,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-stateless.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 21,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-chat.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 22,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 23,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-haiku-5-5.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 24,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 25,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 26,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 27,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 28,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 29,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 30,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 31,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 32,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 33,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 34,
+  "label": "true",
+  "source": "base-apps/substrate/runbook.md",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 35,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 36,
+  "label": "true",
+  "source": "scripts/ask-hk",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 37,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 38,
+  "label": "true",
+  "source": "renovate.json5",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 39,
+  "label": "true",
+  "source": "docs/plans/kagent-1-0-on-k8s-1-37-implementation-plan.md",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 44,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:34",
+  "note": "kagent-controller backs /mcp and /agents/kagent/ (httproute-mcp.yaml:32-55); no per-agent pods per kagent-secrets.yaml:39-40."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 45,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml:4",
+  "note": "kagent-ui is the UI route backend (httproute.yaml:33), kagent-tools the tool-server SA (cluster-rbac/kagent-tools.yaml:184), agent-docs-mcp the MCPServer."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 46,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:86",
+  "note": "WorkerPool kagent-default; label key ate.dev/worker-pool per ansible/playbooks/tasks/patch-node.yml:94."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 47,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:102",
+  "note": "gVisor workers (kagent.yaml:88 sandboxClass gvisor); Substrate destination namespace ate-system."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 48,
+  "label": "true",
+  "source": "base-apps/substrate/runbook.md",
+  "note": "path exists at the commit."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 53,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:1",
+  "note": "CRDs Agent, AgentTemplate, Harness, ModelConfig, RemoteMCPServer."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 55,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:31",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 56,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:24",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 57,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:35",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 58,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:34",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 59,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment name kagent-controller is rendered by the chart; only the Service is in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 60,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:70",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 61,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:84",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 62,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:102",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 66,
+  "label": "uncertain",
+  "source": "",
+  "note": "ConfigMap name k8s-credential-provider-namespace-policy is rendered by the Substrate chart, not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 67,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:88",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 68,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-external-secret.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 69,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:86",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 70,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:84",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 73,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:8",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 74,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 75,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 76,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:32",
+  "note": "haiku-5-5.yaml:32 also 16000."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 77,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:33",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 80,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:147",
+  "note": "requireApproval: true only in k8s-agent.yaml:147 and istio-agent.yaml:181."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 81,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:65",
+  "note": "subAgents k8s-agent/istio-agent; TASK_STATE_INPUT_REQUIRED in scripts/kagent_a2a.py:57."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 82,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:62",
+  "note": "From the sessionIdleTTL comment: turns waiting for approval never expire."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 83,
+  "label": "true",
+  "source": "scripts/ask-hk:90",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 84,
+  "label": "true",
+  "source": "base-apps/kagent/httproute.yaml:26",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 85,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:48",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 86,
+  "label": "uncertain",
+  "source": "",
+  "note": "Backstage's X-User-Id value is not set anywhere in this repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 88,
+  "label": "true",
+  "source": "scripts/agent-audit.py:319",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 89,
+  "label": "uncertain",
+  "source": "scripts/agent-audit.py:307",
+  "note": "Repo shows approvals [{id, approved}]; rejection_reason is not confirmed."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 90,
+  "label": "true",
+  "source": "scripts/agent-audit.py:305",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 94,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:13",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 95,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:14",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 96,
+  "label": "true",
+  "source": "base-apps/logging/grafana-alerting.yaml:90",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 97,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:113",
+  "note": "app=agent-audit label; --ungated flag at scripts/agent-audit.py:1086."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 98,
+  "label": "true",
+  "source": "scripts/agent-audit.py:1079",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 100,
+  "label": "true",
+  "source": "base-apps/postgresql/runbook.md:67",
+  "note": "Referenced runbook and section exist."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 104,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:61",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 106,
+  "label": "true",
+  "source": "ansible/playbooks/tasks/patch-node.yml:94",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 107,
+  "label": "true",
+  "source": "ansible/playbooks/tasks/patch-node.yml:91",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 108,
+  "label": "true",
+  "source": "base-apps/substrate/catalog-info.yaml:10",
+  "note": "app=atelet label; Substrate in ate-system."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 109,
+  "label": "uncertain",
+  "source": "",
+  "note": "substrate#1761 and the ~6 s resume deadline are upstream facts."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 110,
+  "label": "uncertain",
+  "source": "ansible/playbooks/tasks/cpu-flags-preflight.yml:6",
+  "note": "substrate#1657 confirmed; whether workers have no anti-affinity depends on ate-controller defaults."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 111,
+  "label": "uncertain",
+  "source": "",
+  "note": "No anti-affinity in the WorkerPool values, but ate-controller defaults are upstream."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 112,
+  "label": "true",
+  "source": "ansible/playbooks/tasks/patch-node.yml:109",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 113,
+  "label": "true",
+  "source": "ansible/playbooks/patch.yml:23",
+  "note": "patch.yml imports tasks/patch-node.yml, which deletes the worker pods."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 115,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:41",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 116,
+  "label": "true",
+  "source": "base-apps/substrate/runbook.md",
+  "note": "path exists at the commit."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 119,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:164",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 120,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:324",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 122,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:53",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 124,
+  "label": "true",
+  "source": "base-apps/wan-ip-monitor/configmap-reconcile.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 125,
+  "label": "true",
+  "source": "base-apps/wan-ip-monitor/configmap-reconcile.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 126,
+  "label": "true",
+  "source": "scripts/ask-hk:18",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 127,
+  "label": "true",
+  "source": "scripts/ask-hk:19",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 130,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:60",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 131,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:61",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 132,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:66",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 133,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:63",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 136,
+  "label": "uncertain",
+  "source": "",
+  "note": "Open-issue status and date are live state / SPEC, not settled by config."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 137,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment agent-docs-mcp is rendered by kmcp from the MCPServer; not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 138,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 139,
+  "label": "uncertain",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml:10",
+  "note": "Repo says read-only single-repo token; the exact PAT permissions are not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 140,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml:17",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 141,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 142,
+  "label": "uncertain",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml:26",
+  "note": "Env-var injection confirmed; the Deployment name is rendered by kmcp."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 145,
+  "label": "true",
+  "source": "tests/admission-policies/fixtures/crds/kagent-crds-1.0.0-alpha11.yaml:7924",
+  "note": "RemoteMCPServer printer column Accepted."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 146,
+  "label": "true",
+  "source": "tests/admission-policies/fixtures/crds/kagent-crds-1.0.0-alpha11.yaml:8164",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 147,
+  "label": "uncertain",
+  "source": "",
+  "note": "Pod labels are set by the kmcp controller, not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 148,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml:11",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 149,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:123",
+  "note": "An omitted tools list exposes all tools, but agent-identity-mcp-toolnames denies that, so only listed tools are bound."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 151,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml",
+  "note": "Taxonomy exists; fail-closed on new tools per cluster-rbac/kagent-tools.yaml:26."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 156,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:25",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 157,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml:17",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 158,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 159,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 160,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-stateless.yaml:14",
+  "note": "k8s-reader uses kagent-stateless (kagent: {}); base-apps/ollama/runbook.md exists."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 161,
+  "label": "true",
+  "source": "base-apps/kagent/agents/k8s-reader.yaml:34",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 164,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment name kagent-controller is rendered by the chart."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 165,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 166,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:34",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 168,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:102",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 169,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:29",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 170,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:17",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 171,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:15",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 175,
+  "label": "uncertain",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:163",
+  "note": "Secrets are denied, but api.kagent.dev is granted read-only (:163-165), so 'everything except secrets' holds only as the file header's own summary (:1)."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 176,
+  "label": "uncertain",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:163",
+  "note": "Same claim as line 175."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 177,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:87",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 178,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:184",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 179,
+  "label": "uncertain",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:23",
+  "note": "The header names a date but has no list to note a group in; the dated list is the rule at :86."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 184,
+  "label": "true",
+  "source": "scripts/ask-hk:37",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 185,
+  "label": "true",
+  "source": "scripts/ask-hk:24",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 186,
+  "label": "true",
+  "source": "scripts/ask-hk:25",
+  "note": "UI host at base-apps/kagent/httproute.yaml:26."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 189,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 190,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 191,
+  "label": "true",
+  "source": "scripts/validate-agent-identity.py:277",
+  "note": "validate-agent-capability.py:318 also takes --repo-root."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 192,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:30",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 193,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:69",
+  "note": "kagent.yaml:157-158 and kagent-crds.yaml:26-27 also prune/selfHeal."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 198,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-mcp-external-secret.yaml:8",
+  "note": "Four stores, four ESO SAs, four Vault roles."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 199,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-mcp-external-secret.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 203,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 204,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-mcp-external-secret.yaml:13",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 205,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:24",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 206,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-external-secret.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 208,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:22",
+  "note": "refreshInterval 1h on all four ExternalSecrets."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 209,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 211,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 212,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml:23",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 213,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment k8s-credential-provider is rendered by the Substrate chart."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 214,
+  "label": "uncertain",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml:26",
+  "note": "Env var confirmed; Deployment name rendered by kmcp."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 215,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 216,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:15",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 217,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment name kagent-controller is rendered by the chart."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 218,
+  "label": "true",
+  "source": "base-apps/substrate/runbook.md:121",
+  "note": "Referenced section exists."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 225,
+  "label": "uncertain",
+  "source": "",
+  "note": "Deployment name kagent-controller is rendered by the chart."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 230,
+  "label": "true",
+  "source": "renovate.json5:134",
+  "note": "kagent.yaml:28 1.0.0-alpha11, substrate.yaml:46 0.5.0-alpha2."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 231,
+  "label": "true",
+  "source": "renovate.json5:168",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 233,
+  "label": "true",
+  "source": "renovate.json5:148",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 234,
+  "label": "true",
+  "source": "renovate.json5:178",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 235,
+  "label": "true",
+  "source": "renovate.json5:142",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 236,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:48",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 237,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:89",
+  "note": "kmcp :118, tools :130, workerImage :89; substrate-podcert.yaml:35."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 238,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 239,
+  "label": "true",
+  "source": "tests/admission-policies/fixtures/crds/kagent-crds-1.0.0-alpha11.yaml",
+  "note": "Three Harnesses share one golang-adk digest (harnesses/*.yaml)."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 241,
+  "label": "stale",
+  "source": "renovate.json5:156",
+  "note": "The golang-adk Harness image now joins the kagent-substrate group on Dashboard approval (\"never a Harness-only bump\"), so Renovate opens no Harness-only PR."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 242,
+  "label": "stale",
+  "source": "renovate.json5:156",
+  "note": "Same claim as line 241."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 243,
+  "label": "true",
+  "source": "tests/admission-policies",
+  "note": "directory exists."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 244,
+  "label": "true",
+  "source": "tests/agent-capability",
+  "note": "directory exists."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 246,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:200",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 247,
+  "label": "true",
+  "source": "scripts/pg-backup.sh:2",
+  "note": "pgvector Deployment at base-apps/postgresql/deployments.yaml:31."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 248,
+  "label": "uncertain",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:64",
+  "note": "Bucket exists; the pg/ prefix is not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 249,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:1",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 250,
+  "label": "true",
+  "source": "base-apps/postgresql/init-substrate-db.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 251,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-audit-role.yaml:13",
+  "note": "init-agent-audit-web-role.yaml:10 too."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 252,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:1",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 254,
+  "label": "true",
+  "source": "base-apps/kagent/agents",
+  "note": "Seven Agent manifests."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 255,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:152",
+  "note": "k8s_delete_resource in the requireApproval binding."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 256,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:110",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 264,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:5",
+  "note": "0.10.3 also in tests/agent-audit/test_agent_audit.py:186."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 265,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 266,
+  "label": "uncertain",
+  "source": "",
+  "note": "PR numbers #737/#734 are not recorded in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 267,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:53",
+  "note": ""
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 268,
+  "label": "true",
+  "source": "base-apps/backstage/rbac.yaml:150",
+  "note": "--source v1 in the audit CronJobs (agent-audit-cronjob.yaml:74)."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 269,
+  "label": "uncertain",
+  "source": "",
+  "note": "The archive's read-only setting is not in the repo."
+ },
+ {
+  "instance": "h751-kagent-runbook",
+  "line": 271,
+  "label": "true",
+  "source": "docs/plans/kagent-1-0-on-k8s-1-37-implementation-plan.md",
+  "note": "path exists; Task 5.5 holds the rollback."
+ }
+]

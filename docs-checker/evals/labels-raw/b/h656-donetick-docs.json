@@ -1,0 +1,478 @@
+[
+ {
+  "instance": "h656-donetick-docs",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/donetick/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/donetick/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/donetick/external-secrets.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/donetick/db-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/donetick/certificate.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 18,
+  "label": "true",
+  "source": "base-apps/donetick/httproute.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/postgresql/donetick-database.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 20,
+  "label": "true",
+  "source": "base-apps/postgresql/external-secrets-donetick.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 29,
+  "label": "uncertain",
+  "source": "",
+  "note": "Licence and upstream feature set are upstream facts."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 30,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream image architectures are an upstream fact."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 33,
+  "label": "stale",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:1",
+  "note": "The repo says CNPG Postgres backs chores-tracker (its chores_tracker database is in postgresql-cluster, :16), not MySQL."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 34,
+  "label": "uncertain",
+  "source": "catalog/platform-entities.yaml:137",
+  "note": "Only donetick names the chores-tracker System in this repo (the System 'supersedes the chores-tracker app'); chores-tracker's own repo could still register an entity."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 35,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:16",
+  "note": "CHORES_TRACKER_INTEGRATION.md exists at the repo root."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 40,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:10",
+  "note": "One replica, one container (:35-36)."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 41,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:42",
+  "note": "serve_frontend on port 2021 (configmap.yaml:31, deployments.yaml:57)."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 42,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:36",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 44,
+  "label": "true",
+  "source": "base-apps/donetick/httproute.yaml:24",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 45,
+  "label": "true",
+  "source": "base-apps/donetick/httproute.yaml:22",
+  "note": "Backend Service donetick (:31)."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 47,
+  "label": "true",
+  "source": "base-apps/donetick/certificate.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 48,
+  "label": "uncertain",
+  "source": "base-apps/donetick/certificate.yaml:4",
+  "note": "Listener is https-chores and TLS terminates with donetick-tls (istio-ingress/gateway.yaml:230), but the Certificate is named donetick-tls; only its dnsName is chores."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 49,
+  "label": "true",
+  "source": "base-apps/donetick/reference-grant.yaml:15",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 51,
+  "label": "true",
+  "source": "base-apps/postgresql/donetick-database.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 52,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:21",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 53,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-scheduled-backup.yaml:1",
+  "note": "No PVC under base-apps/donetick."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 54,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-scheduled-backup.yaml:13",
+  "note": "Retention 30d at cnpg-cluster.yaml:80."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 57,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:20",
+  "note": "GORM AutoMigrate per deployments.yaml:11."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 58,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:11",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 59,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:14",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 65,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:9",
+  "note": "Mounted at /config (deployments.yaml:96)."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 66,
+  "label": "true",
+  "source": "base-apps/donetick/external-secrets.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 67,
+  "label": "true",
+  "source": "base-apps/donetick/db-external-secret.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 68,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:106",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 69,
+  "label": "true",
+  "source": "base-apps/donetick/certificate.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 70,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:235",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 72,
+  "label": "true",
+  "source": "base-apps/postgresql/external-secrets-donetick.yaml:34",
+  "note": "Same key donetick-db read in donetick (db-external-secret.yaml:20) and postgresql."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 73,
+  "label": "true",
+  "source": "base-apps/donetick/db-secret-store.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 74,
+  "label": "true",
+  "source": "base-apps/postgresql/eso-donetick-db-serviceaccount.yaml:8",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 75,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:110",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 76,
+  "label": "true",
+  "source": "base-apps/donetick/db-external-secret.yaml:2",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 80,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:235",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 81,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:240",
+  "note": "Four /32 ipBlocks at :240-243."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 84,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:174",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 85,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:44",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 86,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:43",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 87,
+  "label": "stale",
+  "source": "base-apps/donetick/configmap.yaml:16",
+  "note": "configmap.yaml sets is_user_creation_disabled: true (signup closed 2026-08-03), not false."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 88,
+  "label": "stale",
+  "source": "base-apps/donetick/configmap.yaml:16",
+  "note": "Same claim as line 87."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 89,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:14",
+  "note": "No bootstrap admin or CLI confirmed; the flip instruction only presumes line 87's stale value."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 90,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:14",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 91,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:14",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 92,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:67",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 93,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:66",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 94,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:68",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 95,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:71",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 96,
+  "label": "uncertain",
+  "source": "",
+  "note": "The DSN construction is upstream code."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 97,
+  "label": "uncertain",
+  "source": "",
+  "note": "The DSN construction is upstream code."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 98,
+  "label": "uncertain",
+  "source": "",
+  "note": "Configurability of the DSN is upstream."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 99,
+  "label": "uncertain",
+  "source": "",
+  "note": "How donetick stores timestamps is upstream behaviour."
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 100,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:42",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 101,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:24",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 102,
+  "label": "true",
+  "source": "base-apps/donetick/deployments.yaml:27",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 103,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:58",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 104,
+  "label": "true",
+  "source": "base-apps/donetick/configmap.yaml:60",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 106,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 107,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:17",
+  "note": ""
+ },
+ {
+  "instance": "h656-donetick-docs",
+  "line": 108,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-cluster.yaml:16",
+  "note": ""
+ }
+]

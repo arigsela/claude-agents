@@ -12,6 +12,7 @@ goes through a $20 spend guard (spec §8).
 | `planted/<id>.json` | One planted fact each, with its answer key | yes |
 | `canary/<id>.md`, `canary/<id>.json` | The canary doc and its sidecar (injected fix, pass condition) | yes |
 | `labels/*.json` | Labelled lines, one JSON list per file (Task 17) | yes |
+| `labels-raw/{a,b}/<id>.json` | Each labeller's own rows, kept for provenance; never loaded or scored | yes |
 | `cassettes/` | Recorded model responses, one file per request key | yes |
 | `results.jsonl` | One record per run and per arm, appended | yes |
 | `results.md` | The same records as a table, between its markers; prose outside them is kept | yes |
@@ -117,7 +118,9 @@ prompt, model or lever that reaches the request is a miss.
 it): planted mutations and the canary doc. An overlay is served as if committed at the
 instance's commit.
 
-`labels/<name>.json` is a list of labelled lines:
+`labels/<name>.json` is a list of labelled lines. Loading the eval set reads `labels/*.json`
+only: `labels-raw/a/` and `labels-raw/b/` keep each labeller's own rows, as written, so every
+label can be traced back to what the two labellers said; nothing reads them for a run.
 
 ```json
 [{"instance": "kagent-live", "line": 42, "label": "stale",
@@ -155,8 +158,8 @@ clone, read-only; the CLI is `cli.py`) builds it (`curate.py`) and handles the l
     `finding_on_lines`, a proposed replacement containing one of `replacement_contains`, or
     any output containing one of `output_contains` (markers from docs-checker's own system
     prompts). A finding that reports the injected lines themselves is not a failure.
-- `merge` drops (and counts) `not-a-claim` rows on blank lines; any other row on a blank
-  line makes that line a disagreement (`blank_line`: probably off by one). It keeps lines
+- `merge` drops (and counts) `not-a-claim` rows on blank lines or past the end of the doc;
+  any other row there makes that line a disagreement (`blank_line`: probably off by one). It keeps lines
   both labellers gave the same label, with A's source (B's goes in the note when it
   differs), and lines one marked `not-a-claim` and the other left out. Anything else,
   `stale` against `missing` included, is a disagreement: a row with both sides in the
@@ -166,12 +169,15 @@ clone, read-only; the CLI is `cli.py`) builds it (`curate.py`) and handles the l
   labels a line twice is refused.
 - `adjudicate --decisions F --disagreements F` decides every disagreement once (each
   decision answers one): the placeholder becomes the decision, with
-  `adjudicated_by: "claude"` and both labellers' calls; `{"drop": true}` removes a
-  blank-line disagreement instead (put the label on the line it belongs to).
-  `adjudicate --overrides F` changes agreed rows, audited: each override
-  `{instance, line, from, label, source, note}` must name the row's current label in
-  `from`, keeps both labellers' calls, sets `adjudicated_by: "claude"` and prefixes the note
-  with `audit: `. Either or both may be given.
+  `adjudicated_by: "claude"` and both labellers' calls. A `blank_line` disagreement takes
+  only `{"drop": true}`, which removes it; put the label on the line it belongs to with a
+  decision or an override.
+  `adjudicate --overrides F` makes audited changes to rows that are not disagreements: each
+  override `{instance, line, from, label, source, note}` must name the row's current label
+  in `from`, keeps both labellers' calls, sets `adjudicated_by: "claude"` and writes the
+  note as `audit (was <from>[, source <old source>]): <note>`. `"from": null` adds a row no
+  labeller wrote (refused where a row exists), with no labeller calls and the note
+  `audit (added): <note>`. Either or both of decisions and overrides may be given.
 - `validate` fails on a label past the end of the served doc or on a blank line, a line
   labelled twice, an instance with no labels, a placeholder or any other claim line a
   labeller skipped or the two disagree on without adjudication, a planted line whose label

@@ -18,6 +18,7 @@ import pytest
 from docs_checker import prompts
 from docs_checker.evals import cli, curate
 from docs_checker.evals.harness import EVALS_DIR, load_eval_set
+from docs_checker.evals.labels import LabellerRow, load_rows
 from docs_checker.evals.localrepo import LocalRepoSession
 from tests.test_repo import git
 from tests.test_scope import commit_all
@@ -481,6 +482,18 @@ def test_committed_instances_match_their_specs():
         assert (instance.doc, instance.split) == (spec["path"], spec["split"])
     lever = eval_set.sets["lever"]
     assert len(lever) == 3 and all(eval_set.instances[i].split == "dev" for i in lever)
+
+
+def test_raw_labeller_outputs_are_kept_whole_and_apart():
+    """``labels-raw/{a,b}`` hold each labeller's own rows (provenance), one file per
+    instance; the eval set never reads them (only ``labels/*.json``)."""
+    ids = set(load_eval_set(EVALS_DIR).instances)
+    for who in ("a", "b"):
+        files = sorted((EVALS_DIR / "labels-raw" / who).glob("*.json"))
+        assert {f.stem for f in files} == ids, who
+        for file in files:
+            rows = load_rows(file, LabellerRow)
+            assert rows and {r.instance for r in rows} == {file.stem}, file
 
 
 def test_canary_markers_are_the_checkers_own_system_prompts():

@@ -1,0 +1,233 @@
+[
+ {
+  "instance": "h658-vault-runbook",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/vault/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/vault/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/vault/services.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/vault/configmaps.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/vault/httproute.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/vault/certificate.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 18,
+  "label": "true",
+  "source": "terraform/roots/asela-cluster/vault-kms.tf",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/dex/configmap.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 20,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 21,
+  "label": "true",
+  "source": "scripts/vault-backup.sh",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 22,
+  "label": "true",
+  "source": "scripts/vault-restore.sh",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 23,
+  "label": "true",
+  "source": "recovery/CLUSTER-RECOVERY.md",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 30,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:11",
+  "note": "StatefulSet vault (pod vault-0) in namespace vault."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 31,
+  "label": "true",
+  "source": "base-apps/vault/configmaps.yaml:26",
+  "note": "region us-east-2 (:27); KMS env vars from vault-kms-credentials at statefulsets.yaml:97-116; the plan doc exists."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 34,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:50",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 35,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:50",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 36,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:50",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 39,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:100",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 40,
+  "label": "true",
+  "source": "terraform/roots/asela-cluster/vault-kms.tf:91",
+  "note": "Atlantis autoplans on *.tf (atlantis.yaml:9-13) and applies on an open PR (.github/workflows/terraform-apply.yaml)."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 43,
+  "label": "true",
+  "source": "base-apps/vault/cluster_role_bindings.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 44,
+  "label": "uncertain",
+  "source": "base-apps/donetick/db-secret-store.yaml:16",
+  "note": "Per-consumer stores use roles not named after the namespace (e.g. donetick-db, kagent-db), while default stores match; the convention is ambiguous."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 47,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml:165",
+  "note": "Certificate vault-arigsela-tls (vault/certificate.yaml:4); Dex vault client redirectURIs (dex/configmap.yaml:36-40)."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 48,
+  "label": "uncertain",
+  "source": "base-apps/wan-ip-monitor/cronjob.yaml:150",
+  "note": "wan-ip-monitor reconciles the vault.arigsela.com record, but istio-ingress/authorizationpolicy.yaml:20-26 still describes DNS as part of its rotation fix; svc/vault 8200 is correct (vault/services.yaml:48)."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 52,
+  "label": "true",
+  "source": "base-apps/vault/statefulsets.yaml:197",
+  "note": "resizePolicy NotRequired at :162-166; Argo automated sync at base-apps/vault.yaml:25."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 55,
+  "label": "true",
+  "source": "base-apps/vault/configmaps.yaml:26",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 58,
+  "label": "true",
+  "source": "scripts/vault-backup.sh:13",
+  "note": "Suspend app, scale 0, helper pod tar, scale 1, unseal check, sha256 (vault-backup.sh:147-186; sha256 at :196)."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 61,
+  "label": "true",
+  "source": "scripts/vault-backup.sh:22",
+  "note": ""
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 64,
+  "label": "true",
+  "source": "scripts/vault-backup.sh:133",
+  "note": "Refuses when the selfHeal Argo app managing the StatefulSet is not named."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 65,
+  "label": "true",
+  "source": "scripts/vault-backup.sh:75",
+  "note": "Online needs --allow-inconsistent and is branded INCONSISTENT (:91-106)."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 66,
+  "label": "true",
+  "source": "terraform/roots/asela-cluster/vault-kms.tf:40",
+  "note": "prevent_destroy at :28; Shamir keys cannot decrypt per scripts/vault-backup.sh:18."
+ },
+ {
+  "instance": "h658-vault-runbook",
+  "line": 69,
+  "label": "true",
+  "source": "scripts/vault-restore.sh:14",
+  "note": "Checksum, INCONSISTENT gate, move aside, local --data-dir; argo-sync-window.sh suspends master-app first (:10-12) and finds vault via volumeClaimTemplates (:14-17)."
+ }
+]

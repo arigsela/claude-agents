@@ -1,0 +1,170 @@
+[
+ {
+  "instance": "planted-ollama-port",
+  "line": 4,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:118",
+  "note": "No GPU request in the spec; model is an image volume pinned by digest."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:7",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/ollama/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 9,
+  "label": "not-a-claim",
+  "source": "",
+  "note": "Review date metadata, not a fact about the deployment."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 11,
+  "label": "true",
+  "source": "base-apps/ollama/catalog-info.yaml:11",
+  "note": "Same tags as catalog-info.yaml."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/ollama/services.yaml",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 15,
+  "label": "true",
+  "source": "models/nomic-embed-text/Dockerfile",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 16,
+  "label": "true",
+  "source": "scripts/build-model-image.sh",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 18,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-chat.yaml",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 25,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:30",
+  "note": "ollama/ollama:0.35.1 pinned by digest; /models read-only; models/qwen/Dockerfile:2 confirms the retired qwen recipe."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 28,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:27",
+  "note": "replicas 1, RollingUpdate maxSurge 1/maxUnavailable 0, nodeSelector workload=application, no GPU request (lines 10-27)."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 30,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:118",
+  "note": "Image volume at /models read-only, OLLAMA_MODELS/NOPRUNE, tag v1.5 and digest 970aa74c in build-model-image.sh:71-73, latest manifest in Dockerfile:24, emptyDir /root/.ollama."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 32,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream embedding behaviour across Ollama versions and a past measurement; the repo cannot settle it."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 34,
+  "label": "true",
+  "source": "base-apps/ollama/services.yaml:12",
+  "note": "Port 11434 ClusterIP; probes in deployments.yaml:86-110; URL matches embedding-model-config.yaml:17."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 37,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:56",
+  "note": ""
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 38,
+  "label": "true",
+  "source": "scripts/build-model-image.sh:73",
+  "note": "Tag v1.5 and digest set at lines 71-73; no PVC manifest under base-apps/ollama."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 39,
+  "label": "stale",
+  "source": "base-apps/ollama/services.yaml:12",
+  "note": "Service port is 11434, not 11435."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 42,
+  "label": "true",
+  "source": "base-apps/ollama/deployments.yaml:58",
+  "note": "requests 250m/1Gi, limits 3/2Gi (lines 57-66), OLLAMA_KEEP_ALIVE=-1 (line 41)."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 45,
+  "label": "stale",
+  "source": "base-apps/kagent/agents/implementer.yaml:34",
+  "note": "Nine agents exist; implementer and restarter also use kagent-stateless, so it is not 'six of seven, all but k8s-reader'."
+ },
+ {
+  "instance": "planted-ollama-port",
+  "line": 47,
+  "label": "uncertain",
+  "source": "",
+  "note": "768 dims/kagent_v1/15-day TTL match embedding-model-config.yaml:3-4 and kagent-memory.yaml:22, but 'memory resets at every alpha bump' is a procedure the repo cannot settle."
+ }
+]

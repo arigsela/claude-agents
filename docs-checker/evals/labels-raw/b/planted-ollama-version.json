@@ -1,0 +1,163 @@
+[
+  {
+    "instance": "planted-ollama-version",
+    "line": 4,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:118",
+    "note": "No GPU request in the spec; model is a digest-pinned image volume."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 5,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:7",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 6,
+    "label": "true",
+    "source": "base-apps/ollama/catalog-info.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 8,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:5",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 11,
+    "label": "true",
+    "source": "base-apps/ollama/catalog-info.yaml:11",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 13,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 14,
+    "label": "true",
+    "source": "base-apps/ollama/services.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 15,
+    "label": "true",
+    "source": "models/nomic-embed-text/Dockerfile",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 16,
+    "label": "true",
+    "source": "scripts/build-model-image.sh",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 17,
+    "label": "true",
+    "source": "base-apps/kagent/embedding-model-config.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 18,
+    "label": "true",
+    "source": "base-apps/kagent/harnesses/kagent-memory.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 19,
+    "label": "true",
+    "source": "base-apps/kagent/harnesses/kagent-chat.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 25,
+    "label": "stale",
+    "source": "base-apps/ollama/deployments.yaml:30",
+    "note": "Doc says 0.34.2; the image is ollama/ollama:0.35.1."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 28,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:10",
+    "note": "replicas 1, RollingUpdate maxSurge 1/maxUnavailable 0, nodeSelector workload=application, no GPU request; 'either worker' is cluster state, not counted."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 30,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:118",
+    "note": "Image volume at /models read-only, OLLAMA_MODELS/NOPRUNE, emptyDir /root/.ollama; v1.5 and sha256:970aa74c in scripts/build-model-image.sh:71-73; latest manifest in Dockerfile:24."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 32,
+    "label": "uncertain",
+    "source": "",
+    "note": "Upstream model behaviour and a 2026-10-06 measurement; the repo cannot settle it."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 34,
+    "label": "true",
+    "source": "base-apps/ollama/services.yaml:12",
+    "note": "Port 11434 ClusterIP, httpGet / probes and /dev/tcp /api/embed startupProbe in deployments.yaml:86-110; URL in embedding-model-config.yaml:17."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 37,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:30",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 38,
+    "label": "true",
+    "source": "scripts/build-model-image.sh:71",
+    "note": "No PVC in base-apps/ollama at this commit."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 39,
+    "label": "true",
+    "source": "base-apps/ollama/services.yaml:12",
+    "note": ""
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 42,
+    "label": "true",
+    "source": "base-apps/ollama/deployments.yaml:57",
+    "note": "requests 250m/1Gi, limits 3/2Gi, OLLAMA_KEEP_ALIVE=-1, ~274MB in comment."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 45,
+    "label": "stale",
+    "source": "base-apps/kagent/agents/implementer.yaml:34",
+    "note": "Nine Agents exist; implementer, restarter and k8s-reader all use kagent-stateless, so 'six of the seven ... all but k8s-reader' is wrong (jupyter's NetworkPolicy also opens egress to Ollama, base-apps/jupyter/network-policy.yaml:78)."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 47,
+    "label": "true",
+    "source": "renovate.json5:175",
+    "note": "Every kagent alpha bump is a clean-database migration (renovate.json5:175-187); 768 dims/kagent_v1 in embedding-model-config.yaml:3-4, 15-day default in kagent-memory.yaml:22."
+  }
+]

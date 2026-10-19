@@ -1,0 +1,184 @@
+[
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 4,
+    "label": "true",
+    "source": "catalog/api-entities.yaml:12",
+    "note": "FastAPI per API entity, JWT_SECRET_KEY and DATABASE_URL from Vault."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 5,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/deployments.yaml:14",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 6,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/catalog-info.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 8,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/deployments.yaml:5",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 11,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/catalog-info.yaml:11",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 13,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/deployments.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 14,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/configmaps.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 15,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/external_secrets.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 16,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/secret-store.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 17,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/httproute.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 18,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/certificate.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 19,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/reference-grant.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 20,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/services.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 21,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 22,
+    "label": "true",
+    "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 23,
+    "label": "true",
+    "source": "catalog/api-entities.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 29,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/deployments.yaml:24",
+    "note": "API entity name/description/URL in catalog/api-entities.yaml:11-20; Always, 8000, /health probes and scrape path in deployments.yaml."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 32,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/deployments.yaml:7",
+    "note": "replicas 2, nodeSelector, envFrom ConfigMap+Secret; Service 80->8000; frontend namespace and API_URL in weather-kitchen-frontend/deployments.yaml:5,33."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 35,
+    "label": "true",
+    "source": "base-apps/istio-ingress/gateway.yaml:179",
+    "note": "Both routes use sectionName https-weather-kitchen on Gateway main."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 36,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/httproute.yaml:23",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 37,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml:35",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 39,
+    "label": "stale",
+    "source": "base-apps/weather-kitchen-backend/certificate.yaml:5",
+    "note": "Doc says the namespace is weather-kitchen-backend; Certificate and ReferenceGrant are in weather-kitchen (gateway.yaml:188 too)."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 42,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/secret-store.yaml:9",
+    "note": "Store name, path, v2, role, SA and the three ExternalSecret keys all match."
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 45,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/configmaps.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 46,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/external_secrets.yaml:9",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkb-namespace",
+    "line": 47,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/services.yaml:10",
+    "note": ""
+  }
+]

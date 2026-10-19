@@ -1,0 +1,149 @@
+[
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 4,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml:31",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 5,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml:7",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 6,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/catalog-info.yaml:4",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 8,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml:5",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 11,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/catalog-info.yaml:11",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 13,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 14,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 15,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/services.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 16,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/httproute.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 17,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/certificate.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 18,
+    "label": "true",
+    "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 19,
+    "label": "missing",
+    "source": "base-apps/admission-policies/inject-ecr-pull-secret.yaml",
+    "note": "Deleted by the instance overlay."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 25,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml:24",
+    "note": "Always, 3000, runAsUser 1001, readOnlyRootFilesystem, three emptyDirs."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 28,
+    "label": "missing",
+    "source": "base-apps/admission-policies/inject-ecr-pull-secret.yaml",
+    "note": "Names the inject-ecr-pull-secret policy file, deleted by the overlay; the rest of the line matches."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 31,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml:33",
+    "note": "Both routes attach to sectionName https-weather-kitchen on Gateway main."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 32,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml:35",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 33,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/httproute.yaml:11",
+    "note": ""
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 35,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/httproute.yaml:8",
+    "note": "Routing outcome follows from the two route files; exact-over-prefix precedence is stated in that comment."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 37,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-backend/certificate.yaml:13",
+    "note": "Cert and ReferenceGrant in backend dir, DNS-01 in cert-manager/letsencrypt-route53.yaml:16, one authz rule at authorizationpolicy.yaml:221; no frontend certificate."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 40,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/deployments.yaml:30",
+    "note": "No ConfigMap or ExternalSecret in the frontend directory."
+  },
+  {
+    "instance": "planted-wkf-deleted-source",
+    "line": 41,
+    "label": "true",
+    "source": "base-apps/weather-kitchen-frontend/services.yaml:12",
+    "note": ""
+  }
+]

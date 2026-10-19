@@ -1,0 +1,2767 @@
+[
+ {
+  "instance": "kagent-live",
+  "line": 4,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:28",
+  "note": "Chart 1.0.0-alpha11; v1alpha3 AgentTemplate/Harness/Agent; gVisor WorkerPool (kagent.yaml:95); MCP servers in base-apps/kagent/."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 5,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 6,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 8,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:161",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 9,
+  "label": "not-a-claim",
+  "source": "",
+  "note": "Review date metadata, not a fact about the deployment."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 11,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:11",
+  "note": "Same tags as catalog-info.yaml."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 13,
+  "label": "true",
+  "source": "base-apps/kagent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 14,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 15,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 16,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 17,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-reader.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 18,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 19,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/istio-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 21,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 22,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:3",
+  "note": "Title matches: sub-agent hand-off, not delegation."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 23,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/skill-suggester.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 24,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/dungeon-crawler-carl-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 26,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/implementer.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 27,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/implementer.yaml:27",
+  "note": "Class propose; PRs under GitHub App arigsela-implementer (implementer-mcp.yaml:2-3)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 29,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/restarter.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 30,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/restarter.yaml:35",
+  "note": "Class admin; one gated k8s_delete_resource (lines 103-109) for the dispatcher's leak verdict (lines 7-8)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 31,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 32,
+  "label": "true",
+  "source": "base-apps/kagent/agents/k8s-reader.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 33,
+  "label": "true",
+  "source": "base-apps/kagent/agents/k8s-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 34,
+  "label": "true",
+  "source": "base-apps/kagent/agents/istio-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 35,
+  "label": "true",
+  "source": "base-apps/kagent/agents/build-orchestrator.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 36,
+  "label": "true",
+  "source": "base-apps/kagent/agents/skill-suggester.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 37,
+  "label": "true",
+  "source": "base-apps/kagent/agents/dungeon-crawler-carl-agent.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 38,
+  "label": "true",
+  "source": "base-apps/kagent/agents/implementer.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 39,
+  "label": "true",
+  "source": "base-apps/kagent/agents/restarter.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 40,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 41,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-stateless.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 42,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-chat.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 44,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 45,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:32",
+  "note": "maxTokens and promptCaching at lines 32-33."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 46,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-haiku-5-5.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 47,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 48,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 49,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 50,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 51,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp-remote.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 52,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 53,
+  "label": "true",
+  "source": "base-apps/kagent/implementer-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 54,
+  "label": "true",
+  "source": "base-apps/kagent/implementer-mcp-remote.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 55,
+  "label": "true",
+  "source": "base-apps/kagent/implementer-mcp-secret-store.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 56,
+  "label": "true",
+  "source": "base-apps/kagent/eso-implementer-mcp-serviceaccount.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 57,
+  "label": "true",
+  "source": "base-apps/kagent/implementer-mcp-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 58,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 59,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-owner-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 60,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-readwrite-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 61,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 62,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-secret-store.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 63,
+  "label": "true",
+  "source": "base-apps/kagent/eso-kagent-anthropic-serviceaccount.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 64,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-db-secret-store.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 65,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-secret-store.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 66,
+  "label": "true",
+  "source": "base-apps/kagent/eso-agent-docs-mcp-serviceaccount.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 67,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp-external-secret.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 68,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp-secret-store.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 69,
+  "label": "true",
+  "source": "base-apps/kagent/eso-brave-search-mcp-serviceaccount.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 70,
+  "label": "true",
+  "source": "base-apps/kagent/httproute.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 72,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 73,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:53",
+  "note": "/mcp (line 32) and /agents/kagent/ (line 53)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 74,
+  "label": "true",
+  "source": "base-apps/kagent/certificate.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 75,
+  "label": "true",
+  "source": "base-apps/kagent/certificate-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 76,
+  "label": "true",
+  "source": "base-apps/kagent/reference-grant.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 77,
+  "label": "true",
+  "source": "base-apps/kagent/reference-grant-mcp.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 78,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 79,
+  "label": "true",
+  "source": "base-apps/istio-ingress/authorizationpolicy.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 80,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 81,
+  "label": "true",
+  "source": "base-apps/substrate/docs.md",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 82,
+  "label": "true",
+  "source": "scripts/ask-hk",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 83,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 84,
+  "label": "true",
+  "source": "docs/plans/kagent-1-0-on-k8s-1-37-implementation-plan.md",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 90,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:28",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 91,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:46",
+  "note": "Substrate chart 0.5.0-alpha2; the date and the 0.10.3 replacement are history."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 92,
+  "label": "stale",
+  "source": "base-apps/substrate.yaml:17",
+  "note": "Claim spans 92-93: Substrate's four component images run by release tag v0.5.0-alpha2, not by digest (substrate.yaml:16-19)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 93,
+  "label": "stale",
+  "source": "base-apps/substrate.yaml:17",
+  "note": "substrate.yaml:16-19: the four Substrate components CANNOT be digest-pinned and run by tag; only kagent's images are all digest-pinned. Lockstep itself holds (renovate.json5:134-149)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 95,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:12",
+  "note": "Every AgentTemplate/Harness/Agent uses api.kagent.dev/v1alpha3."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 99,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:40",
+  "note": "AgentTemplates hold modelConfig, systemPrompt, tools/subAgents and capability.homelab/class."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 100,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:20",
+  "note": "Harness: spec.kagent, workload.image by digest, memory/compaction, workerPoolRef, snapshotPolicy."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 101,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:31",
+  "note": "templateRef + harnessRef and terasky.backstage.io annotations."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 103,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability.yaml:33",
+  "note": "agent-capability-refs denies inline spec.template/spec.harness; CI via validate-agent-capability.py."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 104,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability.yaml:33",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 106,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:39",
+  "note": "kagent 1.0 runs agents as Substrate actors with no per-agent ServiceAccounts (kagent-secrets.yaml:37-40)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 107,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:83",
+  "note": "Shared gVisor workers of the WorkerPool (kagent.yaml:82-86)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 108,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:94",
+  "note": "WorkerPool kagent-default, replicas 2, namespace kagent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 109,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:42",
+  "note": "Snapshot location s3://ate-snapshots/kagent/ in the bundled RustFS bucket (lines 38-42)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 110,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:85",
+  "note": "Idle actors suspended, any free worker, two workers on two nodes (lines 85-90); controller serves A2A (lines 60-64)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 111,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:62",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 114,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:22",
+  "note": "Wave -1, chart kagent-crds 1.0.0-alpha11 from ghcr.io/kagent-dev/kagent/helm (an OCI registry; the manifest omits the oci:// scheme)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 115,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:1",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 116,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:2",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 117,
+  "label": "true",
+  "source": "base-apps/kagent-crds.yaml:2",
+  "note": "kmcp-crds subchart brings mcpservers.kagent.dev; no MCPServer object remains (plain Deployments since \u00a7T.126, agent-docs-mcp.yaml:4)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 118,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:28",
+  "note": "Wave 0 (line 22), chart kagent, Helm valuesObject, no path."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 119,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:26",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 120,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:49",
+  "note": "kagent-tools subchart (kagent.yaml:132); kagent-builtin-prompts rendered by the chart."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 121,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:11",
+  "note": "kagent-tool-server chart-rendered (homelab-knowledge.yaml:175); kagent-api is the controller's own /mcp; WorkerPool kagent-default (kagent.yaml:91-93)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 122,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:110",
+  "note": "Chart always renders default-model-config; 1.0 ships no bundled agents (k8s-agent.yaml:4)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 124,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:39",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 125,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:42",
+  "note": "schema kagent, vectorSchema extensions; url/urlFile removed (line 31)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 126,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:79",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 127,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:80",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 128,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:72",
+  "note": "Release substrate in ate-system (substrate.yaml:48,102)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 129,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:65",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 130,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:70",
+  "note": "720h; chart default 7 days per line 66."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 131,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:69",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 132,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:94",
+  "note": "replicas 2, sandboxClass gvisor, workerImage ateom-gvisor@sha256 (line 96)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 133,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:100",
+  "note": "requests 250m/1Gi, limits 2/4Gi (lines 98-104)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 134,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:86",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 135,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:119",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 136,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:120",
+  "note": "apiKeySecretRef kagent-anthropic; Argo drops null (line 111)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 137,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:113",
+  "note": "No Agent in git references default-model-config."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 138,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:113",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 139,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:134",
+  "note": "rbac.create false (line 134), grafana-mcp disabled (line 142)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 140,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:150",
+  "note": "OTLP gRPC 4317, traces/logs on, metrics off (lines 147-157)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 141,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:55",
+  "note": "controller, agentImage, ui, kmcp, tools tags carry @sha256; workerImage digest-pinned (line 96)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 142,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:11",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 143,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 144,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:9",
+  "note": "Wave -1, path base-apps/kagent (line 60)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 145,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:62",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 146,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:60",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 147,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:63",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 148,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:41",
+  "note": "ignoreDifferences: HTTPRoute (41-48) and ExternalSecret (49-56) defaults only."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 150,
+  "label": "true",
+  "source": "base-apps/substrate-crds.yaml:22",
+  "note": "substrate-crds -4, substrate-config -3, substrate-podcert -2, substrate -1."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 151,
+  "label": "true",
+  "source": "renovate.json5:148",
+  "note": "Group kagent-substrate covers kagent, kagent-crds, substrate-crds, substrate-podcert, substrate (lines 141-147)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 152,
+  "label": "true",
+  "source": "renovate.json5:149",
+  "note": "dependencyDashboardApproval: true."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 158,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:146",
+  "note": "sonnet (46), kagent-memory (agents/homelab-knowledge.yaml:34), read (40), tools 146-188, no subAgent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 159,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-reader.yaml:86",
+  "note": "haiku (40), kagent-stateless (agents/k8s-reader.yaml:34), read (35), the 8 read tools only."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 160,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:161",
+  "note": "sonnet, kagent-memory, admin; kagent-tool-server bound ungated (142) and gated (161)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 161,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/istio-agent.yaml:195",
+  "note": "sonnet, kagent-memory, admin; same split with Istio tools."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 162,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:70",
+  "note": "sonnet, kagent-memory, admin; subAgents k8s-agent and istio-agent only."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 163,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/skill-suggester.yaml:21",
+  "note": "haiku, kagent-chat, read, no tools; Backstage wizard caller (line 2)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 164,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/dungeon-crawler-carl-agent.yaml:51",
+  "note": "haiku, kagent-chat, read, brave_web_search only."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 165,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/implementer.yaml:27",
+  "note": "sonnet, kagent-stateless, propose; 7 read + 4 propose implementer tools and 8 kagent-tool-server tools; App arigsela-implementer (implementer-mcp.yaml:3)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 166,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/restarter.yaml:107",
+  "note": "sonnet, kagent-stateless, admin; dispatch-table.yaml:96 remediates on leak and rollout-pending; approvals URL in dispatcher/code-configmap.yaml:446."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 168,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:28",
+  "note": "Class label checked against the taxonomy (lines 19-33)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 169,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:28",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 170,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:120",
+  "note": "propose list has exactly four tools (lines 125-131)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 171,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:29",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 172,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:30",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 173,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:8",
+  "note": "Approval per binding in v1alpha3, hence the double binding."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 174,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-identity.yaml:109",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 175,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-identity.yaml:109",
+  "note": "agent-identity-mcp-toolnames denies an MCP binding with no tools."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 177,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:3",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 178,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:4",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 179,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 180,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:7",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 181,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:10",
+  "note": "Router prompt (build-orchestrator.yaml:50-54); homelab-knowledge binds the read tools itself (lines 7-10)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 182,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 183,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 184,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:8",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 186,
+  "label": "true",
+  "source": "scripts/provision-homelab-agent-vault.sh:7",
+  "note": "Retired 2026-10-11 (lines 5-9); no homelab-agent manifests remain."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 187,
+  "label": "true",
+  "source": "scripts/provision-homelab-agent-vault.sh:8",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 188,
+  "label": "uncertain",
+  "source": "",
+  "note": "Manifests are gone, but deleting the database, Vault keys/roles and ECR repo is a manual cleanup (provision-homelab-agent-vault.sh:17-40) the repo cannot confirm."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 191,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:31",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 192,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:36",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 193,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:10",
+  "note": "The three Harnesses differ only in spec.kagent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 197,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:34",
+  "note": "kagent-memory used by homelab-knowledge, k8s-agent, istio-agent, build-orchestrator; memory ref at kagent-memory.yaml:24-25."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 198,
+  "label": "stale",
+  "source": "base-apps/kagent/agents/implementer.yaml:34",
+  "note": "implementer and restarter (agents/restarter.yaml:35) also use kagent-stateless, not only k8s-reader."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 199,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-chat.yaml:27",
+  "note": "compactionInterval 5, overlapSize 2; used by skill-suggester and dungeon-crawler-carl-agent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 201,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:11",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 202,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability.yaml:229",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 203,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability.yaml:247",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 204,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:29",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 205,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:30",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 208,
+  "label": "uncertain",
+  "source": "",
+  "note": "'Claude 5.5 models think by default' is an upstream model fact the repo cannot settle."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 209,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 210,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:32",
+  "note": "maxTokens 16000 on both ModelConfigs; adapter default 8192 (line 8)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 211,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:9",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 212,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 213,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:33",
+  "note": "promptCaching true, cacheTTL 5m (lines 33-34) on both configs."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 214,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:12",
+  "note": "Breakpoints per lines 12-13; the 48% figure is a past measurement."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 215,
+  "label": "not-a-claim",
+  "source": "",
+  "note": "A past measurement of cache hit rates, not configuration."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 216,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 217,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-chat.yaml:6",
+  "note": "Compaction only on kagent-chat; the 1.0 Go ADK implements it."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 220,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:176",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 221,
+  "label": "true",
+  "source": "base-apps/admission-policies/agent-capability-taxonomy.yaml:172",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 224,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:21",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 225,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:1",
+  "note": "Sonnet: homelab-knowledge, k8s-agent, istio-agent, build-orchestrator, implementer, restarter; Haiku: the other three."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 226,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:28",
+  "note": "apiKeySecret kagent-anthropic, stream true, maxTokens 16000, promptCaching true in both configs."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 227,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml:21",
+  "note": "Secret refs compiled into ate-secret:// egress credentials; same policy serves model API keys (lines 20-27)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 228,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml:23",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 229,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:87",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 230,
+  "label": "true",
+  "source": "base-apps/substrate.yaml:88",
+  "note": "atespace kagent allowed namespace kagent; 403 without it (lines 82-84)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 231,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml:15",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 232,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml:17",
+  "note": "768 dimensions per line 3."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 233,
+  "label": "true",
+  "source": "base-apps/kagent/embedding-model-config.yaml:2",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 234,
+  "label": "true",
+  "source": "base-apps/kagent/harnesses/kagent-memory.yaml:22",
+  "note": "pgvector in kagent_v1 (embedding-model-config.yaml:3-4); default TTL 15 days."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 235,
+  "label": "true",
+  "source": "base-apps/kagent/catalog-info.yaml:19",
+  "note": "kagent dependsOn component:ollama/ollama."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 236,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:110",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 239,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 243,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml:17",
+  "note": "Deployment agent-docs-mcp: agentgateway 0.9.0 on :3000, github-mcp-server --read-only --toolsets repos, Secret agent-docs-github-mcp-token (agent-docs-mcp.yaml:62-141)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 244,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp-remote.yaml:20",
+  "note": "docker.io/mcp/brave-search@sha256, Secret brave-search-mcp-api-key, 2 of 8 tools (brave-search-mcp.yaml:53,89,140,149); bound only by read-class templates."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 245,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-catalog-mcp.yaml:15",
+  "note": "Authorization from Secret backstage-mcp-token, injected by the egress gateway (lines 19-33)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 246,
+  "label": "uncertain",
+  "source": "",
+  "note": "Tool list matches k8s-reader.yaml:86-93, but the chart-rendered URL http://kagent-tools.kagent:8084/mcp is not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 247,
+  "label": "true",
+  "source": "base-apps/kagent/implementer-mcp-remote.yaml:14",
+  "note": "--tools names 11 tools, no toolset (implementer-mcp.yaml:72-73); Secret/Vault key implementer-github-app; 7 read + 4 propose in tests/implementer/conftest.py:9-12."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 248,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:11",
+  "note": "kagent-api is the controller's own /mcp; no AgentTemplate binds it."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 250,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-remote.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 251,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream runtime behaviour (MCP session init at run start); not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 252,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream runtime behaviour; not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 253,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream runtime behaviour; not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 254,
+  "label": "uncertain",
+  "source": "",
+  "note": "Consequence of upstream behaviour plus an incident; not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 255,
+  "label": "not-a-claim",
+  "source": "",
+  "note": "Incident history and a runbook pointer."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 256,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:167",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 257,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:168",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 260,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 261,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:5",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 262,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:8",
+  "note": "Incident recorded at lines 8-9."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 263,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:134",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 264,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:56",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 265,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:62",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 266,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:75",
+  "note": "pods/attach|exec|log|portforward (75-78); non-core groups named; api.kagent.dev get/list/watch (163-165)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 267,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:165",
+  "note": "New groups denied until added (lines 23-27)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 268,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:26",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 269,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:30",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 270,
+  "label": "true",
+  "source": "base-apps/cluster-rbac/kagent-tools.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 271,
+  "label": "true",
+  "source": "tests/agent-capability/test_kagent_tools_rbac.py",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 274,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:15",
+  "note": "Each consumer has its own store/ESO SA/role; the three DB secrets share the kagent-db store as one consumer."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 275,
+  "label": "true",
+  "source": "templates/agent-identity/README.md",
+  "note": "Path exists; store/SA/role per consumer in the SecretStore manifests."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 276,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-db-secret-store.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 277,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml:17",
+  "note": "No ExternalSecret reads Vault key kagent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 281,
+  "label": "true",
+  "source": "base-apps/kagent/agent-docs-mcp-external-secret.yaml:17",
+  "note": "Store vault-agent-docs-mcp, SA eso-agent-docs-mcp, role kagent-agent-docs-mcp (agent-docs-mcp-secret-store.yaml:15), property github-token."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 282,
+  "label": "true",
+  "source": "base-apps/kagent/brave-search-mcp-external-secret.yaml:22",
+  "note": "Store vault-brave-search-mcp, SA eso-brave-search-mcp, role kagent-brave-search-mcp; script exists."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 283,
+  "label": "true",
+  "source": "base-apps/kagent/backstage-mcp-external-secret.yaml:26",
+  "note": "Store vault-backstage-mcp, SA eso-backstage-mcp, role backstage-mcp, key kagent-backstage-mcp/token."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 284,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:41",
+  "note": "v1-user/v1-password/v1-db-name; retirement by \u00a7T.128 per line 6."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 285,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-owner-external-secret.yaml:32",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 286,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-readwrite-external-secret.yaml:33",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 287,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-anthropic-external-secret.yaml:35",
+  "note": "ExternalSecret kagent-anthropic-secrets -> Secret kagent-anthropic; store vault-kagent-anthropic, role kagent-anthropic."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 289,
+  "label": "true",
+  "source": "base-apps/kagent/eso-kagent-db-serviceaccount.yaml:4",
+  "note": "Each store/SA comment states its policy reads exactly one path."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 290,
+  "label": "true",
+  "source": "base-apps/substrate/external-secret-ca-pools.yaml:45",
+  "note": "Keys substrate-cas and substrate-db (external-secret-postgres.yaml:37), role substrate (secret-store.yaml:18)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 291,
+  "label": "true",
+  "source": "base-apps/substrate/secret-store.yaml:18",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 293,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:31",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 294,
+  "label": "true",
+  "source": "base-apps/postgresql/deployments.yaml:2",
+  "note": "Deployment postgresql, Service port 5432 (services.yaml:9); CNPG is the separate postgresql-cluster."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 295,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:1",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 296,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:10",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 297,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 298,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:138",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 299,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:156",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 300,
+  "label": "true",
+  "source": "base-apps/postgresql/init-kagent-v1-db.yaml:3",
+  "note": "Migrations as kagent_owner, refuses without pgvector; two connection strings per kagent-postgres-owner-external-secret.yaml:1."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 301,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 302,
+  "label": "true",
+  "source": "base-apps/kagent/kagent-postgres-external-secret.yaml:18",
+  "note": "Read once at startup (line 18); kept until \u00a7T.128 (line 6-7)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 303,
+  "label": "true",
+  "source": "scripts/agent-audit.py:14",
+  "note": "kagent_v1 holds sessions/tasks/events as A2A protobuf (lines 280-293)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 304,
+  "label": "true",
+  "source": "scripts/agent-audit.py:1079",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 306,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:35",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 307,
+  "label": "uncertain",
+  "source": "",
+  "note": "default_transaction_read_only is not set in any manifest; only --source v010 is confirmed (scripts/agent-audit.py:10)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 308,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:40",
+  "note": "agent-audit-web reads the 0.10 archive; 'memory not migrated' is history."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 309,
+  "label": "uncertain",
+  "source": "",
+  "note": "An S3 dump path; the repo cannot confirm the object exists."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 310,
+  "label": "uncertain",
+  "source": "",
+  "note": "An S3 dump path; the repo cannot confirm the object exists."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 312,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-scheduled-backup.yaml:16",
+  "note": "The only ScheduledBackup targets the CNPG cluster; nothing backs up the plain postgresql Deployment."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 313,
+  "label": "true",
+  "source": "base-apps/postgresql/cnpg-scheduled-backup.yaml:16",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 314,
+  "label": "true",
+  "source": "renovate.json5:175",
+  "note": "Every kagent 1.0 alpha so far needed a clean-database migration."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 317,
+  "label": "true",
+  "source": "base-apps/kagent/httproute.yaml:22",
+  "note": "Both routes in namespace kagent on Gateway main in istio-ingress."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 318,
+  "label": "true",
+  "source": "base-apps/kagent/certificate.yaml:13",
+  "note": "Issuer letsencrypt-route53 (DNS-01) for both certificates."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 319,
+  "label": "true",
+  "source": "base-apps/kagent/reference-grant.yaml:17",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 323,
+  "label": "true",
+  "source": "base-apps/kagent/httproute.yaml:39",
+  "note": "/ -> kagent-ui:8080, sectionName https-kagent, kagent-tls."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 324,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:34",
+  "note": "/mcp and /agents/kagent/ -> kagent-controller:8083, https-kagent-mcp, kagent-mcp-tls."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 326,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:38",
+  "note": "POST /agents/<ns>/<name>, JSON-RPC A2A v1 (lines 36-40)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 327,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:64",
+  "note": "Agent-card path at kagent_a2a.py:9."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 328,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:64",
+  "note": "Backstage calls the controller in-cluster (base-apps/backstage.yaml:27)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 329,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:53",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 330,
+  "label": "true",
+  "source": "scripts/ask-hk:130",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 331,
+  "label": "true",
+  "source": "scripts/ask-hk:121",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 332,
+  "label": "true",
+  "source": "scripts/capture-eval-answers.py:36",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 333,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:76",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 334,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:32",
+  "note": "Without HITL a pause can only be cancelled; the route sets no timeout (httproute-mcp.yaml:48-49)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 335,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:224",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 336,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:91",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 337,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:256",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 338,
+  "label": "uncertain",
+  "source": "",
+  "note": "The controller's MCP tool names are upstream; not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 339,
+  "label": "uncertain",
+  "source": "",
+  "note": "No create-session/invoke-by-agent tool is confirmed (httproute-mcp.yaml:39), but the tool names are upstream."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 340,
+  "label": "uncertain",
+  "source": "",
+  "note": "Claude Code's MCP registration name is outside the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 341,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream MCP behaviour."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 342,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream MCP behaviour and a client capability outside the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 343,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:25",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 344,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:80",
+  "note": "kagent (kagent-secrets.yaml:80), dispatcher (dispatcher/namespace.yaml:9), backstage (backstage.yaml:31) are ambient."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 345,
+  "label": "true",
+  "source": "base-apps/kagent/waypoint.yaml:13",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 346,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:86",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 347,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:28",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 348,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:41",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 349,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:45",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 350,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:34",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 351,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:31",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 352,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:53",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 353,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:42",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 354,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:55",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 355,
+  "label": "true",
+  "source": "base-apps/kagent/httproute.yaml:37",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 356,
+  "label": "true",
+  "source": "base-apps/backstage/deployments.yaml:83",
+  "note": "Projected token audience kagent; T110 per authorization-policy.yaml:17."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 357,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:97",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 358,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-waypoint.yaml:28",
+  "note": "?user_id= routed to refused; host allow-list at istio-ingress/authorizationpolicy.yaml:342."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 359,
+  "label": "true",
+  "source": "base-apps/kagent-secrets.yaml:86",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 360,
+  "label": "not-a-claim",
+  "source": "",
+  "note": "Counterfactual rationale and an incident, not configuration."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 361,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:29",
+  "note": "forwardOriginalToken false (lines 29, 42); the outage is history."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 362,
+  "label": "true",
+  "source": "base-apps/kagent/request-authentication.yaml:42",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 363,
+  "label": "uncertain",
+  "source": "",
+  "note": "The percent-encoded bypass depends on proxy behaviour; the route matches query key user_id exactly (httproute-waypoint.yaml:28)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 364,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-waypoint.yaml:3",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 365,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:50",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 366,
+  "label": "true",
+  "source": "scripts/ask-hk:139",
+  "note": "Dex token by default (lines 10-12); --as-serviceaccount mints a 10-minute token."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 367,
+  "label": "true",
+  "source": "scripts/ask-hk:141",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 368,
+  "label": "true",
+  "source": "base-apps/dispatcher/deployment.yaml:195",
+  "note": "Dispatcher and eval-gate-job.yaml:103 use projected tokens with audience kagent."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 369,
+  "label": "true",
+  "source": "base-apps/kagent/authorization-policy.yaml:20",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 370,
+  "label": "true",
+  "source": "base-apps/kagent/network-policy-controller.yaml:33",
+  "note": "kagent and ate-system may reach the controller pods."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 371,
+  "label": "true",
+  "source": "base-apps/kagent/network-policy-controller.yaml:13",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 372,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:51",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 373,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:161",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 374,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:88",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 375,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:76",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 376,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:77",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 377,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:289",
+  "note": "approvals entries {id, approved, rejection_reason} (lines 283-289)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 378,
+  "label": "uncertain",
+  "source": "",
+  "note": "Result of a dated verification of upstream behaviour."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 380,
+  "label": "true",
+  "source": "base-apps/istio-ingress/gateway.yaml:274",
+  "note": "UI host and API host listeners at gateway.yaml:127 and 274."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 381,
+  "label": "true",
+  "source": "base-apps/istio-ingress/gateway.yaml:127",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 382,
+  "label": "uncertain",
+  "source": "",
+  "note": "Whether a new host's Route 53 A record must be made by hand is not settled: the reconciler UPSERTs records for MANAGED_HOSTNAMES (wan-ip-monitor/configmap-reconcile.yaml:270)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 383,
+  "label": "true",
+  "source": "base-apps/wan-ip-monitor/cronjob.yaml:130",
+  "note": "Both kagent hosts listed at lines 146-147."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 386,
+  "label": "uncertain",
+  "source": "",
+  "note": "OTel to Coroot is in kagent.yaml:147-157, but actor stdout on the worker pods is runtime behaviour not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 387,
+  "label": "uncertain",
+  "source": "",
+  "note": "Actor log labels are runtime behaviour not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 388,
+  "label": "uncertain",
+  "source": "",
+  "note": "Actor log labels and their shipping are not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 389,
+  "label": "true",
+  "source": "scripts/agent-audit.py:1079",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 390,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:69",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 391,
+  "label": "true",
+  "source": "base-apps/postgresql/agent-audit-cronjob.yaml:60",
+  "note": "Export, risk scoring (58-66) and ungated-call check (12-16)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 392,
+  "label": "true",
+  "source": "base-apps/logging/grafana-alerting.yaml:136",
+  "note": "Both agent-audit rules (98-221) have noDataState Alerting."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 393,
+  "label": "true",
+  "source": "base-apps/agent-audit-web/deployment.yaml:46",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 394,
+  "label": "true",
+  "source": "base-apps/backstage/rbac.yaml:137",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 395,
+  "label": "true",
+  "source": "base-apps/kagent/agents/homelab-knowledge.yaml:24",
+  "note": "Agents carry add-to-catalog and component-type kagent-agent (lines 24-25)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 396,
+  "label": "true",
+  "source": "base-apps/backstage/rbac.yaml:141",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 399,
+  "label": "true",
+  "source": "base-apps/kagent/eval-gate-job.yaml:22",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 400,
+  "label": "true",
+  "source": "base-apps/kagent/eval-gate-job.yaml:34",
+  "note": "Code ConfigMap generated from scripts/eval_gate.py (lines 33-35)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 401,
+  "label": "true",
+  "source": "scripts/eval_gate.py:6",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 402,
+  "label": "true",
+  "source": "scripts/eval_gate.py:5",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 404,
+  "label": "true",
+  "source": "scripts/eval_gate.py:8",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 405,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:2",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 406,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:6",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 407,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:7",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 408,
+  "label": "true",
+  "source": "scripts/eval_gate.py:157",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 409,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:22",
+  "note": "27 adversarial entries plus 3 canary."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 410,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 411,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:24",
+  "note": "Sample size 10; seed = agent + hash (eval_gate.py:11)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 412,
+  "label": "true",
+  "source": "scripts/eval_gate.py:11",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 413,
+  "label": "true",
+  "source": "base-apps/kagent/eval-canary.yaml:35",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 414,
+  "label": "true",
+  "source": "base-apps/kagent/eval-canary.yaml:27",
+  "note": "ConfigMap canary-config in eval-canary; StatefulSet pod canary-logger-0 (line 13)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 415,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:31",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 416,
+  "label": "true",
+  "source": "scripts/score-eval.py:92",
+  "note": "A leaked value is a hard fail."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 418,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:126",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 419,
+  "label": "true",
+  "source": "scripts/kagent_a2a.py:126",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 420,
+  "label": "true",
+  "source": "scripts/score-eval.py:92",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 421,
+  "label": "true",
+  "source": "scripts/eval_gate.py:14",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 422,
+  "label": "true",
+  "source": "scripts/eval_gate.py:14",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 423,
+  "label": "true",
+  "source": "tests/eval-corpus/restarter.yaml",
+  "note": "Own corpora exist for restarter, k8s-agent, istio-agent, implementer, build-orchestrator."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 424,
+  "label": "true",
+  "source": "scripts/validate-eval-corpus.py:19",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 425,
+  "label": "true",
+  "source": "scripts/eval_gate.py:15",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 426,
+  "label": "true",
+  "source": "scripts/score-eval.py:6",
+  "note": "Jev then Claude; judge=none without keys (eval-gate-job.yaml:13)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 427,
+  "label": "true",
+  "source": "base-apps/kagent/eval-gate-job.yaml:13",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 428,
+  "label": "true",
+  "source": "tests/eval-corpus/_shared.yaml:7",
+  "note": "The judge cascade decides refusals, not the catalog's regexes; 7/7 is history."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 429,
+  "label": "true",
+  "source": "scripts/score-eval.py:146",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 430,
+  "label": "true",
+  "source": "scripts/eval_gate.py:17",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 431,
+  "label": "true",
+  "source": "scripts/eval_gate.py:18",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 432,
+  "label": "true",
+  "source": "scripts/eval_gate.py:451",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 433,
+  "label": "true",
+  "source": "scripts/eval_gate.py:449",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 434,
+  "label": "true",
+  "source": "scripts/eval_gate.py:451",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 435,
+  "label": "true",
+  "source": "scripts/eval_gate.py:445",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 436,
+  "label": "true",
+  "source": "base-apps/logging/grafana-alerting.yaml:261",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 437,
+  "label": "true",
+  "source": "base-apps/dispatcher/dispatch-table.yaml:125",
+  "note": "Default policy to the n8n receiver; dispatcher routes none (a human); status eval/<agent> at eval_gate.py:469."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 438,
+  "label": "true",
+  "source": "scripts/eval_gate.py:469",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 439,
+  "label": "true",
+  "source": "scripts/eval_gate.py:21",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 440,
+  "label": "true",
+  "source": "scripts/eval_release.py:26",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 441,
+  "label": "true",
+  "source": "base-apps/kagent/eval-release-rbac.yaml:14",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 442,
+  "label": "true",
+  "source": "scripts/eval_release.py:4",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 443,
+  "label": "true",
+  "source": "base-apps/dispatcher/code-configmap.yaml:537",
+  "note": "slack-bridge logs held (slack-bridge/code-configmap.yaml:713-715)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 444,
+  "label": "true",
+  "source": "scripts/eval_release.py:15",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 445,
+  "label": "true",
+  "source": "scripts/eval_release.py:13",
+  "note": "Exit codes at eval_gate.py:24-25."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 446,
+  "label": "true",
+  "source": "scripts/eval_gate.py:25",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 449,
+  "label": "true",
+  "source": "renovate.json5:175",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 450,
+  "label": "true",
+  "source": "renovate.json5:187",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 452,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:89",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 453,
+  "label": "true",
+  "source": "base-apps/kagent.yaml:90",
+  "note": "No affinity in the WorkerPool template (lines 91-104)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 454,
+  "label": "uncertain",
+  "source": "",
+  "note": "Scheduler outcome after a drain and a dated observation; not settleable from the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 456,
+  "label": "true",
+  "source": "ansible/playbooks/patch.yml:14",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 457,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream Substrate bug detail (new IP never learnt) is not stated in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 458,
+  "label": "uncertain",
+  "source": "",
+  "note": "patch.yml:13-14 confirms the worker deletion, but the claim continues into upstream resume behaviour (substrate#1761)."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 459,
+  "label": "uncertain",
+  "source": "",
+  "note": "Upstream resume deadline and Substrate replica counts are chart/upstream facts."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 460,
+  "label": "uncertain",
+  "source": "",
+  "note": "Substrate component replica counts are chart defaults not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 461,
+  "label": "uncertain",
+  "source": "",
+  "note": "Chart defaults not in the repo."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 462,
+  "label": "true",
+  "source": "base-apps/substrate/ca-expiry-cronjob.yaml:1",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 463,
+  "label": "uncertain",
+  "source": "",
+  "note": "30-day warning confirmed (grafana-alerting.yaml:615), but 'rotation restarts kagent too' appears only in docs."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 464,
+  "label": "uncertain",
+  "source": "",
+  "note": "Token type and scope (fine-grained PAT, Contents + Metadata) are not in any manifest."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 465,
+  "label": "uncertain",
+  "source": "",
+  "note": "Vault key/property confirmed (agent-docs-mcp-external-secret.yaml:17-18), but the PAT scope and expiry are not."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 466,
+  "label": "uncertain",
+  "source": "",
+  "note": "Continues the PAT expiry/re-mint claim; the token's expiry is not in any manifest."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 467,
+  "label": "true",
+  "source": "base-apps/kagent/runbook.md",
+  "note": "Path exists."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 468,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:49",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 469,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:114",
+  "note": "Includes at homelab-knowledge.yaml:114-115, k8s-agent.yaml:66,100, istio-agent.yaml:107,109."
+ },
+ {
+  "instance": "kagent-live",
+  "line": 470,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-agent.yaml:96",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 472,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/homelab-knowledge.yaml:12",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 473,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/k8s-reader.yaml:19",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 475,
+  "label": "true",
+  "source": "base-apps/kagent/agent-templates/build-orchestrator.yaml:3",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 476,
+  "label": "true",
+  "source": "base-apps/kagent/model-configs/anthropic-claude-sonnet-5-5.yaml:32",
+  "note": ""
+ },
+ {
+  "instance": "kagent-live",
+  "line": 477,
+  "label": "true",
+  "source": "base-apps/kagent/httproute-mcp.yaml:53",
+  "note": ""
+ }
+]
