@@ -235,9 +235,10 @@ async def test_first_request_waits_for_session_storage(tmp_path, monkeypatch):
         client_for(app) as client,
     ):
         assert (await client.get("/ping")).status_code == 200  # never waits
+        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
         assert attempts == []
-        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
-        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
+        await client.get("/")
+        await client.get("/")
     assert len(attempts) == 3  # two refusals, one commit, then never again
 
 
@@ -246,3 +247,19 @@ def test_probe_storage_commits_a_transaction(tmp_path):
 
     probe_storage(str(tmp_path / "docs-checker"))
     assert (tmp_path / "docs-checker" / "storage-probe.sqlite").is_file()
+
+
+async def test_dbs_open_on_the_first_request_not_at_startup(tmp_path):
+    """Live, file handles opened at process start failed once a session was routed to
+    the microVM, while a fresh open worked: the dbs open after the storage check."""
+    data = tmp_path / "workspace" / "docs-checker"
+    async with (
+        open_app(agentcore_settings(tmp_path), tools=_tools) as app,
+        client_for(app) as client,
+    ):
+        assert (await client.get("/ping")).status_code == 200
+        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
+        assert not (data / "tasks.sqlite").exists()
+        assert not (data / "checkpoints.sqlite").exists()
+        await client.get("/")
+        assert (data / "tasks.sqlite").is_file() and (data / "checkpoints.sqlite").is_file()

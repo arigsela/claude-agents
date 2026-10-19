@@ -221,24 +221,35 @@ def probe_storage(path: str) -> None:
         connection.close()
 
 
-class _StorageGate:
-    """ASGI middleware: before the first request that is not /ping, wait until session
-    storage takes a write. Live, a new session's storage refused writes for a few
-    seconds (SQLITE_FULL on the first commit of either db; the same session was fine
-    5 s later), so the probe retries for up to ``STORAGE_WAIT_S`` and then lets the
-    request through either way, with the outcome logged."""
+class AgentCoreApp:
+    """The ASGI app ``main`` serves. ``/ping`` and the Agent Card answer from the start;
+    everything else waits for the first request that needs it, which first checks that
+    session storage takes a write and only then opens the executor's checkpoint db and
+    the task store there.
 
-    def __init__(self, app: Any, path: str):
-        self.app, self.path = app, path
-        self.ready = False
-        self.lock = asyncio.Lock()
+    Both steps come from live runs. A new session's storage refused writes at first,
+    and SQLite handles opened when the process started kept failing (SQLITE_FULL on
+    their first commit) after the session was routed to the microVM, while a fresh open
+    worked. So nothing is opened on session storage before a session's first request.
+    The probe retries for up to ``STORAGE_WAIT_S`` and then lets the request through
+    either way, with the outcome logged."""
 
-    async def _wait(self) -> None:
+    def __init__(self, card: Any, open_handler: Any, data_dir: str | None):
+        self._static = Starlette(
+            routes=[*create_agent_card_routes(card), Route("/ping", _ping, methods=["GET"])]
+        )
+        self._static_paths = {route.path for route in self._static.routes}
+        self._open_handler = open_handler
+        self._data_dir = data_dir
+        self._rpc: Starlette | None = None
+        self._lock = asyncio.Lock()
+
+    async def _wait_for_storage(self) -> None:
         started, attempts = time.monotonic(), 0
         while True:
             attempts += 1
             try:
-                await asyncio.to_thread(probe_storage, self.path)
+                await asyncio.to_thread(probe_storage, self._data_dir)
             except Exception as error:  # noqa: BLE001 - any refusal is retried, then logged
                 if time.monotonic() - started >= STORAGE_WAIT_S:
                     logger.warning(
@@ -248,7 +259,7 @@ class _StorageGate:
                         attempts,
                         type(error).__name__,
                         error,
-                        storage_state(self.path),
+                        storage_state(self._data_dir),
                     )
                     return
                 await asyncio.sleep(STORAGE_RETRY_S)
@@ -257,49 +268,52 @@ class _StorageGate:
                 "session storage took a write after %.1f s (%d attempts); %s",
                 time.monotonic() - started,
                 attempts,
-                storage_state(self.path),
+                storage_state(self._data_dir),
             )
             return
 
+    async def _rpc_app(self) -> Starlette:
+        async with self._lock:
+            if self._rpc is None:
+                if self._data_dir:
+                    await self._wait_for_storage()
+                handler = await self._open_handler()
+                self._rpc = Starlette(
+                    routes=create_jsonrpc_routes(
+                        handler, rpc_url="/", context_builder=AgentCoreCallContextBuilder()
+                    )
+                )
+                logger.info("executor and task store open")
+        return self._rpc
+
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if not self.ready and scope.get("type") == "http" and scope.get("path") != "/ping":
-            async with self.lock:
-                if not self.ready:
-                    await self._wait()
-                    self.ready = True
-        await self.app(scope, receive, send)
-
-
-def build_app(handler: Any, card: Any, data_dir: str | None = None) -> Any:
-    routes = [
-        *create_agent_card_routes(card),
-        *create_jsonrpc_routes(handler, rpc_url="/", context_builder=AgentCoreCallContextBuilder()),
-        Route("/ping", _ping, methods=["GET"]),
-    ]
-    app = Starlette(routes=routes)
-    return _StorageGate(app, data_dir) if data_dir else app
+        if scope.get("type") != "http" or scope.get("path") in self._static_paths:
+            await self._static(scope, receive, send)
+            return
+        await (await self._rpc_app())(scope, receive, send)
 
 
 @asynccontextmanager
 async def open_app(
     settings: Settings, *, executor: Any = None, **overrides: Any
-) -> AsyncIterator[Starlette]:
-    """The app ``main`` serves, with its executor and task store open until exit.
-    ``executor`` replaces the production one (tests); ``overrides`` go to
-    ``open_executor`` otherwise."""
+) -> AsyncIterator[AgentCoreApp]:
+    """The app ``main`` serves; what it opens stays open until exit. ``executor``
+    replaces the production one (tests); ``overrides`` go to ``open_executor``."""
     card = build_agent_card(
         settings,
         url=os.environ.get("AGENTCORE_RUNTIME_URL", DEFAULT_RUNTIME_URL),
         binding="JSONRPC",
     )
     async with AsyncExitStack() as stack:
-        if executor is None:
-            executor = await stack.enter_async_context(open_executor(settings, **overrides))
-        store = await open_task_store(stack, settings)
-        handler = DefaultRequestHandlerV2(
-            agent_executor=executor, task_store=store, agent_card=card
-        )
-        yield build_app(handler, card, settings.data_dir)
+
+        async def open_handler() -> Any:
+            chosen = executor
+            if chosen is None:
+                chosen = await stack.enter_async_context(open_executor(settings, **overrides))
+            store = await open_task_store(stack, settings)
+            return DefaultRequestHandlerV2(agent_executor=chosen, task_store=store, agent_card=card)
+
+        yield AgentCoreApp(card, open_handler, settings.data_dir)
 
 
 async def serve(settings: Settings | None = None) -> None:
@@ -314,7 +328,7 @@ async def serve(settings: Settings | None = None) -> None:
     phase("settings loaded (runtime %s, data dir %s)", settings.runtime, settings.data_dir)
     phase("storage: %s", storage_state(settings.data_dir))
     async with open_app(settings) as app:
-        phase("executor and task store ready")
+        phase("app ready (the dbs open on the first request)")
         config = uvicorn.Config(
             app, host="0.0.0.0", port=settings.a2a_port, log_config=None, access_log=False
         )
