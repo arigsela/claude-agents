@@ -466,6 +466,65 @@ async def test_searches_are_paced_and_capped():
     assert again.status == "ok" and len(started) == 3 and clock.slept == [6.0, 6.0]
 
 
+def counting_search(clock: FakeClock, started: list) -> StructuredTool:
+    async def search_code(query: str) -> str:
+        started.append((clock(), query))
+        return '{"total_count":0,"incomplete_results":false,"items":[]}'
+
+    return StructuredTool.from_function(coroutine=search_code, name="search_code", description="s")
+
+
+async def test_the_search_cap_and_pacing_belong_to_the_run_not_the_belt():
+    # A HITL resume builds a new belt for the same run (the executor passes the
+    # task's replay dict as run_state): it must neither get a fresh cap nor skip
+    # the wait after the last search before the pause.
+    clock = FakeClock()
+    started: list = []
+    settings = replace(SETTINGS, max_searches=3, search_interval_s=6.0)
+    run_state: dict = {}
+
+    def belt() -> ToolBelt:
+        return one_tool_belt(
+            counting_search(clock, started),
+            settings=settings,
+            run_state=run_state,
+            clock=clock,
+            sleep=clock.sleep,
+        )
+
+    before_pause = belt()
+    for query in ("a", "b"):
+        await before_pause.call("search_code", {"query": query}, node="locate", intent="i")
+    assert clock.slept == [6.0]  # b waited for a
+    after_resume = belt()
+    third, _ = await after_resume.call("search_code", {"query": "c"}, node="locate", intent="i")
+    fourth, _ = await after_resume.call("search_code", {"query": "d"}, node="locate", intent="i")
+
+    # The new belt's first search waited for the old belt's last one.
+    assert clock.slept == [6.0, 6.0]
+    assert [at for at, _ in started] == [1000.0, 1006.0, 1012.0]
+    assert third.status == "ok" and fourth.status == "denied"  # one cap for the run
+    assert len(started) == 3
+
+
+async def test_a_last_search_from_another_clock_waits_at_most_one_interval():
+    # A run restored in another process carries a start from a different
+    # monotonic clock: never wait on it for longer than one interval.
+    clock = FakeClock()
+    started: list = []
+    run_state = {"search:count": 1, "search:last_start": 10.0**9}
+    belt = one_tool_belt(
+        counting_search(clock, started),
+        settings=replace(SETTINGS, search_interval_s=6.0),
+        run_state=run_state,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    result, _ = await belt.call("search_code", {"query": "a"}, node="locate", intent="i")
+    assert result.status == "ok" and clock.slept == [6.0]
+    assert run_state["search:count"] == 2
+
+
 def test_node_tools_are_the_read_tools_split_by_node():
     assert READ_ONLY_TOOLS == {"get_file_contents", "search_code", "list_commits", "get_commit"}
     assert NODE_TOOLS == {

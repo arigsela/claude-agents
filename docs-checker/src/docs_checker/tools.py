@@ -101,6 +101,10 @@ _SCOPE_QUALIFIER = re.compile(
 # Boolean operators and grouping can attach terms outside the repo scope.
 _SEARCH_OPERATORS = re.compile(r"(?<!\S)(?:OR|AND|NOT)(?!\S)|[()]")
 
+# The run's search count and last search start, in the belt's run_state.
+_SEARCH_COUNT = "search:count"
+_SEARCH_LAST_START = "search:last_start"
+
 # Tools whose owner/repo/path name a place in one repository.
 _REPO_TOOLS = frozenset({"get_file_contents", "list_commits", "get_commit"})
 
@@ -353,9 +357,12 @@ class ToolBelt:
     the same name advertised by another. A name that two servers both bind and
     advertise is ambiguous and refused (fail closed), never resolved by order.
 
-    One belt serves one run: its search count and pacing are the run's. Limits,
-    the repository and the levers come from ``settings`` (code defaults when
-    omitted); ``clock`` and ``sleep`` are seams for tests.
+    The search count and the last search's start live in ``run_state``, a dict
+    that outlives the belt: the executor passes the task's replay memo, so a
+    belt rebuilt for a HITL resume continues the run's cap and pacing (no
+    run_state: the belt's own, for one belt). Limits, the repository and the
+    levers come from ``settings`` (code defaults when omitted); ``clock`` and
+    ``sleep`` are seams for tests.
     """
 
     def __init__(
@@ -365,6 +372,7 @@ class ToolBelt:
         *,
         bindings: Mapping[str, Iterable[str]],
         settings: Settings | None = None,
+        run_state: dict[str, Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ):
@@ -392,9 +400,8 @@ class ToolBelt:
         self._settings = settings or load_settings({})
         self._clock = clock
         self._sleep = sleep
+        self._run = run_state if run_state is not None else {}
         self._search_lock = asyncio.Lock()
-        self._searches = 0
-        self._last_search: float | None = None
 
     def schemas_for(self, node: str) -> list[Any]:
         """The tools a node's model carries, sorted by name (lever 4).
@@ -491,7 +498,7 @@ class ToolBelt:
             # one started, at most max_searches per run (C#20).
             async with self._search_lock:
                 limit = self._settings.max_searches
-                if self._searches >= limit:
+                if self._run.get(_SEARCH_COUNT, 0) >= limit:
                     outcome = denied("deny", f"error: this run's {limit} searches are used up")
                 else:
                     await self._pace_search()
@@ -503,13 +510,21 @@ class ToolBelt:
         return outcome
 
     async def _pace_search(self) -> None:
-        """Wait until ``search_interval_s`` after the last search started; count this one."""
-        if self._last_search is not None:
-            wait = self._last_search + self._settings.search_interval_s - self._clock()
+        """Wait until ``search_interval_s`` after the run's last search started; count
+        this one.
+
+        The start is monotonic time. A run restored in another process carries a
+        start from another clock, so the wait is clamped to one interval: never
+        longer than that, possibly shorter if that clock was behind.
+        """
+        last = self._run.get(_SEARCH_LAST_START)
+        interval = self._settings.search_interval_s
+        if last is not None:
+            wait = min(last + interval - self._clock(), interval)
             if wait > 0:
                 await self._sleep(wait)
-        self._searches += 1
-        self._last_search = self._clock()
+        self._run[_SEARCH_COUNT] = self._run.get(_SEARCH_COUNT, 0) + 1
+        self._run[_SEARCH_LAST_START] = self._clock()
 
     async def _invoke(self, name: str, args: Mapping[str, Any], call_id: str) -> ToolResult:
         # 3. Invoke as a tool call, so an MCP error result (isError) comes back as a

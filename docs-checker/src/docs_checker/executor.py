@@ -201,8 +201,14 @@ class DocsCheckerExecutor(AgentExecutor):
         )
 
     async def _deps(self, ledger: CostLedger, replay: dict[str, Any]) -> RunDeps:
+        # The replay memo is the run's state across pauses: the belt keeps the
+        # run's search count and pacing in it, so a resume does not reset them.
         belt = ToolBelt(
-            await self._tools(), self._gate, bindings=self._bindings, settings=self._settings
+            await self._tools(),
+            self._gate,
+            bindings=self._bindings,
+            settings=self._settings,
+            run_state=replay,
         )
         return RunDeps(models=self._models, belt=belt, ledger=ledger, replay=replay)
 

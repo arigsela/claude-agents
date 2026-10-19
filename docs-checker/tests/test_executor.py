@@ -30,6 +30,22 @@ def test_the_ledger_prices_with_the_configured_rate_card(monkeypatch):
     assert ledger.rate_card.version == "test-card"
 
 
+async def test_a_resumed_runs_belt_continues_the_runs_search_count():
+    settings = dataclasses.replace(fake_settings(), max_searches=1, search_interval_s=0.0)
+    executor = build_executor(
+        settings, graph=build_test_graph(), models=FakeModels(), tools=_tools, gate=RecordingGate()
+    )
+    ledger = executor._new_ledger("task-1", "ctx-1")
+    replay: dict = {}  # the task's memo, kept across a pause
+
+    first = (await executor._deps(ledger, replay)).belt
+    used, _ = await first.call("search_code", {"query": "a"}, node="locate", intent="i")
+    resumed = (await executor._deps(ledger, replay)).belt
+    over, _ = await resumed.call("search_code", {"query": "b"}, node="locate", intent="i")
+
+    assert used.status == "ok" and over.status == "denied"
+
+
 def test_published_parts_are_redacted():
     summary = CostLedger("r", "c", emit=False).summary("verified")
     events = [
