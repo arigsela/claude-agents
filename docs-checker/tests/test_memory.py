@@ -169,3 +169,48 @@ def test_garbage_and_version_mismatch_are_ignored(caplog):
             store = SnapshotStore.from_snapshot(bad)
         assert store.run == 1 and store.get_doc("a") is None
     assert "ignoring memory snapshot" in caplog.text
+
+
+def _snap_with(**doc_changes):
+    s = SnapshotStore()
+    s.put_doc("a.md", status="checked", fingerprint={"x": "1"}, checker="c", open_findings=[])
+    s.put_decision("k", decision())
+    snap = json.loads(json.dumps(s.snapshot({"a.md"})))
+    snap["docs"]["a.md"].update(doc_changes)
+    return snap
+
+
+def _ignored(snap, caplog):
+    with caplog.at_level(logging.WARNING):
+        store = SnapshotStore.from_snapshot(snap)
+    assert store.get_doc("a.md") is None and store.run == 1
+    assert "ignoring memory snapshot" in caplog.text
+
+
+def test_hostile_snapshots_yield_an_empty_store(caplog):
+    _ignored(_snap_with(status="weird"), caplog)
+
+
+def test_bool_last_run_is_rejected(caplog):
+    snap = _snap_with()
+    snap["decisions"]["k"]["last_run"] = True
+    _ignored(snap, caplog)
+
+
+def test_non_string_fingerprint_value_is_rejected(caplog):
+    _ignored(_snap_with(fingerprint={"x": 5}), caplog)
+
+
+def test_oversize_input_is_rejected(caplog):
+    _ignored(_snap_with(open_findings=[{"pad": "x" * (2 * MAX_SNAPSHOT_BYTES)}]), caplog)
+
+
+def test_deeply_nested_input_is_rejected(caplog):
+    deep: list = []
+    for _ in range(100_000):
+        deep = [deep]
+    _ignored(_snap_with(open_findings=deep), caplog)
+
+
+def test_open_findings_must_be_findings(caplog):
+    _ignored(_snap_with(open_findings=[{"not": "a finding"}]), caplog)

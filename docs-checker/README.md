@@ -108,3 +108,7 @@ PyPI. It also declares `fastapi`, which kagent-core 1.0.0a14 imports but does no
 `Dockerfile` follows kagent's own BYO samples: a bookworm base and a uv-managed Python,
 because gVisor checkpoint/restore crashed processes on trixie's glibc and on the system
 CPython. The Harness must set `workload.command: ["/app/.venv/bin/docs-checker"]`.
+
+## Memory
+
+The agent has no database. The weekly trigger holds a JSON memory snapshot, sends it with each run and gets back the full updated snapshot. Trust model: the trigger is the only caller that sends memory, and it is the one that receives the report. Memory is honoured only in `scheduled` mode; any other mode starts with an empty store. A snapshot that is oversize, garbled or the wrong version is ignored with a warning. Findings carried from memory are marked `carried: true` in the report.

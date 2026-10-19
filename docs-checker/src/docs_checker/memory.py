@@ -22,7 +22,7 @@ from langgraph.store.memory import InMemoryStore
 
 from docs_checker.frontmatter import DocMeta
 from docs_checker.repo import RepoReader
-from docs_checker.state import Decision
+from docs_checker.state import Decision, Finding
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +31,10 @@ MAX_SNAPSHOT_BYTES = 512 * 1024
 KEEP_RUNS = 4
 CHECKER_KEY = "__checker__"  # reserved fingerprint key; no repo path starts with it
 UNKNOWN = "!unknown"  # a commit we could not resolve: never equal to anything
+
+MAX_INPUT_BYTES = 2 * MAX_SNAPSHOT_BYTES
+MAX_COUNTER = 10**6
+STATUSES = frozenset({"checked", "unchanged", "incomplete", "skipped-budget", "failed"})
 
 _DOC = ("doc",)
 _DECISION = ("decision",)
@@ -54,7 +58,7 @@ class SnapshotStore(InMemoryStore):
             return store
         try:
             docs, decisions, run = cls._validate(data)
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, RecursionError) as exc:
             log.warning("ignoring memory snapshot: %s", exc)
             return store
         for path, entry in docs.items():
@@ -65,20 +69,45 @@ class SnapshotStore(InMemoryStore):
         return store
 
     @staticmethod
-    def _validate(data: Any) -> tuple[dict, dict, int]:
+    def _counter(value: Any, what: str) -> int:
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= MAX_COUNTER:
+            raise ValueError(f"bad {what}")
+        return value
+
+    @classmethod
+    def _validate(cls, data: Any) -> tuple[dict, dict, int]:
+        """Raises on anything wrong: one bad entry drops the WHOLE snapshot (a partly
+        trusted snapshot is not worth the risk). Oversize input is rejected first."""
+        if len(json.dumps(data, separators=(",", ":")).encode()) > MAX_INPUT_BYTES:
+            raise ValueError("snapshot too large")
         if not isinstance(data, dict) or data.get("version") != SCHEMA_VERSION:
             raise ValueError("unsupported snapshot version")
-        run, docs, decisions = data["run"], data["docs"], data["decisions"]
-        if not isinstance(run, int) or isinstance(run, bool) or run < 0:
-            raise ValueError("bad run counter")
+        run = cls._counter(data["run"], "run counter")
+        docs, decisions = data["docs"], data["decisions"]
         if not isinstance(docs, dict) or not isinstance(decisions, dict):
             raise TypeError("docs and decisions must be mappings")
         for entry in docs.values():
-            if not isinstance(entry, dict) or not isinstance(entry.get("fingerprint"), dict):
+            if not isinstance(entry, dict):
                 raise TypeError("bad doc entry")
+            fp = entry.get("fingerprint")
+            if not isinstance(fp, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in fp.items()
+            ):
+                raise TypeError("bad fingerprint")
+            if entry.get("status") not in STATUSES:
+                raise ValueError("bad doc status")
+            if not isinstance(entry.get("checker"), str):
+                raise TypeError("bad checker")
+            cls._counter(entry.get("run"), "doc run")
+            findings = entry.get("open_findings")
+            if not isinstance(findings, list) or not all(isinstance(f, dict) for f in findings):
+                raise TypeError("bad open_findings")
+            for f in findings:
+                Finding.model_validate(f)
         for entry in decisions.values():
-            if not isinstance(entry, dict) or not isinstance(entry.get("last_run"), int):
+            if not isinstance(entry, dict):
                 raise TypeError("bad decision entry")
+            cls._counter(entry.get("last_run"), "last_run")
             Decision.model_validate(entry["decision"])
         return docs, decisions, run
 
