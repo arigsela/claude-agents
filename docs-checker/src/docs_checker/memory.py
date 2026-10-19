@@ -50,7 +50,7 @@ class SnapshotStore(InMemoryStore):
     run: int = 1
 
     @classmethod
-    def from_snapshot(cls, data: Any, *, mode: str = "scheduled") -> SnapshotStore:
+    def from_snapshot(cls, data: Any, *, mode: str) -> SnapshotStore:
         store = cls()
         if mode != "scheduled":
             return store  # interactive callers get no memory (C#22)
@@ -182,6 +182,19 @@ class SnapshotStore(InMemoryStore):
                 "memory snapshot is %d bytes with no decisions left: docs alone exceed %d",
                 size(),
                 MAX_SNAPSHOT_BYTES,
+            )
+        # Hard cap: the read side rejects input over MAX_INPUT_BYTES, so never write more.
+        # Drop whole doc entries, largest first; those docs are re-checked next run.
+        dropped = 0
+        while size() > MAX_INPUT_BYTES and docs:
+            biggest = max(docs, key=lambda p: (len(json.dumps(docs[p])), p))
+            del docs[biggest]
+            dropped += 1
+        if dropped:
+            log.warning(
+                "memory snapshot over the hard cap %d: dropped %d doc entries (re-checked next run)",
+                MAX_INPUT_BYTES,
+                dropped,
             )
         return snap
 

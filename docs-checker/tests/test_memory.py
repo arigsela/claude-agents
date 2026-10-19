@@ -4,6 +4,7 @@ import logging
 from docs_checker.frontmatter import DocMeta, SourceRef
 from docs_checker.memory import (
     CHECKER_KEY,
+    MAX_INPUT_BYTES,
     MAX_SNAPSHOT_BYTES,
     UNKNOWN,
     SnapshotStore,
@@ -86,7 +87,7 @@ def test_an_all_unchanged_run_returns_the_full_snapshot():
     s.put_doc("docs/a.md", status="checked", fingerprint={"x": "1"}, checker="c", open_findings=[])
     s.put_decision("k1", decision())
     first = s.snapshot({"docs/a.md"})
-    again = SnapshotStore.from_snapshot(json.loads(json.dumps(first)))
+    again = SnapshotStore.from_snapshot(json.loads(json.dumps(first)), mode="scheduled")
     second = again.snapshot({"docs/a.md"})
     assert second["docs"] == first["docs"]
     assert second["decisions"] == first["decisions"]
@@ -166,7 +167,7 @@ def test_garbage_and_version_mismatch_are_ignored(caplog):
     good = SnapshotStore().snapshot(set())
     for bad in ("junk", {**good, "version": 99}, {"version": 1}, {**good, "docs": {"a": 1}}):
         with caplog.at_level(logging.WARNING):
-            store = SnapshotStore.from_snapshot(bad)
+            store = SnapshotStore.from_snapshot(bad, mode="scheduled")
         assert store.run == 1 and store.get_doc("a") is None
     assert "ignoring memory snapshot" in caplog.text
 
@@ -182,7 +183,7 @@ def _snap_with(**doc_changes):
 
 def _ignored(snap, caplog):
     with caplog.at_level(logging.WARNING):
-        store = SnapshotStore.from_snapshot(snap)
+        store = SnapshotStore.from_snapshot(snap, mode="scheduled")
     assert store.get_doc("a.md") is None and store.run == 1
     assert "ignoring memory snapshot" in caplog.text
 
@@ -214,3 +215,24 @@ def test_deeply_nested_input_is_rejected(caplog):
 
 def test_open_findings_must_be_findings(caplog):
     _ignored(_snap_with(open_findings=[{"not": "a finding"}]), caplog)
+
+
+def test_docs_over_the_hard_cap_are_dropped_largest_first_and_round_trip(caplog):
+    s = SnapshotStore()
+    pad = "x" * (MAX_SNAPSHOT_BYTES // 2)
+    for i in range(5):
+        s.put_doc(
+            f"d{i}.md",
+            status="checked",
+            fingerprint={"p": pad + "y" * i},
+            checker="c",
+            open_findings=[],
+        )
+    s.put_doc("small.md", status="checked", fingerprint={}, checker="c", open_findings=[])
+    with caplog.at_level(logging.WARNING):
+        snap = s.snapshot({f"d{i}.md" for i in range(5)} | {"small.md"})
+    assert len(json.dumps(snap, separators=(",", ":")).encode()) <= MAX_INPUT_BYTES
+    assert "small.md" in snap["docs"] and "d4.md" not in snap["docs"]
+    assert "dropped" in caplog.text
+    again = SnapshotStore.from_snapshot(json.loads(json.dumps(snap)), mode="scheduled")
+    assert again.get_doc("small.md") is not None and again.run == snap["run"] + 1
