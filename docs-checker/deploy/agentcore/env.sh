@@ -31,3 +31,21 @@ GATEWAY_TARGET_NAME=github
 GITHUB_CREDENTIAL_PROVIDER=docs-checker-github
 # GitHub's hosted MCP server, repos toolset only, read-only mode.
 GITHUB_MCP_URL=https://api.githubcopilot.com/mcp/x/repos/readonly
+
+SECURITY_GROUP_NAME=docs-checker-runtime
+SESSION_MOUNT=/mnt/workspace
+IDLE_TIMEOUT_S=3600
+MAX_LIFETIME_S=28800
+
+# with_json_input CMD...: run CMD with --cli-input-json read from a private temp file
+# holding stdin. aws-cli 2.34 cannot read --cli-input-json from a pipe (file:///dev/stdin
+# is "Invalid JSON"), so the JSON goes to a 0600 file in a 0700 directory, removed as
+# soon as CMD returns.
+with_json_input() {
+  local dir status=0
+  dir="$(umask 077 && mktemp -d)"
+  cat >"$dir/input.json"
+  "$@" --cli-input-json "file://$dir/input.json" || status=$?
+  rm -rf "$dir"
+  return "$status"
+}

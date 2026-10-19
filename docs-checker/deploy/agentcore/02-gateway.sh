@@ -7,7 +7,8 @@
 #   bash docs-checker/deploy/agentcore/02-gateway.sh --apply    # create what is missing
 #
 # The PAT is read from the terminal (silent) only when the credential provider is
-# missing, and reaches the CLI on stdin as JSON: never argv, env or a file. --apply also
+# missing, and reaches the CLI as JSON in a 0600 temp file removed right after the call
+# (env.sh: with_json_input), never argv or env. --apply also
 # grants the runtime role InvokeGateway on this gateway, and both modes write
 # out/gateway.env (MCP_URL, GATEWAY_ARN) once the gateway exists.
 set -euo pipefail
@@ -47,7 +48,7 @@ ensure_provider() {
   printf '\n' >/dev/tty
   if [ -z "$pat" ]; then echo "empty PAT; nothing created" >&2; exit 1; fi
   jq -n --arg name "$GITHUB_CREDENTIAL_PROVIDER" --arg key "$pat" '{name: $name, apiKey: $key}' \
-    | "${ac[@]}" create-api-key-credential-provider --cli-input-json file:///dev/stdin >/dev/null
+    | with_json_input "${ac[@]}" create-api-key-credential-provider >/dev/null
   unset pat
   report OK "credential-provider $GITHUB_CREDENTIAL_PROVIDER $(provider_arn) (created)"
 }
