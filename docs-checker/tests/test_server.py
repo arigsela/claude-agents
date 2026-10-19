@@ -355,6 +355,12 @@ async def test_gateway_tools_are_sigv4_signed_on_agentcore(monkeypatch, runtime)
             return []
 
     monkeypatch.setattr(mcp_client, "MultiServerMCPClient", Capture)
+
+    async def gateway(name, connection):
+        seen[name] = connection
+        return []
+
+    monkeypatch.setattr("docs_checker.gateway_tools.load_gateway_tools", gateway)
     settings = dataclasses.replace(
         load_settings({}),
         runtime=runtime,

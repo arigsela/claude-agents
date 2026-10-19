@@ -243,10 +243,12 @@ async def load_mcp_tools(settings: Settings) -> dict[str, list[Any]]:
     if settings.runtime == "agentcore":
         # AgentCore Gateway's AWS_IAM authorizer: sign as the runtime's execution role.
         from docs_checker.aws_auth import SigV4Auth
+        from docs_checker.gateway_tools import load_gateway_tools
 
         auth = SigV4Auth(service="bedrock-agentcore", region=settings.aws_region)
         for connection in connections.values():
             connection["auth"] = auth
+        return {name: await load_gateway_tools(name, conn) for name, conn in connections.items()}
     client = MultiServerMCPClient(
         connections,
         # An MCP error result (isError) raises instead of coming back as content,
