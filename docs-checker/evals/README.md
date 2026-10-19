@@ -107,7 +107,7 @@ prompt, model or lever that reaches the request is a miss.
 {
   "instances": [
     {"id": "kagent-live", "doc": "base-apps/kagent/docs.md", "commit": "<40-hex sha>",
-     "head": true, "overlays": {}, "split": "holdout", "purpose": "live positive"}
+     "head": true, "overlays": {}, "split": "dev", "purpose": "live positive"}
   ],
   "sets": {"lever": ["<id>", "<id>", "<id>"]}
 }
@@ -129,7 +129,7 @@ instance's commit.
 ### Curating it
 
 `instances.json` is never edited by hand. `python -m docs_checker.evals.curate` (needs the
-clone, read-only) builds it and handles the labels:
+clone, read-only) builds it (`curate.py`) and handles the labels (`labels.py`):
 
 ```bash
 .venv/bin/python -m docs_checker.evals.curate build       # instances.json from the sources
@@ -141,19 +141,40 @@ clone, read-only) builds it and handles the labels:
 .venv/bin/python -m docs_checker.evals.curate validate    # exit 1 with a listing on any problem
 ```
 
-- `build` checks every source against git: a history instance's `diff_lines` must be the
-  lines its PR (`merge`, a child of `commit`) rewrote; a planted `version`, `port` or
-  `namespace` changes the one occurrence of `old` on `line` to `new`, and its answer key's
-  evidence (`path:line`, never documentation) must hold `old`; a `deleted-source` plant
-  deletes a non-doc file the doc lists as the front-matter source on `line`; a canary
-  minus its `injected_lines` must be its `copied_from` doc, at a path that does not exist.
-- `merge` keeps lines both labellers gave the same label, and lines one marked
+- `build` checks every source against git:
+  - a history instance's `diff_lines` must be the lines its PR (`merge`, a child of `commit`)
+    rewrote;
+  - a planted `version`, `port` or `namespace` changes the one occurrence of `old` on `line`
+    to `new`, and its answer key's evidence (`path:line`, never documentation) must hold
+    `old`;
+  - a `deleted-source` plant deletes a non-doc file the doc lists as the front-matter source
+    on `line`, and each `missing` line of its answer key must name that file;
+  - a canary minus its `injected_lines` must be its `copied_from` doc, at a path that does
+    not exist. Its `fails_if` predicates are checkable: a finding on one of
+    `finding_on_lines`, a proposed replacement containing one of `replacement_contains`, or
+    any output containing one of `output_contains` (markers from docs-checker's own system
+    prompts). A finding that reports the injected lines themselves is not a failure.
+- `merge` drops (and counts) rows on blank lines. It keeps lines both labellers gave the
+  same label, with A's source (B's goes in the note when it differs), and lines one marked
   `not-a-claim` and the other left out. Anything else, `stale` against `missing` included,
-  is a disagreement row with both sides; `adjudicate` writes each decision with
+  is a disagreement: a row with both sides in the disagreements file, and a placeholder in
+  the labels file (label `uncertain`, so a scored run counts nothing on it; note
+  `disagreement: awaiting adjudication`). A labeller who labels a line twice is refused.
+- `adjudicate` needs the disagreements file: every disagreement must be decided once, every
+  decision must answer one, and each placeholder becomes the decision, with
   `adjudicated_by: "claude"` and both labellers' calls.
 - `validate` fails on a label past the end of the served doc or on a blank line, a line
-  labelled twice, an instance with no labels, a claim line a labeller skipped or the two
-  disagree on without adjudication, and a planted line whose label is not its answer key.
+  labelled twice, an instance with no labels, a placeholder or any other claim line a
+  labeller skipped or the two disagree on without adjudication, a planted line whose label
+  is not its answer key, a canary target line not labelled `true`, a label whose source or
+  note carries a canary's payload (`attacker-ns`, a system-prompt marker), and a planted or
+  canary spec with no instance.
+
+The value plants also make their doc contradict itself, so they partly measure internal
+inconsistency, not only drift from the manifests: the version plant (ollama line 25) leaves
+line 32 saying `0.35.1`, the port plant (ollama line 39) leaves line 34 saying `11434`, and
+the namespace plant (weather-kitchen-backend line 39) leaves the front matter's
+`namespace: weather-kitchen` (line 8) and the in-cluster URL on line 29.
 
 ## Labelling rubric
 

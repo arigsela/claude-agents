@@ -1,12 +1,16 @@
-"""Curating the eval set: instances from git, planted overlays, labelling packets, labels.
+"""Curating the eval set: instances from git, planted overlays, labelling packets.
 
 ``python -m docs_checker.evals.curate <command>``::
 
     build      [--evals-dir DIR] [--clone PATH]
     packets    --out DIR [--evals-dir DIR] [--clone PATH]
     merge      --a PATH [--a PATH ...] --b PATH [--b PATH ...] --out FILE --disagreements FILE
-    adjudicate --labels FILE --decisions FILE [--disagreements FILE]
+               [--evals-dir DIR] [--clone PATH]
+    adjudicate --labels FILE --decisions FILE --disagreements FILE
     validate   [--evals-dir DIR] [--clone PATH]
+
+``merge``, ``adjudicate`` and ``validate`` are in ``labels.py``; this module builds the
+instances they name.
 
 The sources, committed under ``evals/``:
 
@@ -21,8 +25,8 @@ The sources, committed under ``evals/``:
   ``deleted-source`` plant deletes ``old``, the front-matter source on ``line`` (an overlay
   ``null``).
 - ``canary/<id>.md`` with its sidecar ``canary/<id>.json``: a copy of an in-scope doc with
-  injected lines, served at its own path at ``head``. The sidecar records the injected fix
-  and the pass condition.
+  injected lines, served at its own path at ``head``. The sidecar records the injected fix,
+  the pass condition and its checkable ``fails_if`` predicates.
 
 A value is matched as a whole name: ``weather-kitchen`` is not found inside
 ``weather-kitchen-tls`` or ``weather-kitchen.arigsela.com``. Lines are counted by ``\\n``,
@@ -30,10 +34,8 @@ as the checker counts them; a final newline does not start another line.
 
 ``build`` writes ``instances.json`` (deterministic; overlays carry full file text) after
 serving every instance through the harness's local repository. ``packets`` writes each doc
-as served, numbered, for the labellers, with ``manifest.json``. ``merge`` joins two
-labellers' rows: agreements become labels, anything else a disagreement row. ``adjudicate``
-applies decisions (``adjudicated_by: "claude"``). ``validate`` checks the labels against the
-served docs and the planted answer keys. Git runs read-only, as an argument list.
+as served, numbered, for the labellers, with ``manifest.json``. Git runs read-only, as an
+argument list.
 """
 
 from __future__ import annotations
@@ -48,19 +50,10 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    TypeAdapter,
-    ValidationError,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from docs_checker.evals.harness import EVALS_DIR, Instance, load_eval_set
-from docs_checker.evals.localrepo import LocalRepoSession
-from docs_checker.evals.score import Label, LabelledLine
+from docs_checker.evals.localrepo import LocalRepoSession, _git_env
 from docs_checker.frontmatter import FrontMatterError, parse_front_matter
 from docs_checker.scope import in_scope
 
@@ -69,7 +62,6 @@ DEFAULT_CLONE = Path(os.environ.get("DOCS_CHECKER_EVAL_CLONE", "~/git/kubernetes
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Id = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]*$")]
 Split = Literal["dev", "holdout"]
-Key = tuple[str, int]
 
 
 class _Spec(BaseModel):
@@ -131,6 +123,14 @@ class InjectedFix(_Spec):
     replacement: str
 
 
+class CanaryFailsIf(_Spec):
+    """What makes a run fail the canary, as predicates a scorer can check."""
+
+    finding_on_lines: list[int] = Field(min_length=1)  # any finding covering one of them
+    replacement_contains: list[str] = Field(min_length=1)  # in any proposed replacement
+    output_contains: list[str] = Field(min_length=1)  # system-prompt markers, in any output
+
+
 class CanarySpec(_Spec):
     id: Id
     path: str
@@ -140,20 +140,8 @@ class CanarySpec(_Spec):
     injected_lines: list[int] = Field(min_length=1)
     injected_fix: InjectedFix
     pass_condition: str
-    fails_if: list[str] = Field(default_factory=list)
-
-
-class LabellerRow(_Spec):
-    """One labeller's (or the adjudicator's) call on one line."""
-
-    instance: str
-    line: int = Field(ge=1)
-    label: Label
-    source: str = ""
-    note: str = ""
-
-
-_ROWS = TypeAdapter(list[LabellerRow])
+    fails_if: CanaryFailsIf
+    not_failures: list[str] = Field(default_factory=list)
 
 
 # --- git -------------------------------------------------------------------------------------
@@ -174,16 +162,15 @@ def _rev(commit: str) -> str:
 
 
 class Repo:
-    """Read-only git on the clone: no shell, no GIT_* variables, literal pathspecs."""
+    """Read-only git on the clone: no shell, and localrepo's environment (no GIT_* variables
+    of the caller, literal pathspecs)."""
 
     def __init__(self, clone: Path | str):
         self.clone = Path(clone)
 
     def _git(self, *args: str) -> subprocess.CompletedProcess[bytes]:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        env["GIT_LITERAL_PATHSPECS"] = "1"
         return subprocess.run(
-            ["git", "-C", str(self.clone), *args], check=False, capture_output=True, env=env
+            ["git", "-C", str(self.clone), *args], check=False, capture_output=True, env=_git_env()
         )
 
     def commit(self, sha: str) -> str:
@@ -250,6 +237,14 @@ def count_value(line: str, value: str) -> int:
     return len(_value(value).findall(line))
 
 
+def names_path(line: str, path: str) -> bool:
+    """``line`` names ``path``: the whole path or a tail of it (``service.yaml``,
+    ``app/service.yaml``), not as the end of some other path."""
+    parts = path.split("/")
+    tails = ("/".join(parts[i:]) for i in range(len(parts)))
+    return any(re.search(rf"(?<![\w./-]){re.escape(t)}(?![\w/-])(?!\.\w)", line) for t in tails)
+
+
 def _is_documentation(path: str) -> bool:
     return path.endswith(".md") or path == "docs" or path.startswith("docs/")
 
@@ -310,6 +305,10 @@ def _check_answer_key(
                 raise ValueError(f"{spec.id}: evidence {entry.source} is not there at {head}")
         elif repo.exists(head, entry.source) and overlays.get(entry.source, "") is not None:
             raise ValueError(f"{spec.id}: the answer key says {entry.source} is missing; it is not")
+        elif not names_path(lines[entry.line - 1], entry.source):
+            raise ValueError(
+                f"{spec.id}: answer key line {entry.line} does not name {entry.source}"
+            )
 
 
 def plant(spec: PlantedSpec, repo: Repo, head: str) -> Instance:
@@ -403,6 +402,16 @@ def canary(spec: CanarySpec, text: str, repo: Repo, head: str) -> Instance:
         raise ValueError(f"{spec.id}: injected_fix line {fix.line} reads {actual!r}, not old_text")
     if fix.replacement == fix.old_text:
         raise ValueError(f"{spec.id}: the injected fix changes nothing")
+    fails = spec.fails_if
+    if fix.line not in fails.finding_on_lines:
+        raise ValueError(f"{spec.id}: fails_if.finding_on_lines must hold the target line")
+    if any(v not in fix.replacement or v in original for v in fails.replacement_contains):
+        raise ValueError(
+            f"{spec.id}: each replacement_contains value must be in the injected fix's "
+            "replacement and nowhere in the original doc"
+        )
+    if any(not marker.strip() or marker in text for marker in fails.output_contains):
+        raise ValueError(f"{spec.id}: an output_contains marker is empty or quoted by the canary")
     purpose = (
         f"{spec.purpose} Pass: {spec.pass_condition}. "
         f"The injected fix is injected_fix in evals/canary/{spec.id}.json."
@@ -443,7 +452,8 @@ def _source_instance(entry: SourceInstance, repo: Repo, head: str) -> Instance:
     return _served_check(repo, instance)
 
 
-def _specs(directory: Path, suffix: str) -> list[Path]:
+def specs(directory: Path, suffix: str) -> list[Path]:
+    """The spec files with ``suffix`` in ``directory``, sorted (none when it is absent)."""
     return sorted(directory.glob(f"*{suffix}")) if directory.is_dir() else []
 
 
@@ -453,15 +463,15 @@ def build(evals_dir: Path, clone: Path) -> dict[str, Any]:
     spec = CurateSpec.model_validate_json((evals_dir / "curate.json").read_text())
     head = repo.commit(spec.head)
     instances = [_source_instance(entry, repo, head) for entry in spec.instances]
-    for path in _specs(evals_dir / "planted", ".json"):
+    for path in specs(evals_dir / "planted", ".json"):
         planted = PlantedSpec.model_validate_json(path.read_text())
         if planted.id != path.stem:
             raise ValueError(f"{path.name}: its id is {planted.id}")
         instances.append(plant(planted, repo, head))
     canaries = evals_dir / "canary"
-    if {p.stem for p in _specs(canaries, ".md")} != {p.stem for p in _specs(canaries, ".json")}:
+    if {p.stem for p in specs(canaries, ".md")} != {p.stem for p in specs(canaries, ".json")}:
         raise ValueError("every canary needs both <id>.md and its sidecar <id>.json")
-    for path in _specs(canaries, ".md"):
+    for path in specs(canaries, ".md"):
         sidecar = CanarySpec.model_validate_json(path.with_suffix(".json").read_text())
         if sidecar.id != path.stem:
             raise ValueError(f"{path.with_suffix('.json').name}: its id is {sidecar.id}")
@@ -472,8 +482,13 @@ def build(evals_dir: Path, clone: Path) -> dict[str, Any]:
     if twice or unknown:
         raise ValueError(f"instance ids defined twice: {twice}; set members unknown: {unknown}")
     data = {"instances": [i.model_dump(mode="json") for i in instances], "sets": spec.sets}
-    _write_json(evals_dir / "instances.json", data)
+    write_json(evals_dir / "instances.json", data)
     return data
+
+
+def write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 # --- packets -----------------------------------------------------------------------------------
@@ -540,191 +555,8 @@ def write_packets(instances: Iterable[Instance], repo: Repo, out: Path) -> list[
         ],
         "instances": entries,
     }
-    _write_json(out / "manifest.json", manifest)
+    write_json(out / "manifest.json", manifest)
     return entries
-
-
-# --- labels --------------------------------------------------------------------------------------
-
-
-def _write_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-
-def read_rows(paths: Sequence[Path]) -> list[LabellerRow]:
-    """Labeller rows from files or directories (every ``*.json`` in them), each a list."""
-    files = [f for p in paths for f in (sorted(p.glob("*.json")) if p.is_dir() else [p])]
-    rows: list[LabellerRow] = []
-    for file in files:
-        try:
-            rows += _ROWS.validate_json(file.read_bytes())
-        except ValidationError as error:  # names the file; a ValueError, as the CLI expects
-            raise ValueError(f"{file}: {error}") from error
-    return rows
-
-
-def _keyed(rows: Iterable[LabellerRow], who: str) -> dict[Key, LabellerRow]:
-    keyed: dict[Key, LabellerRow] = {}
-    for item in rows:
-        key = (item.instance, item.line)
-        if key in keyed:
-            raise ValueError(f"{who} labels {item.instance} line {item.line} twice")
-        keyed[key] = item
-    return keyed
-
-
-def _side(item: LabellerRow | None) -> dict[str, str] | None:
-    return None if item is None else {"label": item.label, "source": item.source, "note": item.note}
-
-
-def _notes(a: str, b: str) -> str:
-    return a if not b or a == b else b if not a else f"{a} / {b}"
-
-
-def merge(
-    a: Iterable[LabellerRow], b: Iterable[LabellerRow]
-) -> tuple[list[LabelledLine], list[dict[str, Any]]]:
-    """Agreed labels and disagreement rows, both sorted by instance and line.
-
-    The same label from both is agreed. A line one labeller marked ``not-a-claim`` and the
-    other left out stays ``not-a-claim``. Anything else (a different label, stale vs
-    missing included, or a claim only one of them labelled) is a disagreement.
-    """
-    by_a, by_b = _keyed(a, "labeller a"), _keyed(b, "labeller b")
-    labels: list[LabelledLine] = []
-    disagreements: list[dict[str, Any]] = []
-    for key in sorted(by_a.keys() | by_b.keys()):
-        ra, rb = by_a.get(key), by_b.get(key)
-        one = ra or rb
-        assert one is not None
-        if ra is not None and rb is not None and ra.label == rb.label:
-            source, note = ra.source or rb.source, _notes(ra.note, rb.note)
-        elif (ra is None or rb is None) and one.label == "not-a-claim":
-            source, note = one.source, one.note
-        else:
-            disagreements.append(
-                {"instance": key[0], "line": key[1], "a": _side(ra), "b": _side(rb)}
-            )
-            continue
-        labels.append(
-            LabelledLine(
-                instance=key[0],
-                line=key[1],
-                label=one.label,
-                source=source,
-                note=note,
-                labeller_a=ra.label if ra else None,
-                labeller_b=rb.label if rb else None,
-            )
-        )
-    return labels, disagreements
-
-
-def _where(keys: Iterable[Key]) -> str:
-    return ", ".join(f"{instance} line {line}" for instance, line in sorted(keys))
-
-
-def adjudicate(
-    labels: Iterable[LabelledLine],
-    decisions: Iterable[LabellerRow],
-    disagreements: Sequence[dict[str, Any]] | None = None,
-) -> list[LabelledLine]:
-    """``labels`` with each decision applied as a row adjudicated by "claude". With the
-    disagreement rows, every decision must answer one and every one must be answered,
-    and each row keeps what the two labellers said."""
-    by_key: dict[Key, LabelledLine] = {}
-    for label in labels:
-        if (label.instance, label.line) in by_key:
-            raise ValueError(f"{label.instance} line {label.line} is labelled twice")
-        by_key[(label.instance, label.line)] = label
-    decided = _keyed(decisions, "the decisions")
-    sides: dict[Key, dict[str, Any]] | None = None
-    if disagreements is not None:
-        sides = {(d["instance"], d["line"]): d for d in disagreements}
-        if extra := decided.keys() - sides.keys():
-            raise ValueError(f"decisions for lines that are not disagreements: {_where(extra)}")
-        if undecided := sides.keys() - decided.keys():
-            raise ValueError(f"disagreements without a decision: {_where(undecided)}")
-    for key, decision in decided.items():
-        if sides is not None:
-            a, b = (sides[key].get(who) or {} for who in ("a", "b"))
-            labeller_a, labeller_b = a.get("label"), b.get("label")
-        elif key in by_key:
-            labeller_a, labeller_b = by_key[key].labeller_a, by_key[key].labeller_b
-        else:
-            labeller_a = labeller_b = None
-        by_key[key] = LabelledLine(
-            instance=key[0],
-            line=key[1],
-            label=decision.label,
-            source=decision.source,
-            note=decision.note,
-            labeller_a=labeller_a,
-            labeller_b=labeller_b,
-            adjudicated_by="claude",
-            reviewed_by_ari=False,
-        )
-    return [by_key[key] for key in sorted(by_key)]
-
-
-def _row_problems(label: LabelledLine, lines: list[str]) -> list[str]:
-    where = f"{label.instance} line {label.line}"
-    problems = []
-    if label.line > len(lines):
-        problems.append(f"{where}: past the end of the doc ({len(lines)} lines)")
-    elif not lines[label.line - 1].strip():
-        problems.append(f"{where}: the line is blank")
-    if label.adjudicated_by is not None:
-        return problems
-    a, b = label.labeller_a, label.labeller_b
-    if a is not None and b is not None and a != b:
-        problems.append(f"{where}: the labellers disagree ({a} vs {b}) and it is not adjudicated")
-    elif any(said is not None and said != label.label for said in (a, b)):
-        problems.append(f"{where}: labelled {label.label}, not what a labeller said, unadjudicated")
-    elif label.label != "not-a-claim" and (a is None or b is None):
-        who = " and ".join(n for n, said in (("labeller_a", a), ("labeller_b", b)) if said is None)
-        problems.append(f"{where}: {who} did not label this claim line and it is not adjudicated")
-    return problems
-
-
-def validate(evals_dir: Path, clone: Path) -> list[str]:
-    """Every problem with the labels: a line that is not in the served doc (or is blank),
-    an instance with no labels, a line labelled twice, a claim line one labeller did not
-    label (or labellers who disagree) with no adjudication, and a planted answer key the
-    labels contradict."""
-    repo = Repo(clone)
-    instances = load_eval_set(evals_dir).instances
-    problems: list[str] = []
-    first: dict[Key, tuple[str, LabelledLine]] = {}
-    docs: dict[str, list[str]] = {}
-    for file in sorted((evals_dir / "labels").glob("*.json")):
-        for item in json.loads(file.read_text()):
-            label = LabelledLine.model_validate(item)
-            key, where = (label.instance, label.line), f"{label.instance} line {label.line}"
-            if key in first:
-                problems.append(f"{where}: labelled twice ({first[key][0]}, {file.name})")
-                continue
-            first[key] = (file.name, label)
-            instance = instances.get(label.instance)
-            if instance is None:
-                problems.append(f"{where}: no such instance ({file.name})")
-                continue
-            if instance.id not in docs:
-                docs[instance.id] = doc_lines(served(instance, repo))
-            problems += _row_problems(label, docs[instance.id])
-    labelled = {instance for instance, _ in first}
-    problems += [f"{i}: no labels" for i in instances if i not in labelled]
-    for path in _specs(evals_dir / "planted", ".json"):
-        spec = PlantedSpec.model_validate_json(path.read_text())
-        for entry in spec.expected if spec.id in instances else []:
-            _, label = first.get((spec.id, entry.line), ("", None))
-            if label is None or label.label != entry.label:
-                said = "not labelled" if label is None else f"labelled {label.label}"
-                problems.append(
-                    f"{spec.id} line {entry.line}: {said}, the answer key says {entry.label}"
-                )
-    return problems
 
 
 # --- CLI -------------------------------------------------------------------------------------------
@@ -744,7 +576,7 @@ def _parser() -> argparse.ArgumentParser:
     with_repo("packets", "write the labelling packets").add_argument(
         "--out", type=Path, required=True
     )
-    merge_cmd = commands.add_parser("merge", help="join two labellers' rows")
+    merge_cmd = with_repo("merge", "join two labellers' rows over the served docs")
     merge_cmd.add_argument("--a", type=Path, action="append", required=True)
     merge_cmd.add_argument("--b", type=Path, action="append", required=True)
     merge_cmd.add_argument("--out", type=Path, required=True)
@@ -752,7 +584,7 @@ def _parser() -> argparse.ArgumentParser:
     adjudicate_cmd = commands.add_parser("adjudicate", help="apply decisions to a labels file")
     adjudicate_cmd.add_argument("--labels", type=Path, required=True)
     adjudicate_cmd.add_argument("--decisions", type=Path, required=True)
-    adjudicate_cmd.add_argument("--disagreements", type=Path)
+    adjudicate_cmd.add_argument("--disagreements", type=Path, required=True)
     with_repo("validate", "check the labels against the served docs")
     return parser
 
@@ -766,18 +598,33 @@ def _run(args: argparse.Namespace) -> int:
         entries = write_packets(instances, Repo(args.clone), args.out)
         print(f"wrote {len(entries)} packets and manifest.json to {args.out}")
     elif args.command == "merge":
-        labels, disagreements = merge(read_rows(args.a), read_rows(args.b))
-        _write_json(args.out, [label.model_dump() for label in labels])
-        _write_json(args.disagreements, disagreements)
-        print(f"{len(labels)} agreed lines, {len(disagreements)} disagreements")
+        from docs_checker.evals import labels  # labels.py builds on this module
+
+        docs = labels.served_lines(args.evals_dir, args.clone)
+        merged = labels.merge(labels.read_rows(args.a), labels.read_rows(args.b), docs)
+        write_json(args.out, [label.model_dump() for label in merged.labels])
+        write_json(args.disagreements, [d.model_dump() for d in merged.disagreements])
+        agreed = len(merged.labels) - len(merged.disagreements)
+        print(
+            f"{agreed} agreed lines, {len(merged.disagreements)} disagreements (in {args.out} as "
+            f"rows awaiting adjudication), {len(merged.dropped)} rows on blank lines dropped"
+        )
+        for row in merged.dropped:
+            print(f"  dropped: labeller {row['labeller']}, {row['instance']} line {row['line']}")
     elif args.command == "adjudicate":
-        labels = [LabelledLine.model_validate(r) for r in json.loads(args.labels.read_text())]
-        sides = json.loads(args.disagreements.read_text()) if args.disagreements else None
-        done = adjudicate(labels, read_rows([args.decisions]), sides)
-        _write_json(args.labels, [label.model_dump() for label in done])
+        from docs_checker.evals import labels
+
+        done = labels.adjudicate(
+            labels.load_rows(args.labels, labels.LabelledLine),
+            labels.load_rows(args.decisions, labels.LabellerRow),
+            labels.load_rows(args.disagreements, labels.Disagreement),
+        )
+        write_json(args.labels, [label.model_dump() for label in done])
         print(f"{args.labels}: {len(done)} lines")
     else:
-        problems = validate(args.evals_dir, args.clone)
+        from docs_checker.evals import labels
+
+        problems = labels.validate(args.evals_dir, args.clone)
         for problem in problems:
             print(problem)
         if problems:
