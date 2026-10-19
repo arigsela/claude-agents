@@ -140,6 +140,19 @@ These are repo-specific today:
 
 ## 5. Lessons from the homelab deploy (they will bite again)
 
+- **Follow-up turns cold-boot the process.** This is the biggest one.
+  - The first turn of a new session restores the golden snapshot (`scope: full`, the whole
+    process, about 3 s).
+  - After each turn, kagent alpha14 checkpoints **only `/data`** (`scope: data`). The next turn
+    in the same session therefore starts the process from scratch, paying the full Python
+    startup (about 27 s).
+  - The kagent UI gives a session about 5 s to become available, then cancels the restore:
+    "input was not accepted; retry after the session becomes available".
+  - Go agents boot in under a second, so they never hit this.
+  - Lesson: a turn's cold boot must reach readiness in a few seconds. Defer heavy imports until
+    after readiness on non-golden boots; the actor identity's atespace is `ate-golden` for the
+    golden one. Check whether AgentCore sessions resume a memory snapshot or cold-start, and
+    design for the second case.
 - **Readiness budget.** Substrate gave the golden actor 30 s to answer `/readyz`. Python
   imports alone took **23.5 s** under gVisor (7 s under qemu locally), and the first cold
   attempt missed the window. AgentCore cold starts are different but count too. Keep startup
