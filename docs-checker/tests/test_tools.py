@@ -2,14 +2,12 @@ import asyncio
 import itertools
 import json
 from dataclasses import replace
-from pathlib import Path
 
 import httpx
 import pytest
 from langchain_core.tools import StructuredTool, ToolException
-from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
 from mcp.shared.exceptions import McpError
-from mcp.types import CallToolResult, ErrorData, Tool
+from mcp.types import ErrorData
 
 from docs_checker.config import load_settings
 from docs_checker.gate import GateResult, RecordingGate
@@ -27,14 +25,16 @@ from docs_checker.tools import (
     stable_call_id,
     to_text,
 )
-from tests.fakes import DOCS_SERVER, FAKE_BINDINGS, fake_tools_by_server
+from tests.fakes import (
+    DOCS_SERVER,
+    FAKE_BINDINGS,
+    FIXTURES,
+    adapter_tool,
+    fake_tools_by_server,
+    fixture,
+)
 
-FIXTURES = Path(__file__).parent / "fixtures" / "mcp"
 SETTINGS = load_settings({})
-
-
-def fixture(name: str) -> dict:
-    return json.loads((FIXTURES / f"{name}.json").read_text())
 
 
 class RefuseGate:
@@ -66,33 +66,6 @@ def one_tool_belt(tool, *, settings=None, **kwargs) -> ToolBelt:
 
 
 # --- the captured server (tests/fixtures/mcp) --------------------------------
-
-
-class FixtureSession:
-    """Stands in for an MCP ClientSession: answers every call with one captured result."""
-
-    def __init__(self, result: dict):
-        self.result = CallToolResult.model_validate(result)
-        self.calls: list[tuple[str, dict]] = []
-
-    async def call_tool(self, name, arguments=None, progress_callback=None, **_):
-        self.calls.append((name, arguments))
-        return self.result
-
-
-def adapter_tool(tool: str, result: dict, *, handle_tool_errors: bool = False):
-    """The real langchain-mcp-adapters tool for the captured schema of ``tool``.
-
-    ``handle_tool_errors=False`` is what ``server.load_mcp_tools`` uses (an isError
-    result raises a ToolException); True returns it as a ToolMessage with
-    status "error". The belt must read both.
-    """
-    schema = Tool.model_validate(fixture("tools_list")["tools"][tool])
-    session = FixtureSession(result)
-    converted = convert_mcp_tool_to_langchain_tool(
-        session, schema, server_name=DOCS_SERVER, handle_tool_errors=handle_tool_errors
-    )
-    return converted, session
 
 
 NODE_OF = {

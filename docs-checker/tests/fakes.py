@@ -8,10 +8,20 @@ convention (``input_tokens`` is the whole prompt, cache tokens included).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
+from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
+from mcp.types import CallToolResult, Tool
+
+# Captured github-mcp-server answers (Task 5), redacted.
+FIXTURES = Path(__file__).parent / "fixtures" / "mcp"
+
+
+def fixture(name: str) -> dict:
+    return json.loads((FIXTURES / f"{name}.json").read_text())
 
 
 def usage(uncached: int, read: int = 0, write_5m: int = 0, output: int = 50) -> dict:
@@ -144,6 +154,33 @@ FAKE_BINDINGS: dict[str, tuple[str, ...]] = {
 def fake_tools_by_server(calls: list | None = None) -> dict[str, list[StructuredTool]]:
     """The fake tools grouped by the server that advertises them."""
     return {DOCS_SERVER: fake_tools(calls)}
+
+
+class FixtureSession:
+    """Stands in for an MCP ClientSession: answers every call with one captured result."""
+
+    def __init__(self, result: dict):
+        self.result = CallToolResult.model_validate(result)
+        self.calls: list[tuple[str, dict]] = []
+
+    async def call_tool(self, name, arguments=None, progress_callback=None, **_):
+        self.calls.append((name, arguments))
+        return self.result
+
+
+def adapter_tool(tool: str, result: dict, *, handle_tool_errors: bool = False):
+    """The real langchain-mcp-adapters tool for the captured schema of ``tool``.
+
+    ``handle_tool_errors=False`` is what ``server.load_mcp_tools`` uses (an isError
+    result raises a ToolException); True returns it as a ToolMessage with
+    status "error". The belt must read both.
+    """
+    schema = Tool.model_validate(fixture("tools_list")["tools"][tool])
+    session = FixtureSession(result)
+    converted = convert_mcp_tool_to_langchain_tool(
+        session, schema, server_name=DOCS_SERVER, handle_tool_errors=handle_tool_errors
+    )
+    return converted, session
 
 
 def fake_settings(env: dict | None = None, *, runtime: dict | None = None):
