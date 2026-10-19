@@ -266,6 +266,16 @@ class Budget:
         self._open.remove(reservation)
         self._spent += reservation.amount_usd if actual_usd is None else actual_usd
 
+    def restore(self, *, limit_usd: float | None, spent_usd: float, reserved_usd: float) -> None:
+        """Take over a paused run's budget in a new process: its limit, its spend, and
+        what it left unsettled (one open reservation that never settles)."""
+        for value in (spent_usd, reserved_usd) + (() if limit_usd is None else (limit_usd,)):
+            if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+                raise ValueError(f"not a budget amount: {value!r}")
+        self.limit_usd = None if limit_usd is None else float(limit_usd)
+        self._spent = float(spent_usd)
+        self._open = {Reservation(float(reserved_usd))} if reserved_usd else set()
+
 
 @dataclass(frozen=True)
 class LedgerEntry:
@@ -347,6 +357,10 @@ class CostLedger:
         self.emit = emit
         self.budget = budget if budget is not None else Budget(None)
         self.entries: list[LedgerEntry] = []
+        # Why the cost is known to miss calls, beyond unknown usage: a resume that lost
+        # the paused run's ledger counts from the restart only (C#25). The summary is
+        # then not complete, and the report states each reason.
+        self.lower_bound: list[str] = []
 
     def record_message(
         self, *, node: str, model: str, attempt: int, message: Any, latency_ms: int = 0
@@ -408,6 +422,43 @@ class CostLedger:
             )
         )
 
+    def dump_state(self) -> dict:
+        """What a resume in another process needs, as plain data: the entries, the
+        budget (limit, spend, unsettled reservations) and the lower-bound reasons."""
+        budget = self.budget
+        return {
+            "entries": [asdict(entry) for entry in self.entries],
+            "budget": {
+                "limit_usd": budget.limit_usd,
+                "spent_usd": budget.spent_usd,
+                "reserved_usd": budget.reserved_usd,
+            },
+            "lower_bound": list(self.lower_bound),
+        }
+
+    def load_state(self, state: dict) -> None:
+        """Continue the run ``dump_state`` described. Restored entries were logged by
+        the process that made them, so they are not emitted again. Raises on anything
+        malformed, leaving this ledger as it was."""
+        entries = []
+        for data in state["entries"]:
+            usage = data["usage"]
+            entries.append(
+                LedgerEntry(**{**data, "usage": None if usage is None else Usage(**usage)})
+            )
+        reasons = state["lower_bound"]
+        if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
+            raise TypeError("lower_bound must be a list of strings")
+        restored = Budget(None)
+        restored.restore(**state["budget"])
+        self.budget.restore(
+            limit_usd=restored.limit_usd,
+            spent_usd=restored.spent_usd,
+            reserved_usd=restored.reserved_usd,
+        )
+        self.entries = entries
+        self.lower_bound = list(reasons)
+
     def _append(self, entry: LedgerEntry) -> LedgerEntry:
         self.entries.append(entry)
         if self.emit:
@@ -447,7 +498,7 @@ class CostLedger:
             workload_cost_usd=workload,
             cash_cost_usd=round(cash, 8),
             reserved_unsettled_usd=round(self.budget.reserved_usd, 8),
-            complete=priced_all and self.budget.reserved_usd == 0,
+            complete=priced_all and self.budget.reserved_usd == 0 and not self.lower_bound,
             cache_hit_rate=(read / prompt) if prompt else None,
             by_node={k: round(v, 8) for k, v in sorted(by_node.items())},
             rate_card_version=self.rate_card.version,

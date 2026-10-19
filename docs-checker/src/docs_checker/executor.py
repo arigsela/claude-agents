@@ -1,15 +1,33 @@
 """A2A executor: one A2A task = one graph run = one cost ledger.
 
-The executor speaks A2A v1 protobuf types (a2a-sdk 1.x, ``lf.a2a.v1``). It
-emits what kagent's tooling reads from a task:
+The executor speaks A2A v1 protobuf types (a2a-sdk 1.x, ``lf.a2a.v1``).
 
-- the answer as a text part, and the run's ledger summary as a data part;
-- each tool call as a data part tagged ``kagent.dev/a2a/part-type:
-  function_call`` (the eval gate's ``expect_tools``/``forbid_tools`` read these);
-- token usage under the artifact metadata key ``kagent.dev/a2a/usage`` (the
-  audit export reads ``totalTokenCount`` there);
-- a paused run (the drift gate answered "ask") as ``input-required`` carrying a
-  kagent HITL ``tool_approval_request``; the reply resumes the same task.
+In: the request is the message's data part ``{"scope", "ref", "mode", "memory"}``
+when it has one, else its text (``request.parse_request``); text that is not a
+``check ...`` request goes to the graph's intake model. A request that cannot be
+read fails the task before any call. The run budget follows the scope
+(``graph.budget_limit``), and ``memory`` is loaded into the run's store (honoured
+in scheduled mode only). A HITL reply resumes the paused task instead.
+
+Out, for a completed task, every part redacted on its way out:
+
+- the report Markdown as a text part (and as the status message);
+- data parts ``docs-checker/findings``, ``docs-checker/memory`` (the FULL updated
+  snapshot, every run: the trigger always writes it back), and, when the run got
+  as far as a report, ``docs-checker/slack`` and ``docs-checker/report``;
+- each tool call as a data part tagged ``kagent.dev/a2a/part-type: function_call``
+  followed by its ``function_response`` (the eval gate's ``expect_tools`` and
+  ``forbid_tools`` read these);
+- the run's ledger summary as data ``docs-checker/cost-run``, and token usage under
+  the artifact metadata key ``kagent.dev/a2a/usage`` (the audit export reads
+  ``totalTokenCount`` there).
+
+A run the graph could not do (its ref, its scope) fails the task with the reason,
+and so does a turn longer than ``run_timeout_s`` ("timeout"); the ledger summary
+travels with the failure, partial cost included. A paused run (an "ask") is
+``input-required`` carrying a kagent HITL ``tool_approval_request``; its ledger and
+replay memo wait in ``PausedTasks`` (the checkpoint db in production), so the
+resume continues them, in this process or after a restart.
 """
 
 from __future__ import annotations
@@ -18,7 +36,6 @@ import asyncio
 import logging
 import traceback
 import uuid
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -26,32 +43,43 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import a2a_pb2
 from google.protobuf import struct_pb2
-from google.protobuf.json_format import ParseDict
+from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.timestamp_pb2 import Timestamp
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
 from docs_checker.config import Settings
 from docs_checker.gate import FixGate, ToolGate
-from docs_checker.graph import RunDeps, run_config
+from docs_checker.graph import RunDeps, budget_limit, run_config
 from docs_checker.ledger import RATE_CARDS, CostLedger, RunSummary
+from docs_checker.memory import SnapshotStore
 from docs_checker.models import ModelSet
+from docs_checker.paused import PausedTasks
 from docs_checker.redact import redact, redact_obj
-from docs_checker.tools import ToolBelt
+from docs_checker.report import Report, slack_text
+from docs_checker.request import RunRequest, parse_request
+from docs_checker.state import DocOutcome
+from docs_checker.tools import ToolBelt, ToolEvent
 
 logger = logging.getLogger(__name__)
 
 PART_TYPE_KEY = "kagent.dev/a2a/part-type"
 USAGE_KEY = "kagent.dev/a2a/usage"
 LEDGER_KEY = "docs-checker/cost-run"
+FINDINGS_KEY = "docs-checker/findings"
+MEMORY_KEY = "docs-checker/memory"
+SLACK_KEY = "docs-checker/slack"
+REPORT_KEY = "docs-checker/report"
+
+# The report's note when a resume lost the paused run's ledger (C#25).
+RESTART_NOTE = "cost after restart is a lower bound"
 
 # Tools grouped by the MCP server that advertised them (server name -> tools).
 ToolsProvider = Callable[[], Awaitable[Mapping[str, list[Any]]]]
 
-# Ledgers of paused tasks, kept so a resumed task reports its whole cost. Like
-# the in-memory checkpointer, this relies on Substrate snapshotting the actor's
-# process memory between turns. Bounded so abandoned pauses cannot pile up.
-MAX_PAUSED_LEDGERS = 64
+
+class UnreadableRequest(Exception):
+    """The request is not one docs-checker can run (``parse_request`` refused it)."""
 
 
 def _now() -> Timestamp:
@@ -102,28 +130,80 @@ def usage_metadata(summary: RunSummary) -> dict:
     }
 
 
-def answer_parts(answer: str, events: list, summary: RunSummary) -> list[a2a_pb2.Part]:
-    """The completed task's parts. Everything model-written is redacted here too,
-    as the last step before it leaves the agent."""
-    parts = [a2a_pb2.Part(text=redact(answer))]
-    for event in events:
-        parts.append(
-            _data_part({"name": event["name"], "args": redact_obj(event["args"])}, "function_call")
-        )
-        parts.append(
-            _data_part(
-                {
-                    "name": event["name"],
-                    "response": {
-                        "decision": event["decision"],
-                        "result_chars": event["result_chars"],
-                    },
-                },
-                "function_response",
-            )
-        )
+def _whole_numbers(value: Any) -> Any:
+    """protobuf's ``Value`` carries every number as a double: a whole one is an int
+    again, as the JSON the caller sent had it (the memory's counters must be ints)."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _whole_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_whole_numbers(v) for v in value]
+    return value
+
+
+def request_data(message: a2a_pb2.Message | None) -> Any:
+    """The first data part's value, or None when the message has no data part."""
+    if message is None:
+        return None
+    for part in message.parts:
+        if part.HasField("data"):
+            return _whole_numbers(MessageToDict(part.data))
+    return None
+
+
+def _tool_parts(event: ToolEvent) -> list[a2a_pb2.Part]:
+    return [
+        _data_part({"name": event["name"], "args": redact_obj(event["args"])}, "function_call"),
+        _data_part(
+            {
+                "name": event["name"],
+                "response": {"decision": event["decision"], "result_chars": event["result_chars"]},
+            },
+            "function_response",
+        ),
+    ]
+
+
+def completed_parts(
+    report: str,
+    *,
+    report_data: Report | None,
+    outcomes: Mapping[str, DocOutcome],
+    memory: dict,
+    summary: RunSummary,
+) -> list[a2a_pb2.Part]:
+    """The completed task's parts. Everything that came from a repo file or a model
+    is redacted here again, as the last step before it leaves the agent."""
+    findings = []
+    if report_data is not None:
+        found = report_data.findings + report_data.needs_look + report_data.carried
+        findings = [f.model_dump(mode="json") for f in found]
+    parts = [
+        a2a_pb2.Part(text=redact(report)),
+        _data_part({FINDINGS_KEY: redact_obj(findings)}),
+        _data_part({MEMORY_KEY: redact_obj(memory)}),
+    ]
+    if report_data is not None:
+        parts.append(_data_part({SLACK_KEY: redact(slack_text(report_data))}))
+        parts.append(_data_part({REPORT_KEY: redact_obj(report_data.model_dump(mode="json"))}))
+    for doc in sorted(outcomes):
+        for event in outcomes[doc].tool_events:
+            parts.extend(_tool_parts(event))
     parts.append(_data_part({LEDGER_KEY: summary.to_dict()}))
     return parts
+
+
+def memory_snapshot(store: SnapshotStore | None, result: Mapping[str, Any]) -> dict:
+    """The full updated snapshot (C#21). Docs leave it only when a whole-repo run saw
+    every doc in scope; any other run keeps the entries of docs it did not look at."""
+    if store is None:
+        store = SnapshotStore.from_snapshot(None, mode="interactive")
+    in_scope = set(result.get("outcomes") or {})
+    request = result.get("request")
+    if not isinstance(request, RunRequest) or request.scope != "all" or result.get("truncated"):
+        in_scope |= store.doc_paths()
+    return store.snapshot(in_scope)
 
 
 def resume_map(payload: dict, interrupts) -> dict:
@@ -157,13 +237,21 @@ def _headers(context: RequestContext) -> dict:
     return headers if isinstance(headers, dict) else {}
 
 
+def _failure(report: str | None) -> str:
+    """The reason a failed run gives, without the report's own prefix."""
+    text = (report or "").strip().removeprefix("docs-checker failed:").strip()
+    return text or "the run failed"
+
+
 class DocsCheckerExecutor(AgentExecutor):
-    """Runs the injected graph, which takes ``{"question": <user text>}`` with a
-    ``RunDeps`` runtime context, and returns ``answer``, ``events`` (ToolEvents) and
-    ``outcome``, or pauses with ``interrupt()``.
+    """Runs the injected graph, which takes ``{"text"}`` or ``{"text", "request"}``
+    with a ``RunDeps`` runtime context, and returns ``report`` (Markdown),
+    ``report_data`` (``Report``), ``outcomes`` (doc -> ``DocOutcome``, with their tool
+    events), ``request`` and ``outcome``, or pauses with ``interrupt()``.
 
     ``gate`` checks every tool call (through the tool belt); ``fix_gate`` every
-    proposed fix (the graph reaches it as ``RunDeps.fix_gate``)."""
+    proposed fix (the graph reaches it as ``RunDeps.fix_gate``). ``paused`` keeps a
+    paused task's ledger and replay memo until its resume."""
 
     def __init__(
         self,
@@ -174,6 +262,7 @@ class DocsCheckerExecutor(AgentExecutor):
         tools: ToolsProvider,
         gate: ToolGate,
         fix_gate: FixGate,
+        paused: PausedTasks | None = None,
     ):
         self._graph = graph
         self._settings = settings
@@ -181,6 +270,7 @@ class DocsCheckerExecutor(AgentExecutor):
         self._tools = tools
         self._gate = gate
         self._fix_gate = fix_gate
+        self._paused = paused if paused is not None else PausedTasks()
         # Each server's binding stays its own: a tool name bound on one server
         # must not authorize a same-named tool on another (no union).
         self._bindings: dict[str, tuple[str, ...]] = {}
@@ -188,9 +278,6 @@ class DocsCheckerExecutor(AgentExecutor):
             self._bindings[server.name] = tuple(
                 sorted(set(self._bindings.get(server.name, ())) | set(server.tools))
             )
-        self._paused_ledgers: OrderedDict[str, CostLedger] = OrderedDict()
-        # Per paused task: the memo its resume replays (see RunDeps.replay).
-        self._paused_replays: OrderedDict[str, dict[str, Any]] = OrderedDict()
         # Cancellation: each executing task's whole operation (tool discovery, the
         # resume lookup and the graph run), and the tasks a cancel() reached while
         # they were executing (they must publish nothing).
@@ -205,7 +292,9 @@ class DocsCheckerExecutor(AgentExecutor):
             default_ttl=self._settings.cache_ttl,
         )
 
-    async def _deps(self, ledger: CostLedger, replay: dict[str, Any]) -> RunDeps:
+    async def _deps(
+        self, ledger: CostLedger, replay: dict[str, Any], store: SnapshotStore | None = None
+    ) -> RunDeps:
         # The replay memo is the run's state across pauses: the belt keeps the
         # run's search count and pacing in it, so a resume does not reset them.
         belt = ToolBelt(
@@ -222,21 +311,55 @@ class DocsCheckerExecutor(AgentExecutor):
             settings=self._settings,
             replay=replay,
             fix_gate=self._fix_gate,
+            store=store,
         )
 
-    async def _graph_input(self, context: RequestContext, config: dict) -> Any:
+    def _request(self, context: RequestContext, ledger: CostLedger) -> tuple[dict, SnapshotStore]:
+        """A new request: the graph's input, with the run's budget and memory set."""
+        settings = self._settings
+        text = context.get_user_input()
+        try:
+            request = parse_request(
+                text, request_data(context.message), max_paths=settings.max_docs
+            )
+        except ValueError as error:
+            raise UnreadableRequest(str(error)) from error
+        if request is None:
+            # Free text: the intake call runs on one doc's budget, and intake sets the
+            # budget of the scope it reads (interactive, so no memory).
+            ledger.budget.limit_usd = settings.run_budget_doc_usd
+            return {"text": text}, SnapshotStore.from_snapshot(None, mode="interactive")
+        ledger.budget.limit_usd = budget_limit(request, settings)
+        store = SnapshotStore.from_snapshot(request.memory, mode=request.mode)
+        return {"text": text, "request": request}, store
+
+    async def _graph_input(
+        self, context: RequestContext, config: dict, ledger: CostLedger, *, held: bool
+    ) -> tuple[Any, SnapshotStore | None]:
         kagent_a2a = _hitl()
         payload = kagent_a2a.get_hitl_payload(context.message) if kagent_a2a else None
         if payload is None:
-            return {"question": context.get_user_input()}
+            return self._request(context, ledger)
         # Parallel branches can each be paused. Every pending pause gets only the
         # decisions for its own calls, keyed by its interrupt id; a pause with no
         # matching decision gets none, which the tool belt treats as a rejection.
         state = await self._graph.aget_state(config)
         pending = list(getattr(state, "interrupts", ()) or ())
         if not pending:
-            return Command(resume=payload)
-        return Command(resume=resume_map(payload, pending))
+            return Command(resume=payload), None
+        if not held:
+            self._restarted(context.task_id, ledger, getattr(state, "values", None) or {})
+        return Command(resume=resume_map(payload, pending)), None
+
+    def _restarted(self, task_id: str, ledger: CostLedger, values: Mapping[str, Any]) -> None:
+        """A paused task resumes without its ledger and memo (a restart that lost
+        them): the cost counts from here on, and the run keeps the budget its request
+        set, so the pause's approval still matches."""
+        logger.warning("task %s resumes without its paused ledger: %s", task_id, RESTART_NOTE)
+        ledger.lower_bound.append(RESTART_NOTE)
+        request = values.get("request")
+        if isinstance(request, RunRequest):
+            ledger.budget.limit_usd = budget_limit(request, self._settings)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
@@ -273,10 +396,10 @@ class DocsCheckerExecutor(AgentExecutor):
 
         # A resume continues the paused task's ledger, so the completed task's
         # summary covers every call, including those made before the pause.
-        ledger = self._paused_ledgers.pop(task_id, None) or self._new_ledger(task_id, context_id)
-        replay = self._paused_replays.pop(task_id, None) or {}
+        held = await self._paused.take(task_id, lambda: self._new_ledger(task_id, context_id))
+        ledger, replay = held if held is not None else (self._new_ledger(task_id, context_id), {})
         try:
-            await self._run(context, event_queue, ledger, replay)
+            await self._run(context, event_queue, ledger, replay, held=held is not None)
         except asyncio.CancelledError:
             if self._was_cancelled(task_id):
                 logger.info("task %s cancelled; %d model calls ran", task_id, len(ledger.entries))
@@ -285,21 +408,40 @@ class DocsCheckerExecutor(AgentExecutor):
     def _was_cancelled(self, task_id: str) -> bool:
         return task_id in self._cancelled
 
-    async def _run(self, context: RequestContext, event_queue: EventQueue, ledger, replay) -> None:
+    async def _run(
+        self, context: RequestContext, event_queue: EventQueue, ledger, replay, *, held: bool
+    ) -> None:
         task_id, context_id = context.task_id, context.context_id
+        timeout = self._settings.run_timeout_s
+        deadline = asyncio.timeout(timeout)
+        deps: RunDeps | None = None
         try:
-            deps = await self._deps(ledger, replay)
-            config = run_config(task_id, self._settings, self._settings.levers)
-            graph_input = await self._graph_input(context, config)
-            if self._was_cancelled(task_id):
-                return
-            result = await self._graph.ainvoke(graph_input, config, context=deps)
+            async with deadline:
+                config = run_config(task_id, self._settings, self._settings.levers)
+                graph_input, store = await self._graph_input(context, config, ledger, held=held)
+                deps = await self._deps(ledger, replay, store)
+                if self._was_cancelled(task_id):
+                    return
+                result = await self._graph.ainvoke(graph_input, config, context=deps)
+        except UnreadableRequest as error:
+            await self._fail(
+                event_queue,
+                task_id,
+                context_id,
+                ledger,
+                f"the request could not be read: {error}",
+            )
+            return
         except GraphRecursionError as error:
             await self._fail(
                 event_queue, task_id, context_id, ledger, f"recursion limit hit: {error}"
             )
             return
         except Exception as error:  # noqa: BLE001 - logged below; the ledger keeps its cost
+            if isinstance(error, TimeoutError) and deadline.expired():
+                logger.warning("task %s timed out after %g s", task_id, timeout)
+                await self._fail(event_queue, task_id, context_id, ledger, "timeout")
+                return
             # Upstream errors can echo request or response content, so the
             # traceback is redacted like everything else that leaves the agent.
             trace = "".join(traceback.format_exception(error))
@@ -310,20 +452,26 @@ class DocsCheckerExecutor(AgentExecutor):
         if self._was_cancelled(task_id):
             return  # cancel() arrived after the run finished: publish nothing more
         if result.get("__interrupt__"):
-            self._paused_ledgers[task_id] = ledger
-            self._paused_replays[task_id] = replay
-            while len(self._paused_ledgers) > MAX_PAUSED_LEDGERS:
-                self._paused_ledgers.popitem(last=False)
-            while len(self._paused_replays) > MAX_PAUSED_LEDGERS:
-                self._paused_replays.popitem(last=False)
+            await self._paused.put(task_id, ledger, replay)
             await self._pause(event_queue, context, ledger, result["__interrupt__"])
             return
+        if result.get("outcome") == "failed":
+            await self._fail(
+                event_queue, task_id, context_id, ledger, _failure(result.get("report"))
+            )
+            return
 
-        summary = ledger.summary(result.get("outcome", "unverified"))
+        summary = ledger.summary(result.get("outcome") or "unverified")
         logger.info("%s", summary.to_dict())
-        answer = redact(result.get("answer") or "No answer produced.")
-        parts = answer_parts(answer, result.get("events") or [], summary)
-        artifact = a2a_pb2.Artifact(artifact_id=str(uuid.uuid4()), name="answer", parts=parts)
+        report = redact(result.get("report") or "No report produced.")
+        parts = completed_parts(
+            report,
+            report_data=result.get("report_data"),
+            outcomes=result.get("outcomes") or {},
+            memory=memory_snapshot(deps.store, result),
+            summary=summary,
+        )
+        artifact = a2a_pb2.Artifact(artifact_id=str(uuid.uuid4()), name="report", parts=parts)
         artifact.metadata.CopyFrom(_struct({USAGE_KEY: usage_metadata(summary)}))
         await event_queue.enqueue_event(
             a2a_pb2.TaskArtifactUpdateEvent(
@@ -331,7 +479,7 @@ class DocsCheckerExecutor(AgentExecutor):
             )
         )
         await event_queue.enqueue_event(
-            _status(task_id, context_id, a2a_pb2.TaskState.TASK_STATE_COMPLETED, answer)
+            _status(task_id, context_id, a2a_pb2.TaskState.TASK_STATE_COMPLETED, report)
         )
 
     async def _fail(self, event_queue, task_id, context_id, ledger, reason: str) -> None:
@@ -342,7 +490,7 @@ class DocsCheckerExecutor(AgentExecutor):
                 task_id,
                 context_id,
                 a2a_pb2.TaskState.TASK_STATE_FAILED,
-                f"docs-checker failed: {reason}",
+                f"docs-checker failed: {redact(reason)}",
                 metadata={LEDGER_KEY: summary.to_dict()},
             )
         )
@@ -387,13 +535,12 @@ class DocsCheckerExecutor(AgentExecutor):
         """Stop the task's whole operation (tool discovery, model and tool calls
         included), then report CANCELED; execute() publishes nothing after this."""
         task_id = context.task_id
-        self._paused_ledgers.pop(task_id, None)
-        self._paused_replays.pop(task_id, None)
         operation = self._running.get(task_id)
         if operation is not None:
             self._cancelled.add(task_id)
             if not operation.done():
                 operation.cancel()
+        await self._paused.drop(task_id)
         await event_queue.enqueue_event(
             _status(context.task_id, context.context_id, a2a_pb2.TaskState.TASK_STATE_CANCELED)
         )

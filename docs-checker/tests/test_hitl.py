@@ -259,7 +259,7 @@ async def test_an_approval_never_carries_over_to_a_different_call_after_resume()
     graph = build_test_graph()
     config = run_config("task-hitl", fake_settings(), Levers.all_on())
 
-    paused = await graph.ainvoke({"question": QUESTION}, config, context=deps)
+    paused = await graph.ainvoke({"text": QUESTION}, config, context=deps)
     request = paused["__interrupt__"][0].value["action_requests"][0]
     assert request["args"]["path"] == "base-apps/vault/values.yaml"
 
@@ -293,7 +293,7 @@ async def test_a_resume_replays_earlier_work_instead_of_repeating_it():
     graph = build_test_graph()
     config = run_config("task-replay", fake_settings(), Levers.all_on())
 
-    paused = await graph.ainvoke({"question": QUESTION}, config, context=deps)
+    paused = await graph.ainvoke({"text": QUESTION}, config, context=deps)
     request = paused["__interrupt__"][0].value["action_requests"][0]
     assert tool_log == [("list_commits", "base-apps/vault/values.yaml")]
 

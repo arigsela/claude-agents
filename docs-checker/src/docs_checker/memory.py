@@ -112,6 +112,10 @@ class SnapshotStore(InMemoryStore):
         return docs, decisions, run
 
     # -- docs ---------------------------------------------------------------
+    def doc_paths(self) -> set[str]:
+        """Every doc the store holds an entry for."""
+        return set(self._all(_DOC))
+
     def get_doc(self, path: str) -> dict | None:
         item = self.get(_DOC, path)
         return item.value if item else None

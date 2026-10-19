@@ -17,6 +17,11 @@ kagent-adk's Python ``KAgentApp`` implements all three for Google ADK agents;
 kagent-langgraph (1.0.0a11 through a14) serves FastAPI JSON-RPC only. This
 module is the missing piece: kagent-adk's listener shape, with kagent-core's
 TaskStore and request handler, around a LangGraph executor.
+
+``main`` serves the docs-checker graph (``graph.build_graph``) on the
+``AsyncSqliteSaver`` at ``settings.checkpoint_db``, opened once for the server's
+lifetime under the data dir that Substrate snapshots (/data), with paused tasks'
+ledgers and memos in the same db and the production fix gate.
 """
 
 from __future__ import annotations
@@ -24,9 +29,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import grpc
 from a2a.server.request_handlers import DefaultRequestHandlerV2
@@ -37,19 +44,30 @@ from a2a.server.request_handlers.grpc_handler import (
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import a2a_pb2, a2a_pb2_grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
 
 from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.executor import DocsCheckerExecutor
 from docs_checker.gate import FixGate, RecordingGate, build_fix_gate
+from docs_checker.graph import build_graph, open_checkpointer
 from docs_checker.llm import request_id_hook
 from docs_checker.models import AnthropicModels
+from docs_checker.paused import PausedTasks
 
 logger = logging.getLogger(__name__)
 
 A2A_SERVICE = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"].full_name
+
+
+SKILL_DESCRIPTION = (
+    "Read-only audit of the arigsela/kubernetes docs that list their sources: finds stale "
+    "lines (doc lines that no longer match the manifests they cite) and missing sources, "
+    "with a corrected line where the evidence shows one. It never writes. Ask "
+    '"check all" or "check <path>[, <path>...]" (optionally "at <ref>": a branch or '
+    'commit), or send a data part {"scope": "all" | [paths], "ref", "mode": '
+    '"interactive" | "scheduled", "memory"}. The task returns the report as text and the '
+    "findings, memory snapshot, Slack digest and report as data parts."
+)
 
 
 def build_agent_card(settings: Settings) -> a2a_pb2.AgentCard:
@@ -70,12 +88,13 @@ def build_agent_card(settings: Settings) -> a2a_pb2.AgentCard:
             a2a_pb2.AgentSkill(
                 id="docs-check",
                 name="Docs drift check",
-                description=(
-                    "Reports doc lines that no longer match the manifests they describe, "
-                    "with the corrected line."
-                ),
+                description=SKILL_DESCRIPTION,
                 tags=["gitops", "docs", "read-only"],
-                examples=["check base-apps/kagent/docs.md", "check all docs"],
+                examples=[
+                    "check all",
+                    "check base-apps/vault/docs.md",
+                    "check base-apps/vault/docs.md, docs/runbook.md at main",
+                ],
             )
         ],
     )
@@ -215,29 +234,6 @@ async def load_mcp_tools(settings: Settings) -> dict[str, list[Any]]:
     }
 
 
-NOT_WIRED = "docs-checker is not wired yet"
-
-
-class _PlaceholderState(TypedDict, total=False):
-    question: str
-    answer: str
-    outcome: str
-
-
-async def _refuse(state: _PlaceholderState) -> dict:
-    return {"answer": NOT_WIRED, "outcome": "refused"}
-
-
-def placeholder_graph() -> Any:
-    """What ``main`` serves until the docs-checker graph exists: a graph that refuses
-    every request, without a model or tool call."""
-    graph = StateGraph(_PlaceholderState)
-    graph.add_node("refuse", _refuse)
-    graph.add_edge(START, "refuse")
-    graph.add_edge("refuse", END)
-    return graph.compile(checkpointer=InMemorySaver())
-
-
 def build_executor(
     settings: Settings,
     *,
@@ -246,9 +242,11 @@ def build_executor(
     tools=None,
     gate=None,
     fix_gate: FixGate | None = None,
+    paused: PausedTasks | None = None,
 ) -> DocsCheckerExecutor:
     """The executor production serves; tests inject fakes. Every proposed fix goes
-    through ``fix_gate``, which defaults to the one production runs (C#10)."""
+    through ``fix_gate``, which defaults to the one production runs (C#10). Paused
+    tasks wait in memory unless ``paused`` keeps them in a db (``open_executor``)."""
     cached: dict[str, list[Any]] | None = None
 
     async def default_tools() -> dict[str, list[Any]]:
@@ -272,26 +270,42 @@ def build_executor(
         tools=tools or default_tools,
         gate=gate or RecordingGate(),
         fix_gate=build_fix_gate(settings) if fix_gate is None else fix_gate,
+        paused=paused,
     )
+
+
+@asynccontextmanager
+async def open_executor(settings: Settings, **overrides: Any) -> AsyncIterator[DocsCheckerExecutor]:
+    """The executor ``main`` serves, open for the server's lifetime: the docs-checker
+    graph on the ``AsyncSqliteSaver`` at ``settings.checkpoint_db`` (ruling A1), and
+    paused tasks' ledgers and memos in the same db, written under the checkpointer's
+    lock. A new process on the same db resumes what an earlier one paused.
+    ``overrides`` go to ``build_executor`` (tests inject models and tools)."""
+    async with open_checkpointer(settings.checkpoint_db) as checkpointer:
+        await checkpointer.setup()
+        paused = PausedTasks(checkpointer.conn, lock=checkpointer.lock)
+        await paused.setup()
+        graph = build_graph(checkpointer=checkpointer)
+        yield build_executor(settings, graph=graph, paused=paused, **overrides)
 
 
 async def serve(settings: Settings | None = None) -> None:
     settings = settings or load_settings()
     card = build_agent_card(settings)
-    executor = build_executor(settings, graph=placeholder_graph())
-    handler, controller = build_request_handler(settings, executor, card)
-    running = await start(
-        handler,
-        a2a_address=f"[::]:{settings.a2a_port}",
-        ready_port=settings.ready_port,
-        controller=controller,
-    )
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stop.set)
-    await stop.wait()
-    await running.stop()
+    async with open_executor(settings) as executor:
+        handler, controller = build_request_handler(settings, executor, card)
+        running = await start(
+            handler,
+            a2a_address=f"[::]:{settings.a2a_port}",
+            ready_port=settings.ready_port,
+            controller=controller,
+        )
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, stop.set)
+        await stop.wait()
+        await running.stop()
 
 
 def main() -> None:

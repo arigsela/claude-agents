@@ -4,8 +4,8 @@ A read-only LangGraph agent that finds lines in the `arigsela/kubernetes` docs t
 match the manifests they describe, and proposes the corrected line. It is built as a
 **kagent 1.0 BYO runtime**, with a per-run cost ledger.
 
-Status: the runtime plumbing is in place and tested; the audit graph is not built yet, so the
-server answers every request with "docs-checker is not wired yet". Design:
+Status: the runtime and the audit graph are wired and tested offline (scripted models, a
+local git fake of the agent-docs server); evals and the image come next. Design:
 `docs/superpowers/specs/2026-10-18-docs-checker-design.md`; plan:
 `docs/superpowers/plans/2026-10-18-docs-checker-plan.md`.
 
@@ -53,9 +53,16 @@ until its upgrade lands, and the two are not compatible. What changed from alpha
 
 ## Plumbing
 
-The executor (`executor.py`) runs whatever graph it is given: one A2A task is one graph run
-and one cost ledger (`ledger.py`). It keeps a paused task's ledger and replay memo, so a
-resumed task reports its whole cost and does not pay for a model reply or run a tool twice.
+The executor (`executor.py`) runs the audit graph (`graph.py`): one A2A task is one graph run
+and one cost ledger (`ledger.py`). A request is the message's data part
+`{"scope", "ref", "mode", "memory"}` or its text (`check all`, `check <path>[, <path>...]`,
+optionally `at <ref>`); the run budget follows the scope, and a turn longer than
+`run_timeout_s` fails as `timeout`. A completed task carries the report as text and the
+findings, the full memory snapshot, the Slack digest, the `Report`, one
+`function_call`/`function_response` pair per tool call and the ledger as data parts. The
+executor keeps a paused task's ledger and replay memo (`paused.py`) in the checkpoint db under
+`/data`, so a resume, even after a restart, reports its whole cost and does not pay for a model
+reply or run a tool twice; a resume that lost them says its cost is a lower bound.
 It turns parallel pauses into one HITL request, cancels a running task, and redacts what it
 logs and publishes (`redact.py`). Every tool call goes through the tool belt (`tools.py`):
 the read-only allowlist, per-server bindings, per-node scoping, repository scoping, then the
@@ -67,8 +74,9 @@ commit per run (`repo.py`): `resolve_commit` turns the ref into a sha at intake 
 names that sha; `evals/localrepo.py` serves the same tools, in the server's shapes, from a local
 clone for evals. Model calls go through the one retry owner (`llm.py`).
 
-The plumbing tests run against `tests/fake_graph.py`, a minimal graph with a memoized model
-step, tool calls through the belt, and two parallel `Send` branches.
+The A2A input and output tests (`tests/test_executor.py`, `tests/test_restart.py`) drive the
+audit graph; the pure-plumbing tests run against `tests/fake_graph.py`, a minimal graph with a
+memoized model step, tool calls through the belt, and two parallel `Send` branches.
 
 ## Configuration
 

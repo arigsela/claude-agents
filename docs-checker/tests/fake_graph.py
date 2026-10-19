@@ -1,6 +1,7 @@
-"""A minimal graph for the executor's plumbing tests. It stands in for the product graph.
+"""A minimal graph for the executor's plumbing tests. It stands in for the product graph,
+with the same input and output: ``text`` in; ``report``, ``outcomes`` and ``outcome`` out.
 
-    START --Send per line of the question--> worker (x1..n) -> finish -> END
+    START --Send per line of the text--> worker (x1..n) -> finish -> END
 
 - ``worker`` is a model loop. Each model reply is memoized in the task's replay
   memo (``RunDeps.replay``) under a key that survives a re-run, and every tool
@@ -8,13 +9,14 @@
   memo. A gate "ask" pauses the branch through ``interrupt()``; on resume
   LangGraph re-runs the worker from its start and the memo replays what it
   already has, so no model call is paid twice and no tool runs twice.
-- Each line of the question is one branch: a two-line question runs two
+- Each line of the text is one branch: a two-line text runs two
   parallel ``Send`` branches that can both pause, which the executor reports as
   one HITL request. A line ``<node>: ...`` (a node of ``NODE_TOOLS``, e.g.
   ``locate: ...``) runs as that node, with its tools; any other line runs as
   ``load``.
-- ``finish`` answers ``TEST_ANSWER``. The outcome is "verified" when every tool
-  call ran and returned, else "unverified".
+- ``finish`` reports ``TEST_ANSWER``, with every branch's tool events in one doc
+  outcome (where the executor reads them). The outcome is "verified" when every
+  tool call ran and returned, else "unverified".
 """
 
 from __future__ import annotations
@@ -31,22 +33,25 @@ from langgraph.runtime import Runtime
 from langgraph.types import Send
 
 from docs_checker.gate import render_intent
-from docs_checker.graph import RunDeps
+from docs_checker.graph import RunDeps, checkpoint_serde
 from docs_checker.levers import Levers
 from docs_checker.llm import call_model
 from docs_checker.prompts import AGENT_DESCRIPTION, system_message
+from docs_checker.state import DocOutcome
 from docs_checker.tools import NODE_TOOLS, ToolEvent, model_text
 
 TEST_ANSWER = "The test graph finished every branch."
+TEST_DOC = "docs/test-graph.md"
 MODEL_NODE = "worker"  # tests script it as FakeModels(worker=...)
 MAX_STEPS = 8
 MAX_TOKENS = 1024  # bounds each reservation; the run budget is unlimited here
 
 
 class FakeState(TypedDict, total=False):
-    question: str
+    text: str
     events: Annotated[list[ToolEvent], operator.add]
-    answer: str
+    report: str
+    outcomes: dict[str, DocOutcome]
     outcome: str
 
 
@@ -58,14 +63,14 @@ class Branch(TypedDict):
 
 def fan_out(state: FakeState) -> list[Send]:
     sends = []
-    for line in (state.get("question") or "").splitlines():
+    for line in (state.get("text") or "").splitlines():
         scope, sep, rest = line.partition(":")
         if sep and scope.strip() in NODE_TOOLS:
             node, task = scope.strip(), rest.strip()
         else:
             node, task = "load", line.strip()
         if task:
-            branch = Branch(question=state["question"], node=node, task=task)
+            branch = Branch(question=state["text"], node=node, task=task)
             sends.append(Send("worker", branch))
     return sends
 
@@ -111,8 +116,14 @@ async def worker(state: Branch, runtime: Runtime[RunDeps]) -> dict:
 
 
 async def finish(state: FakeState) -> dict:
-    ran = all(event["ok"] for event in state.get("events") or [])
-    return {"answer": TEST_ANSWER, "outcome": "verified" if ran else "unverified"}
+    events = state.get("events") or []
+    ran = all(event["ok"] for event in events)
+    outcome = DocOutcome(doc=TEST_DOC, commit="", status="checked", tool_events=events)
+    return {
+        "report": TEST_ANSWER,
+        "outcomes": {TEST_DOC: outcome},
+        "outcome": "verified" if ran else "unverified",
+    }
 
 
 def build_test_graph(checkpointer: Any = None):
@@ -122,4 +133,4 @@ def build_test_graph(checkpointer: Any = None):
     graph.add_conditional_edges(START, fan_out, ["worker"])
     graph.add_edge("worker", "finish")
     graph.add_edge("finish", END)
-    return graph.compile(checkpointer=checkpointer or InMemorySaver())
+    return graph.compile(checkpointer=checkpointer or InMemorySaver(serde=checkpoint_serde()))

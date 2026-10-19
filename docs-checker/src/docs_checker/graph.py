@@ -24,7 +24,9 @@
 
 ``RunDeps`` is the runtime context: never checkpointed, rebuilt per turn by the
 executor. Everything a resume needs beyond the checkpoint is in the task's replay
-memo (``replay``): tool results, extractions, fixes and decisions.
+memo (``replay``): tool results, extractions, fixes and decisions. The executor
+keeps the memo and the ledger of a paused task (``paused.PausedTasks``), in the
+checkpoint db in production, so a resume after a restart has them too.
 """
 
 from __future__ import annotations
@@ -180,6 +182,14 @@ class RunDeps:
             self.levers = self.settings.levers
 
 
+def budget_limit(request: RunRequest, settings: Settings) -> float:
+    """The run budget a request gets (C#1): the whole-repo budget for ``all``, else one
+    doc's budget for each doc it names."""
+    if request.scope == "all":
+        return settings.run_budget_all_usd
+    return settings.run_budget_doc_usd * len(request.scope)
+
+
 def run_config(task_id: str, settings: Settings, levers: Levers) -> dict:
     """One checkpointer thread per A2A task, not per conversation (a HITL resume
     continues the same task, so it finds its paused thread); the recursion limit
@@ -252,6 +262,9 @@ async def intake(state: RunState, runtime: Runtime[RunDeps]) -> dict:
                 if classified == "off_topic":
                     return _refused("the request is not a docs check")
                 request = classified
+                # The executor sized the budget for this intake call alone; the scope
+                # is known now (C#1).
+                deps.ledger.budget.limit_usd = budget_limit(request, deps.settings)
         except ValueError as error:
             return _refused(f"the request could not be read ({error})")
     try:
@@ -295,7 +308,8 @@ async def scope(state: RunState, runtime: Runtime[RunDeps]) -> dict:
     request, commit = state["request"], state["commit"]
     search = await _search_allowed(deps, request, commit)
     reader = reader_for(deps, commit, search)
-    deps.store = SnapshotStore.from_snapshot(request.memory, mode=request.mode)
+    if deps.store is None:  # the executor loads the request's memory; tests may not
+        deps.store = SnapshotStore.from_snapshot(request.memory, mode=request.mode)
     if request.scope == "all":
         try:
             paths, truncated = await discover(reader, max_docs=deps.settings.max_docs)
@@ -561,7 +575,7 @@ async def report(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         "truncated": bool(state.get("truncated")),
         "skipped_sources": skipped,
         "dismissal_errors": state.get("notes") or [],
-        "lines": [],
+        "lines": list(deps.ledger.lower_bound),  # e.g. "cost after restart is a lower bound"
     }
     markdown, data = render_report(
         outcomes.values(), run_id=deps.ledger.run_id, commit=commit, summary=summary, notes=notes

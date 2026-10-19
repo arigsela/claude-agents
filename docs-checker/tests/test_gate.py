@@ -20,8 +20,9 @@ from docs_checker.gate import (
 )
 from docs_checker.prompts import validate_replacement
 from docs_checker.render import structure_refusal
-from docs_checker.server import build_executor, placeholder_graph
+from docs_checker.server import build_executor
 from docs_checker.state import Claim, Finding, Window
+from tests.fake_graph import build_test_graph
 from tests.fakes import FakeModels, fake_settings, fake_tools_by_server
 from tests.markdown_cases import (
     BLIND_SPOTS,
@@ -344,7 +345,7 @@ async def test_production_factory_uses_the_rules_gate():
     # What production builds (server.serve passes no gate): the run's dependencies
     # carry the rules gate.
     executor = build_executor(
-        fake_settings(), graph=placeholder_graph(), models=FakeModels(), tools=_tools
+        fake_settings(), graph=build_test_graph(), models=FakeModels(), tools=_tools
     )
     deps = await executor._deps(executor._new_ledger("task-1", "ctx-1"), {})
     assert isinstance(deps.fix_gate, FixGate)

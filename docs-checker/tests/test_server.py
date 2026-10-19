@@ -17,11 +17,9 @@ from docs_checker.config import load_settings
 from docs_checker.gate import RecordingGate
 from docs_checker.server import (
     A2A_SERVICE,
-    NOT_WIRED,
     build_agent_card,
     build_executor,
     build_request_handler,
-    placeholder_graph,
     start,
 )
 from tests.fake_graph import TEST_ANSWER, build_test_graph
@@ -195,26 +193,56 @@ async def test_a_failed_run_logs_a_redacted_traceback(caplog):
     assert "SECRETSECRET" not in caplog.text
 
 
-async def test_the_placeholder_graph_refuses_every_request_without_a_model_call():
-    # main() serves it until the docs-checker graph is wired in.
-    settings = fake_settings()
-    models = FakeModels()  # no models: any model call would fail the task
-    executor = build_executor(
-        settings, graph=placeholder_graph(), models=models, tools=_tools, gate=RecordingGate()
-    )
-    handler, _ = build_request_handler(settings, executor, build_agent_card(settings))
-    server = await start(handler, a2a_address="127.0.0.1:0", ready_port=0, ready_host="127.0.0.1")
-    try:
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{server.a2a_port}") as channel:
-            response = await a2a_pb2_grpc.A2AServiceStub(channel).SendMessage(
-                a2a_pb2.SendMessageRequest(message=user_message("check all docs"))
-            )
-    finally:
-        await server.stop(grace=0)
+def test_agent_card_describes_the_docs_check():
+    (skill,) = build_agent_card(load_settings({})).skills
+    assert skill.id == "docs-check" and "read-only" in skill.tags
+    text = skill.description
+    assert "Read-only" in text and "stale" in text
+    for form in ('"check all"', '"check <path>[, <path>...]"', "data part", '"scope"'):
+        assert form in text
+    assert "check all" in skill.examples and any("," in e for e in skill.examples)
 
-    task = response.task
-    assert task.status.state == a2a_pb2.TaskState.TASK_STATE_COMPLETED
-    assert task.status.message.parts[0].text == NOT_WIRED
-    data = [MessageToDict(p) for p in task.artifacts[0].parts if p.HasField("data")]
-    ledger = next(d["data"][LEDGER_KEY] for d in data if LEDGER_KEY in d["data"])
-    assert ledger["outcome"] == "refused" and ledger["calls"] == 0
+
+class _Served(Exception):
+    """Ends ``main()`` once the served executor has been checked."""
+
+
+def test_main_serves_the_docs_checker_graph(tmp_path, monkeypatch):
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from docs_checker import server
+    from docs_checker.executor import DocsCheckerExecutor
+    from docs_checker.gate import FixGate
+    from docs_checker.paused import PausedTasks
+    from tests.test_executor import a2a_message, send
+
+    data_dir = tmp_path / "data" / "docs-checker"
+    monkeypatch.setenv("DOCS_CHECKER_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("KAGENT_CONFIG_JSON", raising=False)
+    seen: dict = {}
+
+    async def fake_start(handler, **kwargs):
+        executor = handler.agent_executor
+        assert isinstance(executor, DocsCheckerExecutor)
+        graph = executor._graph
+        seen["nodes"] = set(graph.get_graph().nodes) - {"__start__", "__end__"}
+        seen["saver"] = graph.checkpointer
+        seen["fix_gate"] = executor._fix_gate
+        seen["paused"] = executor._paused
+        # A real request through the served graph: no MCP server is bound locally,
+        # so the ref cannot be resolved and the run fails, without a model call.
+        queue = await send(executor, a2a_message("", {"scope": "all"}))
+        seen["reason"] = queue.last_status().message.parts[0].text
+        raise _Served
+
+    monkeypatch.setattr(server, "start", fake_start)
+    with pytest.raises(_Served):
+        server.main()
+
+    assert seen["nodes"] == {"intake", "scope", "dispatch", "doc", "collect", "report"}
+    assert isinstance(seen["saver"], AsyncSqliteSaver)
+    assert (data_dir / "checkpoints.sqlite").is_file()  # under the data dir (C#5)
+    assert type(seen["fix_gate"]) is FixGate  # build_fix_gate: the rules gate
+    assert isinstance(seen["paused"], PausedTasks) and seen["paused"].durable
+    assert seen["reason"].startswith("docs-checker failed: ")
+    assert "main" in seen["reason"]
