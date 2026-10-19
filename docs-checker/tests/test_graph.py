@@ -1351,3 +1351,27 @@ async def test_a_path_the_intake_model_returns_is_validated_like_the_strict_form
     result = await h.run(text="check the ../secrets.md file please")
     assert result["outcome"] == "refused"
     assert "not a normalized repo-relative path" in result["report"]
+
+
+async def test_missing_profile_source_needs_404(tmp_path, monkeypatch):
+    """Review Focus 4: an absent profile source leaves the doc incomplete (the profile is
+    stale; no doc line names it); a forbidden one is incomplete too, never missing."""
+    from docs_checker.profile import parse_profile
+
+    doc = "docs/USAGE.md"
+    files = {"variables.tf": 'variable "a" {}\n', doc: "# Usage\n", "forbidden.tf": "x\n"}
+    repo, commit = make_tree(tmp_path, files)
+    profile = parse_profile(
+        "repo: arigsela/kubernetes\ndomain: an OpenTofu module\ndocs:\n"
+        f"  {doc}:\n    - path: variables.tf\n    - path: gone.tf\n    - path: forbidden.tf\n",
+        repo="arigsela/kubernetes",
+    )
+    fail_reads_of(monkeypatch, "forbidden.tf", "403 Forbidden")
+    harness = Harness(repo, commit, claims={doc: []}, settings={"profile": profile})
+    result = await harness.run(RunRequest(scope="all"))
+
+    outcome = result["outcomes"][doc]
+    assert outcome.status == "incomplete"
+    assert "profile source gone.tf: absent" in outcome.reason
+    assert "forbidden.tf: " in outcome.reason  # a failed read, not a deleted file
+    assert [f.verdict for f in outcome.findings] == []

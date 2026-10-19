@@ -63,6 +63,7 @@ from docs_checker.nodes import (
     judge_claim,
     propose_fix,
 )
+from docs_checker.profile import PROFILE_SOURCE_LINE
 from docs_checker.prompts import AGENT_DESCRIPTION, CHECKER_VERSION
 from docs_checker.repo import ReadResult, RepoReader, clean_path
 from docs_checker.scope import expand_sources
@@ -264,7 +265,10 @@ async def load(state: DocState, runtime: Runtime[RunDeps]) -> dict:
         result = sources.get(clean_path(source.value))
         if result is None or result.found:
             continue
-        if result.status == "absent":
+        if result.status == "absent" and source.line == PROFILE_SOURCE_LINE:
+            # No doc line names a profile source: the profile is stale, not the doc.
+            reasons.append(f"profile source {result.path}: absent")
+        elif result.status == "absent":
             findings.append(
                 _missing_source(meta, source.value, source.line, doc_lines, deps, commit)
             )

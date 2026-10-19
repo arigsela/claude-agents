@@ -62,7 +62,7 @@ from langgraph.types import Send, interrupt
 from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.dismissals import Dismissal, is_dismissed, parse_dismissals
-from docs_checker.frontmatter import DocMeta, FrontMatterError, SourceRef, parse_front_matter
+from docs_checker.frontmatter import DocMeta, FrontMatterError, SourceRef
 from docs_checker.gate import FixGate
 from docs_checker.graph_doc import NEEDS_LOOK_BELOW, DocState, build_doc_graph, reader_for
 from docs_checker.ledger import BudgetExceeded, CostLedger, Outcome, reservation_for
@@ -71,6 +71,7 @@ from docs_checker.llm import call_model
 from docs_checker.memory import CHECKER_KEY, SnapshotStore, fingerprint, skip_unchanged
 from docs_checker.models import ModelSet, no_tools_choice
 from docs_checker.nodes import classify_intake
+from docs_checker.profile import doc_meta
 from docs_checker.prompts import CHECKER_VERSION, fence, fence_token
 from docs_checker.redact import redact
 from docs_checker.repo import ReadResult, RefError, RepoReader, resolve_commit
@@ -344,7 +345,9 @@ async def scope(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         deps.store = SnapshotStore.from_snapshot(request.memory, mode=request.mode)
     if request.scope == "all":
         try:
-            paths, truncated = await discover(reader, max_docs=deps.settings.max_docs)
+            paths, truncated = await discover(
+                reader, max_docs=deps.settings.max_docs, profile=deps.settings.profile
+            )
         except DiscoveryError as error:
             return {"outcome": "failed", "report": f"docs-checker failed: {error}\n"}
     else:
@@ -360,7 +363,7 @@ async def scope(state: RunState, runtime: Runtime[RunDeps]) -> dict:
             )
             continue
         try:
-            meta = parse_front_matter(path, result.text or "")
+            meta = doc_meta(path, result.text or "", deps.settings.profile)
         except FrontMatterError as error:
             outcomes[path] = _failed_doc(path, commit, f"front matter: {error.reason}")
             continue

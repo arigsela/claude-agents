@@ -182,6 +182,66 @@ FIX_USER = (
     "{claim}\n\nEvidence window:\n{window}"
 )
 
+# A repo profile (profile.py) swaps the arigsela/kubernetes wording for its repo and
+# domain. Without one the prompts are the constants above, byte for byte.
+_PROFILE_WORDING: dict[str, tuple[tuple[str, str], ...]] = {
+    "intake": (
+        (
+            (
+                "documentation in the arigsela/kubernetes repository against the manifests the "
+                "docs describe"
+            ),
+            (
+                "documentation in the {repo} repository against the configuration files the "
+                "docs describe"
+            ),
+        ),
+    ),
+    "extract": (
+        (
+            (
+                "one documentation file in the arigsela/kubernetes repository, so that each claim "
+                "can be checked against the repository's manifests."
+            ),
+            (
+                "one documentation file in the {repo} repository, so that each claim can be "
+                "checked against the repository's configuration files."
+            ),
+        ),
+        (
+            (
+                "a concrete fact that a Kubernetes manifest, a Helm values file, an Argo CD "
+                "Application or another configuration file can confirm or deny"
+            ),
+            "a concrete fact that {domain} or another configuration file can confirm or deny",
+        ),
+        (
+            "text that a manifest would also use as configuration keys",
+            "text that a configuration file would also use as configuration keys",
+        ),
+    ),
+    "judge": (
+        (
+            "configuration files from the arigsela/kubernetes repository",
+            "configuration files from the {repo} repository",
+        ),
+    ),
+}
+
+
+def system_text(node: str, profile: Any = None) -> str:
+    """The system prompt of ``node`` (intake, extract, judge, fix, report), worded for
+    ``profile``'s repo and domain when one is set."""
+    text = PROMPTS[node]
+    if profile is None:
+        return text
+    for old, new in _PROFILE_WORDING.get(node, ()):
+        if old not in text:
+            raise AssertionError(f"the {node} prompt no longer contains {old!r}")
+        text = text.replace(old, new.format(repo=profile.repo, domain=profile.domain))
+    return text
+
+
 PROMPTS: dict[str, str] = {
     "intake": INTAKE,
     "extract": EXTRACT,

@@ -1,0 +1,20 @@
+# docs-checker profile: which docs to check and the files each one describes.
+# The docs carry no `sources:` front matter, so this file stands in for it.
+repo: chghealthcare/chg-infra-opentofu-bedrock
+domain: an OpenTofu module (variables.tf, resources, outputs), an environment's config.tfvars, or a GitHub Actions workflow
+docs:
+  docs/BEDROCK-DEVELOPER-RUNBOOK.md:
+    - path: variables.tf
+    - path: environments/sb-eip/config.tfvars
+    - path: environments/common-nonprod/config.tfvars
+    - path: environments/common-prod/config.tfvars
+    - path: iam.tf
+    - path: inference_profiles.tf
+    - path: cloudwatch.tf
+  docs/USAGE.md:
+    - path: variables.tf
+    - path: outputs.tf
+    - path: iam.tf
+    - path: iam_user.tf
+    - path: kubernetes.tf
+    - dir: .github/workflows

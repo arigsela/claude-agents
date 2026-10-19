@@ -25,7 +25,7 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from docs_checker.levers import Levers, parse_levers
@@ -134,6 +134,9 @@ class Settings:
     # file locks (session storage has none).
     runtime: Literal["kagent", "agentcore", "local"] = "local"
     sqlite_nolock: bool = False
+    # A repo profile (profile.RepoProfile) for docs without sources front matter:
+    # the docs to check and their sources, and the prompts' repo and domain wording.
+    profile: Any = None
 
     @property
     def under_kagent(self) -> bool:
@@ -328,6 +331,12 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         "DOCS_CHECKER_DATA_DIR", AGENTCORE_DATA_DIR if agentcore else "/data/docs-checker"
     )
     model_provider, bedrock_model_ids, aws_region = _model_provider(env)
+    repo = _repo(env.get("DOCS_CHECKER_REPO", "arigsela/kubernetes"))
+    profile = None
+    if env.get("DOCS_CHECKER_PROFILE"):
+        from docs_checker.profile import load_profile
+
+        profile = load_profile(env["DOCS_CHECKER_PROFILE"], repo=repo)
 
     return Settings(
         agent_name=runtime.get("name") or "docs-checker",
@@ -347,7 +356,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         # the circuit breaker.
         recursion_limit=int(env.get("DOCS_CHECKER_RECURSION_LIMIT", "80")),
         rate_card_version=_rate_card(env.get("DOCS_CHECKER_RATE_CARD", "anthropic-2026-10-18")),
-        repo=_repo(env.get("DOCS_CHECKER_REPO", "arigsela/kubernetes")),
+        repo=repo,
         levers=levers,
         run_budget_all_usd=_num(env, "RUN_BUDGET_ALL_USD", 1.00),
         run_budget_doc_usd=_num(env, "RUN_BUDGET_DOC_USD", 0.10),
@@ -373,4 +382,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         bedrock_effort=_flag(env, "BEDROCK_EFFORT", False),
         runtime=runtime_kind,
         sqlite_nolock=agentcore,
+        profile=profile,
     )

@@ -16,7 +16,7 @@ the result and reported. Skipped entries read ``"<value>: <reason>"``.
 from __future__ import annotations
 
 import re
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from docs_checker.frontmatter import DocMeta, FrontMatterError, parse_front_matter
 from docs_checker.repo import ReadResult, RepoReader, clean_path
@@ -80,9 +80,16 @@ async def _retrying(call, path: str) -> ReadResult:
 
 
 async def discover(
-    reader: RepoReader, roots: tuple[str, ...] = DEFAULT_ROOTS, *, max_docs: int
+    reader: RepoReader,
+    roots: tuple[str, ...] = DEFAULT_ROOTS,
+    *,
+    max_docs: int,
+    profile: Any = None,
 ) -> tuple[list[str], bool]:
     """In-scope doc paths in listing order, and whether more existed past ``max_docs``.
+
+    With a repo profile the docs are the profile's, in its order, and nothing is
+    walked: a listed doc that is gone is reported by the scope stage's read.
 
     A file that will not read (after one retry of a transient answer) stays in
     the list, so the load stage reports that doc failed and the run goes on. A
@@ -90,6 +97,9 @@ async def discover(
     of them are raised together at the end: a partial list is never returned as
     complete. When every root is absent the roots are wrong, and that raises too.
     """
+    if profile is not None:
+        listed = list(profile.docs)
+        return listed[:max_docs], len(listed) > max_docs
     docs: list[str] = []
     failures: list[tuple[str, str]] = []
 

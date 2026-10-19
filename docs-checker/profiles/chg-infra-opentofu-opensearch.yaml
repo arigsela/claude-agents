@@ -1,0 +1,15 @@
+# docs-checker profile: which docs to check and the files each one describes.
+# The docs carry no `sources:` front matter, so this file stands in for it.
+repo: chghealthcare/chg-infra-opentofu-opensearch
+domain: an OpenTofu module (variables.tf, resources, outputs), an environment's config.tfvars, or a GitHub Actions workflow
+docs:
+  docs/OPENSEARCH-DEVELOPER-RUNBOOK.md:
+    - path: variables.tf
+    - path: iam.tf
+    - path: opensearch.tf
+    - path: locals.tf
+    - path: main.tf
+    - path: environments/sb-eip/config.tfvars
+  USAGE.md:
+    - path: variables.tf
+    - path: outputs.tf

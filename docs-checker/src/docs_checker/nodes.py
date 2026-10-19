@@ -215,7 +215,9 @@ async def classify_intake(text: str, ctx: NodeContext) -> RunRequest | Literal["
         hashlib.sha256(text.encode()).hexdigest(), "request", 1, len(text.split("\n"))
     )
     user = prompts.INTAKE_USER.format(request=fence(lines, token))
-    answer = await _ask(ctx, "intake", IntakeAnswer, prompts.INTAKE, user)
+    answer = await _ask(
+        ctx, "intake", IntakeAnswer, prompts.system_text("intake", ctx.settings.profile), user
+    )
     if answer is None or answer.intent == "off_topic":
         return "off_topic"
     if not answer.all_docs and not answer.paths:
@@ -291,7 +293,9 @@ async def extract_claims(
         sources=fence(_cut(sources, width), fence_token(commit, meta.path, 1, first - 1)),
         lines=fence(numbered, fence_token(commit, meta.path, first, last)),
     )
-    answer = await _ask(ctx, "extract", ExtractAnswer, prompts.EXTRACT, user)
+    answer = await _ask(
+        ctx, "extract", ExtractAnswer, prompts.system_text("extract", ctx.settings.profile), user
+    )
     if answer is None:
         raise ExtractionFailed(f"{meta.path}: the extract model's answer could not be read")
 
@@ -345,7 +349,9 @@ async def _judge_once(
             for i, w in enumerate(windows)
         ),
     )
-    answer = await _ask(ctx, node, JudgeAnswer, prompts.JUDGE, user)
+    answer = await _ask(
+        ctx, node, JudgeAnswer, prompts.system_text("judge", ctx.settings.profile), user
+    )
     judged_by = ctx.models.name(node)
     index = answer.window_index if answer else None
     if (
@@ -415,7 +421,9 @@ async def propose_fix(
         claim=_claim_block(claim, commit, verdict=decision.verdict, reason=decision.reason),
         window=_window_block(window, commit, width),
     )
-    answer = await _ask(ctx, "fix", FixAnswer, prompts.FIX, user)
+    answer = await _ask(
+        ctx, "fix", FixAnswer, prompts.system_text("fix", ctx.settings.profile), user
+    )
     if answer is None:
         return ""
     replacement = prompts.validate_replacement(old, answer.replacement, window.text)
