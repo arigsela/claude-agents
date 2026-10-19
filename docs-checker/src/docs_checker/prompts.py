@@ -226,7 +226,12 @@ def fence(text: str, token: str) -> str:
 REPLACEMENT_GROWTH = 2
 REPLACEMENT_SLACK_CHARS = 80
 
-# URLs and links: allowed only when the old lines have exactly the same one (U1).
+# URLs and links: allowed only when the old lines have exactly the same one (U1). This
+# set rule is the only one that sees a bare host with an underscore (``evil_x.example``):
+# GitHub's linkify makes it a link, but it is text to markdown-it, so the render check
+# (``render.structure_refusal``) cannot tell it from a word; rule 8 refuses it as a token
+# from nowhere unless the evidence has it, and this rule refuses it as a URL once it has a
+# scheme or ``www.``.
 _URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"'`()\[\]]*|\bwww\.[^\s<>\"'`()\[\]]*")
 _LINK = re.compile(
     r"!?\[[^\]\n]*\]\([^)\n]*\)?"  # [text](target), ![alt](src), unclosed too
@@ -255,8 +260,15 @@ _MARKUP_RUN = re.compile(r"(?:[\[\]()<>\\`!]|(?<=\]):)+")
 # changed prefix, or a line made blank or filled, can turn an indented code line or a
 # fenced one into a paragraph. The text after the prefix matters too (G3): a fence line
 # with nothing after it is a closer, and a "<" or "[" right after the prefix opens an
-# HTML block or a link definition only there.
-_BLOCK_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+>|=_]|#{1,6}|\d{1,9}[.)]|~{3,}|`{3,})[ \t]*)*")
+# HTML block or a link definition only there. An ordered-list marker is one only before a
+# space, a tab or the end of the line (CommonMark): "0.34.2 since" is text, so a version
+# that starts a line may change.
+_BLOCK_PREFIX = re.compile(
+    r"[ \t]*(?:(?:[-*+>|=_]|#{1,6}|\d{1,9}[.)](?=[ \t]|$)|~{3,}|`{3,})[ \t]*)*"
+)
+# An image digest (``@sha256:<64 hex>``), as a whole: rule 8 also reads the evidence with
+# each one replaced by a space, so the tag before it is a whole token (ruling F2).
+_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}(?![0-9A-Za-z])")
 # Tokens split only at these: any other separator (U+001F, a hair space) stays inside.
 _SEPARATORS = re.compile(r"[ \t\n]+")
 _LEAD = "`'\"(*"  # stripped from a token's start: quotes, backticks, parens, emphasis
@@ -387,7 +399,10 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
        punctuation (``.,;:!?``) from the end, so a leading ``../``, ``./`` or ``/``
        stays. A token of ASCII letters only (a plain word) may change. Any other
        must occur whole (see ``occurs_whole``) in ``old`` or in the evidence's code (comment
-       lines and trailing ``# ...`` removed: comments are never evidence), or else
+       lines and trailing ``# ...`` removed: comments are never evidence), read once
+       as it is and once with every image digest (``@sha256:<64 hex>``) replaced by
+       a space, so ``0.35.1`` is a whole token of ``ollama:0.35.1@sha256:...``
+       (ruling F2; the digest itself is still an ``@`` mention, rule 7), or else
        every part of it split at ``:`` and ``@`` must (an image built from a
        repository and a tag). A leading ``v`` on a version is ignored either way.
     """
@@ -414,7 +429,8 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
         return None
     if any(m.group() not in old for m in _DISGUISE.finditer(new)):
         return None
-    sources = (old, code_only(evidence_text))
+    code = code_only(evidence_text)
+    sources = (old, code, _DIGEST.sub(" ", code))
     for token in replacement_tokens(new):
         if is_word(token) or _known(token, sources):
             continue

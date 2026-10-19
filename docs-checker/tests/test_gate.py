@@ -276,6 +276,18 @@ async def test_a_new_word_in_a_name_claim_must_come_from_the_evidence(kind):
     assert await decide(fix("Sessions live in the valkey cache.", claim=claim)) == "allow"
 
 
+@pytest.mark.parametrize("kind", ["image", "namespace"])
+async def test_a_new_word_present_only_as_a_digest_pinned_image_is_still_refused(kind):
+    # G1 pin: ruling F2 lets rule 8 read a version next to its digest, but G1 still
+    # wants a new word whole in the evidence's code: "valkey@sha256:..." is not "valkey".
+    claim = make_claim(9, kind=kind, values=("redis",))
+    pinned = EVIDENCE.model_copy(update={"text": f"image: valkey@sha256:{'a' * 64}"})
+    action = fix("Sessions live in the valkey cache.", claim=claim, evidence=pinned)
+    result = await FixGate().check(INTENT, action)
+    assert (result.decision, result.kind) == ("refuse", "containment")
+    assert "not in the evidence" in result.reason
+
+
 async def test_other_claim_kinds_keep_the_plain_word_rule():
     claim = make_claim(9, kind="config", values=("redis",))
     assert await decide(fix("Sessions live in the evilredis cache.", claim=claim)) == "allow"

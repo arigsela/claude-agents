@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from docs_checker.config import Settings
 from docs_checker.evals import curate, drift
 from docs_checker.evals.curate import Repo
 from docs_checker.gate import OllamaEmbedder
@@ -145,6 +146,20 @@ async def test_build_makes_good_and_bad_fixes_for_each_positive_with_a_clear_fix
     }
 
 
+async def test_the_rules_column_comes_from_the_production_fix_gate(eval_set, monkeypatch):
+    evals, repo = eval_set
+    built: list[Settings] = []
+    real = drift.build_fix_gate
+
+    def spy(settings: Settings):
+        built.append(settings)
+        return real(settings)
+
+    monkeypatch.setattr(drift, "build_fix_gate", spy)
+    fixes, _skipped = await drift.build(evals, repo, claims=CLAIMS)
+    assert len(built) == len(fixes) and all(isinstance(s, Settings) for s in built)
+
+
 async def test_build_needs_the_claim_of_every_positive_it_fixes(eval_set):
     evals, repo = eval_set
     with pytest.raises(ValueError, match="h-app line 10"):
@@ -202,10 +217,19 @@ def test_the_page_says_not_deployed_and_marks_the_holdout():
         demo_cache([("dev", "good", 10.0), ("dev", "bad", 60.0), ("holdout", "good", 12.0)])
     )
     assert "Not deployed; the deployed agent ships the rules gate." in page
-    assert "**θ1 < θ2 holds** (10.0° < 60.0°, a margin of 50.0°)." in page
-    assert "Every angle here lies between 10.0° and 60.0°" in page
+    assert "**θ1 < θ2 holds** (10.00° < 60.00°, a margin of 50.00°)." in page
+    assert "Every angle here lies between 10.00° and 60.00°" in page
+    assert "= **10.00°**" in page and "= **60.00°**" in page
     assert "rest on 1 good and 1 bad dev fixes" in page
     assert "refuses 0 of 1 bad fixes and 0 of 2 good fixes" in page
+    # Composed, rules first: the angle refuses the bad fix the rules let through and
+    # asks about both good ones (10.00° is not under θ1 = 10.00°).
+    assert (
+        "Composed, the rules first and the angle only on what they allow: of the 1 bad "
+        "fixes the rules refuse 0, the angle refuses 1 more and asks about 0, and 0 would "
+        "pass; of the 2 good fixes the rules refuse 0, the angle refuses 0 more and asks "
+        "about 2, and 0 pass."
+    ) in page
     assert "| `i2:3` | holdout | good |" in page
     assert "`test-embed`" in page
 
@@ -216,7 +240,8 @@ def test_the_page_reports_thresholds_that_do_not_separate():
     assert not result.separated and result.decisions() == ["—", "—", "—"]
     page = drift.render(cache)
     assert "θ1 < θ2 does not hold" in page
-    assert "`i2:3` (manifest-target, 25.0°)" in page  # the bad fix under θ1 is named
+    assert "`i2:3` (manifest-target, 25.00°)" in page  # the bad fix under θ1 is named
+    assert "the angle adds no decision" in page
 
 
 class StubEmbedder:

@@ -50,6 +50,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel, ConfigDict
 
+from docs_checker.config import load_settings
 from docs_checker.evals.curate import (
     DEFAULT_CLONE,
     CanarySpec,
@@ -66,10 +67,10 @@ from docs_checker.evals.score import LabelledLine
 from docs_checker.gate import (
     Embedder,
     FixAction,
-    FixGate,
     OllamaEmbedder,
     Thresholds,
     angle_degrees,
+    build_fix_gate,
     render_fix,
 )
 from docs_checker.graph_doc import _intent
@@ -305,7 +306,10 @@ class _Good:
 
 
 async def _rules(intent: str, finding: Finding, claim: Claim, doc: list[str]) -> str:
-    result = await FixGate().check(intent, FixAction(finding=finding, claim=claim, doc_lines=doc))
+    """What the fix gate production builds (``gate.build_fix_gate``: the rules alone,
+    on the code defaults) says of the fix."""
+    gate = build_fix_gate(load_settings({}))
+    result = await gate.check(intent, FixAction(finding=finding, claim=claim, doc_lines=doc))
     return result.decision if result.kind is None else f"{result.decision} ({result.kind})"
 
 
@@ -534,20 +538,20 @@ same fix with that evidence window.
 
 
 def _name(fix: DriftFix, angle: float) -> str:
-    return f"`{fix.instance}:{fix.lines}` ({fix.variant}, {angle:.1f}°)"
+    return f"`{fix.instance}:{fix.lines}` ({fix.variant}, {angle:.2f}°)"
 
 
 def _verdict(result: Measurement) -> list[str]:
     dev = [(fix, angle) for fix, angle in result.rows if fix.split == "dev"]
     if result.separated:
         margin = result.refuse_at - result.ask_at
-        holds = f"({result.ask_at:.1f}° < {result.refuse_at:.1f}°, a margin of {margin:.1f}°)"
+        holds = f"({result.ask_at:.2f}° < {result.refuse_at:.2f}°, a margin of {margin:.2f}°)"
         return [f"**θ1 < θ2 holds** {holds}."]
     under = [_name(f, a) for f, a in dev if f.kind == "bad" and a < result.ask_at]
     over = [_name(f, a) for f, a in dev if f.kind == "good" and a >= result.refuse_at]
     lines = [
         (
-            f"**θ1 < θ2 does not hold** ({result.ask_at:.1f}° ≥ {result.refuse_at:.1f}°): "
+            f"**θ1 < θ2 does not hold** ({result.ask_at:.2f}° ≥ {result.refuse_at:.2f}°): "
             "the smallest dev bad-fix angle is not above the dev good fixes' "
             f"{PERCENTILE}th percentile, so thresholds set this way cannot tell them apart. "
             "No thresholds are proposed and the angle column gives no decision."
@@ -579,7 +583,7 @@ def _reading(cache: DriftCache, result: Measurement) -> list[str]:
     refused = {k: sum(1 for f in cache.fixes if f.kind == k and f.rules != "allow") for k in count}
     return [
         (
-            f"Every angle here lies between {min(angles):.1f}° and {max(angles):.1f}°, and the "
+            f"Every angle here lies between {min(angles):.2f}° and {max(angles):.2f}°, and the "
             f"thresholds rest on {sum(f.kind == 'good' for f in dev)} good and "
             f"{sum(f.kind == 'bad' for f in dev)} bad dev fixes: this demonstrates the "
             "method; it does not calibrate a gate."
@@ -590,7 +594,36 @@ def _reading(cache: DriftCache, result: Measurement) -> list[str]:
             f"{count['bad']} bad fixes and {refused['good']} of {count['good']} good fixes "
             "(column Rules). The angle layer only ever sees a fix the rules allow."
         ),
+        "",
+        _composition(result),
     ]
+
+
+def _composition(result: Measurement) -> str:
+    """What the two layers do together on this set: the rules first, then the angle on
+    the fixes they allow (it may only add an ask or a refusal)."""
+    if not result.separated:
+        return (
+            "Composed, the rules first and the angle only on what they allow, the angle "
+            "adds no decision here: its thresholds do not separate the dev fixes."
+        )
+    parts = []
+    for kind, verb in (("bad", "would pass"), ("good", "pass")):
+        rows = [
+            (fix, angle_says)
+            for (fix, _angle), angle_says in zip(result.rows, result.decisions(), strict=True)
+            if fix.kind == kind
+        ]
+        by_rules = sum(1 for fix, _ in rows if fix.rules != "allow")
+        allowed = [angle_says for fix, angle_says in rows if fix.rules == "allow"]
+        parts.append(
+            f"of the {len(rows)} {kind} fixes the rules refuse {by_rules}, the angle refuses "
+            f"{allowed.count('refuse')} more and asks about {allowed.count('ask')}, and "
+            f"{allowed.count('allow')} {verb}"
+        )
+    return (
+        "Composed, the rules first and the angle only on what they allow: " + "; ".join(parts) + "."
+    )
 
 
 def render(cache: DriftCache) -> str:
@@ -623,11 +656,11 @@ def render(cache: DriftCache) -> str:
         "",
         (
             f"- θ1 (ask) = the {PERCENTILE}th percentile of the {dev_good} dev good-fix "
-            f"angles (linear interpolation) = **{result.ask_at:.1f}°**"
+            f"angles (linear interpolation) = **{result.ask_at:.2f}°**"
         ),
         (
             f"- θ2 (refuse) = the smallest of the {dev_bad} dev bad-fix angles = "
-            f"**{result.refuse_at:.1f}°**"
+            f"**{result.refuse_at:.2f}°**"
         ),
         "",
         *_verdict(result),
@@ -646,7 +679,7 @@ def render(cache: DriftCache) -> str:
     for (fix, angle), decision in zip(result.rows, result.decisions(), strict=True):
         out.append(
             f"| `{fix.instance}:{fix.lines}` | {fix.split} | {fix.kind} | {fix.variant} | "
-            f"`{fix.target}` | {angle:.1f}° | {decision} | {fix.rules} |"
+            f"`{fix.target}` | {angle:.2f}° | {decision} | {fix.rules} |"
         )
     out += ["", _HOW, "## Positives left out", ""]
     if cache.skipped:
@@ -742,7 +775,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = measure(cache)
     print(
         f"{len(cache.fixes)} fixes, {len(cache.skipped)} positives left out; θ1 "
-        f"{result.ask_at:.1f}°, θ2 {result.refuse_at:.1f}°, θ1 < θ2: {result.separated}"
+        f"{result.ask_at:.2f}°, θ2 {result.refuse_at:.2f}°, θ1 < θ2: {result.separated}"
     )
     return 0
 

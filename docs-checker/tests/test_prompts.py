@@ -511,5 +511,49 @@ def test_a_token_must_match_whole_not_as_part_of_another():
     assert validate_replacement("Host a.example.com.", "Host example.com.", "mail.example.com") is None  # fmt: skip
 
 
+DIGEST = "a" * 64
+PINNED = f"          image: ollama/ollama:0.35.1@sha256:{DIGEST}"
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        # The version alone: the digest sits right after it in the evidence (ruling F2).
+        ("Runs 0.34.2 since the upgrade.", "Runs 0.35.1 since the upgrade."),
+        ("Image `ollama/ollama:0.34.2`.", "Image `ollama/ollama:0.35.1`."),
+        ("Runs v0.34.2.", "Runs v0.35.1."),
+        # A line that starts with the version (an ordered-list marker needs a space).
+        ("0.34.2 since the upgrade.", "0.35.1 since the upgrade."),
+    ],
+)
+def test_a_digest_pinned_image_in_the_evidence_supplies_its_version(old, new):
+    assert validate_replacement(old, new, PINNED) == new
+
+
+@pytest.mark.parametrize(
+    "old, new, evidence",
+    [
+        ("Runs 0.34.2.", "Runs 0.35.", PINNED),  # a prefix of the version
+        ("Runs 0.34.2.", "Runs 0.35.1@sha256.", PINNED),  # the digest's own marker
+        ("Runs 0.34.2.", "Runs x.evil.", f"image: x@sha256:{DIGEST}.evil"),  # joined across it
+        ("Runs 0.34.2.", "Runs 0.35.1.", f"# {PINNED.strip()}"),  # a commented line
+        ("Runs 0.34.2.", "Runs 0.35.1.", f"image: ollama/ollama:0.35.1@sha256:{'a' * 63}"),
+    ],
+    ids=["prefix", "marker", "joined-across-the-digest", "commented", "not-a-digest"],
+)
+def test_what_a_digest_pinned_image_does_not_supply(old, new, evidence):
+    assert validate_replacement(old, new, evidence) is None
+
+
+def test_an_ordered_list_marker_needs_a_following_space_tab_or_line_end():
+    # CommonMark: "1." starts a list item only before a space, a tab or the line's end,
+    # so "0.34.2 since" is text, not the item "0." of a list; the version may change.
+    assert validate_replacement("0.34.2 since.", "0.35.1 since.", "tag: 0.35.1") == "0.35.1 since."
+    # A real marker is part of the block prefix: its number cannot change.
+    assert validate_replacement("1. Chart 0.30.1.", "2. Chart 0.31.0.", EVIDENCE) is None
+    assert validate_replacement("1.\tChart 0.30.1.", "2.\tChart 0.31.0.", EVIDENCE) is None
+    assert validate_replacement("Chart 0.30.1.\n1.", "Chart 0.31.0.\n2.", EVIDENCE) is None
+
+
 def test_validate_replacement_cleans_line_endings():
     assert validate_replacement("a 1.0\nb", "a 1.1\r\nb\n", "v: 1.1") == "a 1.1\nb"

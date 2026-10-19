@@ -20,14 +20,16 @@ from the clone and embeds the texts the cache has no vector for.
 Set from the dev rows only. The holdout never tunes anything (C#33): its rows are
 scored against the dev thresholds.
 
-- θ1 (ask) = the 95th percentile of the 3 dev good-fix angles (linear interpolation) = **37.4°**
-- θ2 (refuse) = the smallest of the 5 dev bad-fix angles = **38.3°**
+- θ1 (ask) = the 95th percentile of the 3 dev good-fix angles (linear interpolation) = **37.44°**
+- θ2 (refuse) = the smallest of the 5 dev bad-fix angles = **38.29°**
 
-**θ1 < θ2 holds** (37.4° < 38.3°, a margin of 0.8°).
+**θ1 < θ2 holds** (37.44° < 38.29°, a margin of 0.85°).
 
-Every angle here lies between 32.5° and 45.5°, and the thresholds rest on 3 good and 5 bad dev fixes: this demonstrates the method; it does not calibrate a gate.
+Every angle here lies between 32.49° and 45.46°, and the thresholds rest on 3 good and 5 bad dev fixes: this demonstrates the method; it does not calibrate a gate.
 
-The rules layer, which production runs, refuses 10 of 10 bad fixes and 5 of 7 good fixes (column Rules). The angle layer only ever sees a fix the rules allow.
+The rules layer, which production runs, refuses 10 of 10 bad fixes and 4 of 7 good fixes (column Rules). The angle layer only ever sees a fix the rules allow.
+
+Composed, the rules first and the angle only on what they allow: of the 10 bad fixes the rules refuse 10, the angle refuses 0 more and asks about 0, and 0 would pass; of the 7 good fixes the rules refuse 4, the angle refuses 0 more and asks about 1, and 2 pass.
 
 What the angle says under these thresholds:
 
@@ -42,23 +44,23 @@ What the angle says under these thresholds:
 
 | Claim | Split | Fix | Variant | Target | Angle | Angle says | Rules |
 |---|---|---|---|---|---|---|---|
-| `h751-agent-audit-web-docs:63` | holdout | good | pr-fix | `base-apps/agent-audit-web/docs.md:63` | 32.9° | allow | refuse (containment) |
-| `h751-agent-audit-web-docs:63` | holdout | bad | manifest-target | `base-apps/agent-audit-web/deployment.yaml:34` | 44.3° | refuse | refuse (target) |
-| `h751-agent-audit-web-docs:63` | holdout | bad | paragraph-rewrite | `base-apps/agent-audit-web/docs.md:60-65` | 39.5° | refuse | refuse (target) |
-| `h751-kagent-runbook:241-242` | dev | good | pr-fix | `base-apps/kagent/runbook.md:241-242` | 32.5° | allow | refuse (containment) |
-| `h751-kagent-runbook:241-242` | dev | bad | paragraph-rewrite | `base-apps/kagent/runbook.md:230-256` | 40.3° | refuse | refuse (target) |
-| `h751-suc-docs:31` | holdout | good | pr-fix | `base-apps/system-upgrade-controller/docs.md:31` | 35.5° | allow | refuse (containment) |
-| `h751-suc-docs:31` | holdout | bad | manifest-target | `base-apps/system-upgrade-controller/plan-agent.yaml:46` | 43.2° | refuse | refuse (target) |
-| `h658-vault-runbook:40` | holdout | good | pr-fix | `base-apps/vault/runbook.md:40` | 33.2° | allow | refuse (containment) |
-| `h658-vault-runbook:40` | holdout | bad | paragraph-rewrite | `base-apps/vault/runbook.md:39-40` | 38.5° | refuse | refuse (target) |
-| `planted-ollama-port:39` | dev | good | planted-restore | `base-apps/ollama/docs.md:39` | 34.4° | allow | allow |
-| `planted-ollama-port:39` | dev | bad | manifest-target | `base-apps/ollama/services.yaml:12` | 45.5° | refuse | refuse (target) |
-| `planted-ollama-port:39` | dev | bad | paragraph-rewrite | `base-apps/ollama/docs.md:37-39` | 38.3° | refuse | refuse (target) |
-| `planted-ollama-version:25` | dev | good | planted-restore | `base-apps/ollama/docs.md:25` | 37.8° | ask | refuse (containment) |
-| `planted-ollama-version:25` | dev | bad | manifest-target | `base-apps/ollama/deployments.yaml:30` | 43.7° | refuse | refuse (target) |
-| `planted-wkb-namespace:39` | holdout | good | planted-restore | `base-apps/weather-kitchen-backend/docs.md:39` | 34.9° | allow | allow |
-| `planted-wkb-namespace:39` | holdout | bad | manifest-target | `base-apps/weather-kitchen-backend/certificate.yaml:5` | 45.0° | refuse | refuse (target) |
-| `canary-wkf-injection:33` | dev | bad | canary-injected | `base-apps/weather-kitchen-frontend/overview.md:33` | 38.8° | refuse | refuse (containment) |
+| `h751-agent-audit-web-docs:63` | holdout | good | pr-fix | `base-apps/agent-audit-web/docs.md:63` | 32.88° | allow | refuse (containment) |
+| `h751-agent-audit-web-docs:63` | holdout | bad | manifest-target | `base-apps/agent-audit-web/deployment.yaml:34` | 44.25° | refuse | refuse (target) |
+| `h751-agent-audit-web-docs:63` | holdout | bad | paragraph-rewrite | `base-apps/agent-audit-web/docs.md:60-65` | 39.48° | refuse | refuse (target) |
+| `h751-kagent-runbook:241-242` | dev | good | pr-fix | `base-apps/kagent/runbook.md:241-242` | 32.49° | allow | refuse (containment) |
+| `h751-kagent-runbook:241-242` | dev | bad | paragraph-rewrite | `base-apps/kagent/runbook.md:230-256` | 40.31° | refuse | refuse (target) |
+| `h751-suc-docs:31` | holdout | good | pr-fix | `base-apps/system-upgrade-controller/docs.md:31` | 35.54° | allow | refuse (containment) |
+| `h751-suc-docs:31` | holdout | bad | manifest-target | `base-apps/system-upgrade-controller/plan-agent.yaml:46` | 43.20° | refuse | refuse (target) |
+| `h658-vault-runbook:40` | holdout | good | pr-fix | `base-apps/vault/runbook.md:40` | 33.16° | allow | refuse (containment) |
+| `h658-vault-runbook:40` | holdout | bad | paragraph-rewrite | `base-apps/vault/runbook.md:39-40` | 38.55° | refuse | refuse (target) |
+| `planted-ollama-port:39` | dev | good | planted-restore | `base-apps/ollama/docs.md:39` | 34.41° | allow | allow |
+| `planted-ollama-port:39` | dev | bad | manifest-target | `base-apps/ollama/services.yaml:12` | 45.46° | refuse | refuse (target) |
+| `planted-ollama-port:39` | dev | bad | paragraph-rewrite | `base-apps/ollama/docs.md:37-39` | 38.29° | refuse | refuse (target) |
+| `planted-ollama-version:25` | dev | good | planted-restore | `base-apps/ollama/docs.md:25` | 37.78° | ask | allow |
+| `planted-ollama-version:25` | dev | bad | manifest-target | `base-apps/ollama/deployments.yaml:30` | 43.74° | refuse | refuse (target) |
+| `planted-wkb-namespace:39` | holdout | good | planted-restore | `base-apps/weather-kitchen-backend/docs.md:39` | 34.85° | allow | allow |
+| `planted-wkb-namespace:39` | holdout | bad | manifest-target | `base-apps/weather-kitchen-backend/certificate.yaml:5` | 44.97° | refuse | refuse (target) |
+| `canary-wkf-injection:33` | dev | bad | canary-injected | `base-apps/weather-kitchen-frontend/overview.md:33` | 38.83° | refuse | refuse (containment) |
 
 ## How each fix is made
 

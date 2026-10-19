@@ -38,10 +38,10 @@ def is_evidence_source(path: str) -> bool:
 
 
 def _token(value: str, flags: int = 0) -> re.Pattern[str]:
-    before = r"(?<![\w-])"
-    if value[:1].isdigit():
-        before += r"(?<!\d\.)"  # "1.2" is not the tail of "0.1.2"
-    return re.compile(before + re.escape(value) + r"(?![\w-]|\.\w)", flags)
+    """``value`` as a whole token: not inside a longer word, number or dotted name on
+    either side ("1.2" is not the tail of "0.1.2", nor "example.com" of
+    "mail.example.com", nor "8080" of "18080"); quotes and a digest around it are fine."""
+    return re.compile(r"(?<![\w.-])" + re.escape(value) + r"(?![\w-]|\.\w)", flags)
 
 
 def _has_value(line: str, values: list[str]) -> bool:

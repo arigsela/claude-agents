@@ -93,6 +93,15 @@ def test_values_match_whole_tokens():
     assert hit("0.30.1", 'image: "app:0.30.1"')
     assert hit("Vault", "name: Vault")
     assert not hit("Vault", "name: vault")  # values are case-sensitive
+    # A dotted name's tail is not the name; a port inside a longer number is not the port;
+    # quotes and a digest around a value do not hide it.
+    assert not hit("example.com", "host: mail.example.com")
+    assert hit("example.com", "host: example.com")
+    assert not hit("8080", "port: 18080")
+    assert not hit("8080", "port: 80801")
+    assert hit("8080", "containerPort: 8080")
+    assert hit("1.15.6", 'tag: "1.15.6"')
+    assert hit("1.15.6", f"image: vault:1.15.6@sha256:{'a' * 64}")
 
 
 def test_supported_needs_key_and_value_on_one_line():
