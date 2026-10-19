@@ -201,3 +201,44 @@ def test_a_key_in_key_position_is_a_hit_ranked_last():
     # a key-only window does not satisfy insufficient(): widening may still add evidence
     assert insufficient(ws, claim())
     assert windows_for(claim(keys=()), {"base-apps/x/v.yaml": planted}) == []
+
+
+def test_hcl_line_comment_not_evidence():
+    from docs_checker.evidence import windows_for
+
+    text = 'variable "region" {\n  default = "a" // was "b"\n}\n'
+    assert windows_for(claim(values=('"b"',), keys=("default",)), {"variables.tf": text}) == []
+    hits = windows_for(claim(values=('"a"',), keys=("default",)), {"variables.tf": text})
+    assert hits and '"b"' not in hits[0].text
+
+
+def test_hcl_hash_tail_and_line_not_evidence():
+    from docs_checker.evidence import windows_for
+
+    text = '# region = "b"\nregion = "a" # was "b"\n'
+    assert windows_for(claim(values=('"b"',), keys=("region",)), {"x.tfvars": text}) == []
+
+
+def test_hcl_block_comment_not_evidence():
+    from docs_checker.evidence import code_text, windows_for
+
+    text = 'locals {\n  /* old:\n     tier = "gold"\n  */\n  tier = "silver"\n}\n'
+    assert windows_for(claim(values=('"gold"',), keys=("tier",)), {"locals.tf": text}) == []
+    assert code_text("locals.tf", text).count("\n") == text.count("\n")
+    assert '"silver"' in code_text("locals.tf", text)
+
+
+def test_yaml_unchanged():
+    from docs_checker.evidence import code_only, code_text
+
+    text = "# chart: old\nchart: vault # pinned\nversion: 0.30.1\n"
+    assert code_text("base-apps/vault/values.yaml", text) == code_only(text)
+
+
+def test_url_in_hcl_string_kept():
+    from docs_checker.evidence import code_text
+
+    text = 'source = "https://example.com//x" // the module\nname = "a#b"\n'
+    code = code_text("main.tf", text)
+    assert 'source = "https://example.com//x"' in code and "the module" not in code
+    assert 'name = "a#b"' in code

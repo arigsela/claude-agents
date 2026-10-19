@@ -311,7 +311,7 @@ def _refusal(action: FixAction) -> tuple[RefusalKind, str] | None:
     """Why the rules refuse ``action`` (its kind and reason), or None when it passes
     every one."""
     # Not at module level: evidence -> state -> tools -> gate would make a cycle.
-    from docs_checker.evidence import code_only
+    from docs_checker.evidence import code_text
 
     finding, claim, lines = action.finding, action.claim, action.doc_lines
     if finding.doc != claim.doc:
@@ -326,7 +326,7 @@ def _refusal(action: FixAction) -> tuple[RefusalKind, str] | None:
     if finding.old_text != old:
         return "target", "the fix's old text is not the doc's lines"
     # Comments are never evidence (validate_replacement strips them too).
-    evidence = code_only(finding.evidence.text) if finding.evidence else ""
+    evidence = code_text(finding.evidence.source, finding.evidence.text) if finding.evidence else ""
     if validate_replacement(old, finding.replacement, evidence) != finding.replacement:
         return "containment", "the replacement fails the replacement rule"
     if finding.verdict == "stale" and finding.replacement == old:

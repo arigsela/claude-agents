@@ -3,6 +3,9 @@
 Windows are small slices of the source files (not whole files). The code judge decides
 only the clear cases without a model; everything else goes on to a model.
 
+HCL sources (``.tf``, ``.tfvars``, ``.hcl``) also lose ``//`` and ``/* */`` comments
+(``hcl_code``), outside double-quoted strings, before windows are cut.
+
 Choices: values match case-sensitively as whole tokens, keys case-insensitively as whole
 tokens. A YAML comment is a line starting with ``#`` (after spaces); lines inside a block
 scalar are not recognised, which is deliberately simple. A hit is a non-comment line
@@ -82,6 +85,56 @@ def code_only(text: str) -> str:
     return "\n".join(_code(line) for line in text.split("\n") if not _is_comment(line))
 
 
+_HCL_SUFFIXES = (".tf", ".tfvars", ".hcl")
+
+
+def is_hcl(path: str) -> bool:
+    return path.lower().endswith(_HCL_SUFFIXES)
+
+
+def hcl_code(text: str) -> str:
+    """``text`` with every HCL comment blanked: ``#`` and ``//`` to the end of the line
+    and ``/* ... */`` spans, outside double-quoted strings. Newlines are kept, so line
+    numbers do not move. Heredocs are not recognised (their text is scanned as code)."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    while i < n:
+        char = text[i]
+        if in_string:
+            out.append(char)
+            if char == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if char == '"' or char == "\n":
+                in_string = False
+            i += 1
+        elif char == '"':
+            in_string = True
+            out.append(char)
+            i += 1
+        elif char == "#" or text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            i = end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            out.append("".join(c for c in text[i:end] if c == "\n"))
+            i = end
+        else:
+            out.append(char)
+            i += 1
+    return "".join(out)
+
+
+def code_text(path: str, text: str) -> str:
+    """What of a source file can be evidence: HCL with its comments blanked (lines
+    kept), any other file as ``code_only``."""
+    return hcl_code(text) if is_hcl(path) else code_only(text)
+
+
 def windows_for(
     claim: Claim,
     sources: dict[str, str],
@@ -95,6 +148,9 @@ def windows_for(
     if not values:
         return []
     hits: list[tuple[int, int, str, int]] = []  # (tier, source order, source, line)
+    # HCL comments are blanked before anything is cut, so no window (and nothing that
+    # reads a window: the code judge, the model, the fix gate) ever holds one.
+    sources = {path: hcl_code(text) if is_hcl(path) else text for path, text in sources.items()}
     for order, (path, text) in enumerate(sources.items()):
         if not is_evidence_source(path):
             continue
