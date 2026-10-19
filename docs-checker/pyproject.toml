@@ -14,6 +14,10 @@ dependencies = [
     "langchain-core>=1.6.12,<2",
     "langchain-anthropic>=1.7.6,<2",
     "langchain-mcp-adapters>=0.3.2,<0.4",
+    # The production checkpointer (AsyncSqliteSaver on the actor's /data disk), so a
+    # paused run survives the snapshot between turns (ruling P5/A1).
+    "langgraph-checkpoint-sqlite==3.1.2",
+    "aiosqlite>=0.21",
     # A2A v1 (proto package lf.a2a.v1): the gRPC handler and the protobuf types.
     # kagent-core 1.0.0a14 requires >=1.1.5,<2.
     "a2a-sdk[grpc]>=1.2.2,<2",

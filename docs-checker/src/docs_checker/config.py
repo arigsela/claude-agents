@@ -105,6 +105,9 @@ class Settings:
     max_claims_per_doc: int = 25
     max_searches: int = 20
     search_interval_s: float = 6.0
+    # Ruling S1: GitHub does not index arigsela/kubernetes, so the search fallback
+    # is off unless DOCS_CHECKER_SEARCH says otherwise (and then only at HEAD).
+    search_enabled: bool = False
     # kagent alpha14 snapshots persist only /data between turns.
     data_dir: str = "/data/docs-checker"
     checkpoint_db: str = "/data/docs-checker/checkpoints.sqlite"
@@ -225,6 +228,13 @@ def _num(env: Mapping[str, str], name: str, default: float) -> float:
     return float(env.get(f"DOCS_CHECKER_{name}", default))
 
 
+def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
+    value = env.get(f"DOCS_CHECKER_{name}")
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
     runtime, agent = _adk_config(env)
@@ -265,6 +275,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_claims_per_doc=int(_num(env, "MAX_CLAIMS_PER_DOC", 25)),
         max_searches=int(_num(env, "MAX_SEARCHES", 20)),
         search_interval_s=_num(env, "SEARCH_INTERVAL_S", 6.0),
+        search_enabled=_flag(env, "SEARCH", False),
         data_dir=data_dir,
         checkpoint_db=env.get("DOCS_CHECKER_CHECKPOINT_DB") or f"{data_dir}/checkpoints.sqlite",
     )

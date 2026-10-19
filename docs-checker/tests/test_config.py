@@ -6,6 +6,7 @@ from google.protobuf.json_format import MessageToJson, ParseDict
 from kagent.config.v1.adk_pb2 import ADKConfig
 
 from docs_checker.config import load_settings
+from tests.fakes import fake_settings
 
 # translator.RuntimeConfig, as the alpha14 controller compiles it for a BYO agent. The
 # name, namespace and port differ from the code defaults, so the assertions prove the parse.
@@ -142,3 +143,9 @@ def test_the_repository_setting_must_be_owner_slash_name():
 def test_a_model_outside_the_allowed_set_fails_at_startup():
     with pytest.raises(ValueError, match="DOCS_CHECKER_JUDGE_MODEL.*claude-opus-5-5"):
         load_settings({"DOCS_CHECKER_JUDGE_MODEL": "claude-opus-5-5"})
+
+
+def test_search_is_off_unless_asked_for():
+    assert fake_settings().search_enabled is False
+    assert fake_settings({"DOCS_CHECKER_SEARCH": "true"}).search_enabled is True
+    assert fake_settings({"DOCS_CHECKER_SEARCH": "0"}).search_enabled is False

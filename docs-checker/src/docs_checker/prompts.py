@@ -159,8 +159,21 @@ unchanged.
 
 {DATA_RULE}"""
 
+REPORT = f"""\
+You write the Markdown report of one docs-checker run from the transcripts of the model \
+calls it made (lever 2 off: the typed handoffs are not used). Each data block is one doc's \
+transcript: what the extract, judge and fix models were asked and what they answered.
+
+For each doc, list every claim judged stale or missing with its line numbers, the evidence \
+window that decided it and the proposed replacement, then the claims judged supported or \
+unsupported in one line each. Say which docs had no claims. Report only what the \
+transcripts show; add nothing, and copy values exactly.
+
+{DATA_RULE}"""
+
 # The user-message templates. Every {field} is filled with fenced blocks only.
 INTAKE_USER = "Classify this request.\n\nRequest:\n{request}"
+REPORT_USER = "Transcripts, one data block per doc:\n{transcripts}"
 EXTRACT_USER = "Doc path and the sources its front matter lists:\n{sources}\n\nDoc lines:\n{lines}"
 JUDGE_USER = "Claim:\n{claim}\n\nEvidence windows:\n{windows}"
 JUDGE_WINDOW = "Window {index}:\n{block}"
@@ -174,11 +187,13 @@ PROMPTS: dict[str, str] = {
     "extract": EXTRACT,
     "judge": JUDGE,
     "fix": FIX,
+    "report": REPORT,
     "intake_user": INTAKE_USER,
     "extract_user": EXTRACT_USER,
     "judge_user": JUDGE_USER,
     "judge_window": JUDGE_WINDOW,
     "fix_user": FIX_USER,
+    "report_user": REPORT_USER,
 }
 
 

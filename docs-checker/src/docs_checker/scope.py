@@ -20,6 +20,7 @@ from typing import NamedTuple
 
 from docs_checker.frontmatter import DocMeta, FrontMatterError, parse_front_matter
 from docs_checker.repo import ReadResult, RepoReader
+from docs_checker.tools import ToolEvent
 
 DEFAULT_ROOTS = ("base-apps", "docs", "recovery")
 
@@ -137,9 +138,15 @@ async def discover(
 
 
 async def expand_sources(
-    reader: RepoReader, meta: DocMeta, *, max_dir_files: int, max_file_bytes: int
+    reader: RepoReader,
+    meta: DocMeta,
+    *,
+    max_dir_files: int,
+    max_file_bytes: int,
+    events: list[ToolEvent] | None = None,
 ) -> tuple[dict[str, ReadResult], list[str]]:
-    """What the doc cites, read at the reader's commit, and what was skipped."""
+    """What the doc cites, read at the reader's commit, and what was skipped. Each
+    read's tool event is appended to ``events`` when a list is given."""
     read: dict[str, ReadResult] = {}
     skipped: list[str] = []
 
@@ -147,7 +154,7 @@ async def expand_sources(
         path = path.rstrip("/")
         if path in read:
             return
-        result = await reader.read(path, node="load")
+        result = await reader.read(path, node="load", events=events)
         if result.found and len((result.text or "").encode()) > max_file_bytes:
             skipped.append(f"{path}: over {max_file_bytes} bytes")
         else:
@@ -157,7 +164,7 @@ async def expand_sources(
         if source.kind == "url":
             skipped.append(f"{source.value}: url")
         elif source.kind == "dir" or source.value.endswith("/"):
-            listing = await reader.list_dir(source.value, node="load")
+            listing = await reader.list_dir(source.value, node="load", events=events)
             if not listing.found:
                 read[listing.path] = listing
                 continue

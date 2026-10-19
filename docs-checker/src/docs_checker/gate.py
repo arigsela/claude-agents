@@ -62,11 +62,18 @@ class ToolCallContext:
     workflow: str
 
 
+RefusalKind = Literal["containment", "target"]
+
+
 @dataclass(frozen=True)
 class GateResult:
     decision: Decision
     angle_deg: float | None = None
     reason: str = ""
+    # Fix refusals only (ruling F1): ``target`` means the fix is not for the claim's
+    # own lines of its own doc (the finding is dropped); ``containment`` means the
+    # fix itself is unsafe (the finding stays, its fix withheld). None otherwise.
+    kind: RefusalKind | None = None
 
 
 class ToolGate(Protocol):
@@ -217,33 +224,35 @@ def _ungrounded_word(old: str, new: str, evidence: str) -> bool:
     )
 
 
-def _refusal(action: FixAction) -> str | None:
-    """Why the rules refuse ``action``, or None when it passes every one."""
+def _refusal(action: FixAction) -> tuple[RefusalKind, str] | None:
+    """Why the rules refuse ``action`` (its kind and reason), or None when it passes
+    every one."""
     # Not at module level: evidence -> state -> tools -> gate would make a cycle.
     from docs_checker.evidence import code_only
 
     finding, claim, lines = action.finding, action.claim, action.doc_lines
     if finding.doc != claim.doc:
-        return "the fix is for another doc than its claim"
+        return "target", "the fix is for another doc than its claim"
     if finding.claim != claim:
-        return "the fix carries another claim"
+        return "target", "the fix carries another claim"
     if (finding.line_start, finding.line_end) != (claim.line_start, claim.line_end):
-        return "the fix changes other lines than its claim's"
+        return "target", "the fix changes other lines than its claim's"
     if not 1 <= claim.line_start <= claim.line_end <= len(lines):
-        return "the claim's lines are not in the doc"
+        return "target", "the claim's lines are not in the doc"
     old = "\n".join(lines[claim.line_start - 1 : claim.line_end])
     if finding.old_text != old:
-        return "the fix's old text is not the doc's lines"
+        return "target", "the fix's old text is not the doc's lines"
     # Comments are never evidence (validate_replacement strips them too).
     evidence = code_only(finding.evidence.text) if finding.evidence else ""
     if validate_replacement(old, finding.replacement, evidence) != finding.replacement:
-        return "the replacement fails the replacement rule"
+        return "containment", "the replacement fails the replacement rule"
     if finding.verdict == "stale" and finding.replacement == old:
-        return "the fix of a stale claim changes nothing"
+        return "containment", "the fix of a stale claim changes nothing"
     if claim.kind in NAMED_KINDS and _ungrounded_word(old, finding.replacement, evidence):
-        return f"a new word in a {claim.kind} claim is not in the evidence"
+        return "containment", f"a new word in a {claim.kind} claim is not in the evidence"
     patched = apply_fix(lines, claim.line_start, claim.line_end, finding.replacement)
-    return structure_refusal(lines, patched)
+    reason = structure_refusal(lines, patched)
+    return ("containment", reason) if reason is not None else None
 
 
 class FixGate:
@@ -265,22 +274,26 @@ class FixGate:
         except Exception as error:  # noqa: BLE001 - fail closed on anything the rules raise
             logger.warning("fix gate rules failed: %s", type(error).__name__)
             return GateResult(
-                decision="refuse", reason=f"the rules could not run ({type(error).__name__})"
+                decision="refuse",
+                reason=f"the rules could not run ({type(error).__name__})",
+                kind="containment",
             )
         if refusal is not None:
-            return GateResult(decision="refuse", reason=refusal)
+            return GateResult(decision="refuse", reason=refusal[1], kind=refusal[0])
         if self._embedder is None or self._thresholds is None:
             return GateResult(decision="allow", reason="the fix passes every rule")
         intent_vec, action_vec = await self._embedder.embed([intent, render_fix(action)])
         angle = angle_degrees(intent_vec, action_vec)
         thresholds = self._thresholds
+        decision = thresholds.decide(angle)
         return GateResult(
-            decision=thresholds.decide(angle),
+            decision=decision,
             angle_deg=round(angle, 2),
             reason=(
                 f"the fix passes every rule; {angle:.1f} deg vs ask {thresholds.ask_at} "
                 f"/ refuse {thresholds.refuse_at}"
             ),
+            kind="containment" if decision == "refuse" else None,
         )
 
 

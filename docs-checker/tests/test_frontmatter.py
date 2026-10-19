@@ -80,3 +80,15 @@ def test_malformed_front_matter_raises_with_reason(text, reason):
     with pytest.raises(FrontMatterError) as err:
         parse_front_matter("x.md", text)
     assert reason in err.value.reason
+
+
+def test_lines_are_counted_by_newline_only():
+    # The checker numbers a doc's lines with text.split("\n") everywhere; a NEL, a
+    # form feed or U+2028 inside a line (which str.splitlines, and YAML for the
+    # first and last, break at) must not shift body_start or a source's line.
+    text = '---\ntitle: "a\x85b"\nsources:\n  - a.yaml\n---\nbody   \x0c here\nlast\n'
+    meta = parse_front_matter("x.md", text)
+    lines = text.split("\n")
+    assert meta.body_start == 6 and lines[meta.body_start - 1] == "body   \x0c here"
+    assert meta.sources[0].line == 4 and lines[meta.sources[0].line - 1] == "  - a.yaml"
+    assert len(text.splitlines()) != len(lines)  # the two countings really differ here

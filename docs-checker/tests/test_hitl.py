@@ -18,6 +18,7 @@ from docs_checker.executor import LEDGER_KEY
 from docs_checker.gate import GateResult
 from docs_checker.graph import RunDeps, run_config
 from docs_checker.ledger import CostLedger
+from docs_checker.levers import Levers
 from docs_checker.server import build_agent_card, build_executor, build_request_handler, start
 from docs_checker.tools import ToolBelt
 from tests.fake_graph import TEST_ANSWER, build_test_graph
@@ -256,7 +257,7 @@ async def test_an_approval_never_carries_over_to_a_different_call_after_resume()
     )
     deps = deps_for(worker, AskGate(), tool_log, replay=None)
     graph = build_test_graph()
-    config = run_config("task-hitl", 20)
+    config = run_config("task-hitl", fake_settings(), Levers.all_on())
 
     paused = await graph.ainvoke({"question": QUESTION}, config, context=deps)
     request = paused["__interrupt__"][0].value["action_requests"][0]
@@ -290,7 +291,7 @@ async def test_a_resume_replays_earlier_work_instead_of_repeating_it():
     )
     deps = deps_for(worker, AskForReadsGate(), tool_log, replay={})
     graph = build_test_graph()
-    config = run_config("task-replay", 20)
+    config = run_config("task-replay", fake_settings(), Levers.all_on())
 
     paused = await graph.ainvoke({"question": QUESTION}, config, context=deps)
     request = paused["__interrupt__"][0].value["action_requests"][0]

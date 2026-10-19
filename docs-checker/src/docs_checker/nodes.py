@@ -32,6 +32,7 @@ import hashlib
 import json
 import logging
 from bisect import bisect_right
+from contextvars import ContextVar
 from typing import Any, Literal, Protocol
 
 from anthropic import transform_schema
@@ -52,6 +53,11 @@ from docs_checker.state import Claim, ClaimKind, Decision, Verdict, Window
 from docs_checker.tools import ToolBelt
 
 logger = logging.getLogger("docs_checker.nodes")
+
+# Lever 2 (typed handoffs) off: the doc branch sets a list here and every call made
+# while it is set appends what the model was asked and what it answered, as text.
+# None (the default) records nothing. The graph is the only writer.
+TRANSCRIPT: ContextVar[list[str] | None] = ContextVar("docs_checker_transcript", default=None)
 
 
 class NodeContext(Protocol):
@@ -159,12 +165,29 @@ async def _ask(
         max_tokens=ctx.settings.node_models[node].max_tokens,
         overhead_chars=_overhead_chars(schema, tools),
     )
+    transcript = TRANSCRIPT.get()
+    if transcript is not None:
+        raw = result.get("raw") if isinstance(result, dict) else result
+        transcript.append(f"[{node}] user:\n{user}\n\n[{node}] reply:\n{_text_of(raw)}")
     parsed = result.get("parsed") if isinstance(result, dict) else None
     if not isinstance(parsed, schema):
         error = result.get("parsing_error") if isinstance(result, dict) else None
         logger.warning("%s: the model's answer could not be read (%s)", node, type(error).__name__)
         return None
     return parsed
+
+
+def _text_of(message: Any) -> str:
+    """A reply's text: a string content as is, content blocks' text joined."""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(block.get("text", "")) if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
 
 
 def _cut(text: str, max_chars: int) -> str:

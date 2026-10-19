@@ -446,3 +446,19 @@ async def test_anything_the_rules_raise_is_a_refusal(monkeypatch, target):
     monkeypatch.setattr(target, broken)
     result = await FixGate().check(INTENT, fix())
     assert result.decision == "refuse" and "RuntimeError" in result.reason
+
+
+async def test_a_refusal_says_whether_the_target_or_the_fix_is_wrong():
+    # Ruling F1: the graph drops a finding whose fix targets other lines or another
+    # doc, and keeps (fix withheld) one whose fix itself is unsafe.
+    for action in (
+        fix(doc="base-apps/redis/docs.md"),
+        fix(doc_lines=REPEATED, line_start=13, line_end=13),
+        fix(old_text=""),
+    ):
+        result = await FixGate().check(INTENT, action)
+        assert (result.decision, result.kind) == ("refuse", "target")
+    for action in (fix(""), fix(VERSION_LINE), fix(VERSION_FIX + "\n")):
+        result = await FixGate().check(INTENT, action)
+        assert (result.decision, result.kind) == ("refuse", "containment")
+    assert (await FixGate().check(INTENT, fix())).kind is None

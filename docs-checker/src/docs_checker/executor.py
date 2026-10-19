@@ -219,6 +219,7 @@ class DocsCheckerExecutor(AgentExecutor):
             models=self._models,
             belt=belt,
             ledger=ledger,
+            settings=self._settings,
             replay=replay,
             fix_gate=self._fix_gate,
         )
@@ -288,7 +289,7 @@ class DocsCheckerExecutor(AgentExecutor):
         task_id, context_id = context.task_id, context.context_id
         try:
             deps = await self._deps(ledger, replay)
-            config = run_config(task_id, self._settings.recursion_limit)
+            config = run_config(task_id, self._settings, self._settings.levers)
             graph_input = await self._graph_input(context, config)
             if self._was_cancelled(task_id):
                 return

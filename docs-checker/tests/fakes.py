@@ -7,7 +7,9 @@ convention (``input_tokens`` is the whole prompt, cache tokens included).
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +122,37 @@ class KeyedModel(ScriptedModel):
         self.calls.append(list(messages))
         task = json.loads(messages[1].content)
         return self.scripts[task["node"]].pop(0)
+
+
+class RoutedModel(ScriptedModel):
+    """Answers each call from ``answer(user_text)``, so parallel doc branches get the
+    reply for their own doc or claim whatever the order; ``delay`` holds each call
+    open for that many seconds (to make branches overlap). ``raise_next`` raises
+    once on the next call."""
+
+    def __init__(self, answer: Callable[[str], AIMessage], *, delay: float = 0.0):
+        super().__init__([])
+        self.answer = answer
+        self.delay = delay
+        self.raise_next: BaseException | None = None
+        self.active = 0
+        self.log: list[tuple[str, str]] = []  # ("start" | "end", user text)
+
+    async def ainvoke(self, messages: list[Any], *_: Any, **__: Any) -> Any:
+        self.calls.append(list(messages))
+        user = messages[1].content
+        self.active += 1
+        self.log.append(("start", user))
+        try:
+            if self.raise_next is not None:
+                error, self.raise_next = self.raise_next, None
+                raise error
+            if self.delay:
+                await asyncio.sleep(self.delay)
+            return self.answer(user)
+        finally:
+            self.active -= 1
+            self.log.append(("end", user))
 
 
 class FakeModels:
