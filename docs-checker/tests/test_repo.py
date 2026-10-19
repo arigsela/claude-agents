@@ -372,10 +372,107 @@ async def test_overlay_replaces_file_text():
     assert earlier.text == git("show", f"{EARLIER}:CLAUDE.md")
 
 
-@pytest.mark.parametrize("path", ["no/such.md", "pr-triage", "../CLAUDE.md", ""])
-def test_an_overlay_must_replace_a_file_at_the_commit(path):
+@pytest.mark.parametrize(
+    "overlays",
+    [
+        {"pr-triage": "x"},  # a directory is not a file
+        {"pr-triage": None},
+        {"../CLAUDE.md": "x"},
+        {"": "x"},
+        {"/CLAUDE.md": "x"},
+        {"docs/": "x"},
+        {"CLAUDE.md/inside.md": "x"},  # a file cannot hold a file
+        {"no/such.md": None},  # nothing there to delete
+    ],
+)
+def test_an_overlay_must_name_a_file_path(overlays):
     with pytest.raises(ValueError):
-        local_repo_tools(REPO_ROOT, PINNED, overlays={path: "x"})
+        local_repo_tools(REPO_ROOT, PINNED, overlays=overlays)
+
+
+OVERLAY_FILES = {
+    "README.md": "# repo\n",
+    "a/only.yaml": "kind: Only\n",
+    "b/keep.yaml": "kind: Keep\n",
+    "b/gone.yaml": "kind: Gone\n",
+    "c.d/x.md": "x\n",
+}
+
+
+async def listing(session: LocalRepoSession, path: str) -> list[tuple[str, str]]:
+    answer = await session.call_tool("get_file_contents", {**REPO, "path": path, "sha": "main"})
+    return [(e["path"], e["type"]) for e in json.loads(answer.content[0].text)]
+
+
+async def test_overlays_add_and_delete_files_at_the_commit(tmp_path):
+    from tests.test_scope import make_tree  # test_scope imports this module
+
+    repo, commit = make_tree(tmp_path, OVERLAY_FILES)
+    added = "kind: Added\nversion: 1.2.3\n"
+    overlays = {"b/gone.yaml": None, "a/only.yaml": None, "c/new/added.yaml": added}
+    session = LocalRepoSession(repo, commit, overlays)
+    reader = RepoReader(belt_of(local_repo_tools(repo, commit, overlays=overlays)), commit)
+
+    # a deleted file reads as absent and leaves the listings; an emptied directory goes too
+    assert (await reader.read("b/gone.yaml")).status == "absent"
+    assert (await reader.read("a/only.yaml")).status == "absent"
+    assert await listing(session, "b") == [("b/keep.yaml", "file")]
+    # a new file reads, and appears in its new directories, in git's order
+    blob = git("hash-object", "--stdin", stdin=added).strip()
+    assert await reader.read("c/new/added.yaml") == ReadResult(
+        "c/new/added.yaml", "found", added, blob
+    )
+    assert await listing(session, "c/new") == [("c/new/added.yaml", "file")]
+    root = await listing(session, "")
+
+    # the same change committed for real lists the same way
+    real = tmp_path / "real"
+    real.mkdir()
+    files = {p: t for p, t in OVERLAY_FILES.items() if p not in overlays}
+    real_repo, real_commit = make_tree(real, {**files, "c/new/added.yaml": added})
+    expected = LocalRepoSession(real_repo, real_commit)
+    assert (
+        root
+        == await listing(expected, "")
+        == [
+            ("README.md", "file"),
+            ("b", "dir"),
+            ("c.d", "dir"),
+            ("c", "dir"),
+        ]
+    )
+
+    # overlays are planted at the commit: it is the latest commit of each overlay path
+    assert await reader.latest_commit("c/new/added.yaml") == commit
+    assert await reader.latest_commit("b/gone.yaml") == commit
+    assert await reader.latest_commit("c") == commit
+    assert await reader.latest_commit("README.md") == commit  # its own (only) commit
+    log = await session.call_tool("list_commits", {**REPO, "path": "c/new/added.yaml"})
+    assert [c["sha"] for c in json.loads(log.content[0].text)] == [commit]
+
+
+async def test_an_overlay_path_lists_the_commit_first_once(tmp_path):
+    from tests.test_scope import commit_all, make_tree
+
+    repo, first = make_tree(tmp_path, OVERLAY_FILES)
+    (repo / "README.md").write_text("# repo, edited\n")
+    second = commit_all(repo)
+    (repo / "b/keep.yaml").write_text("kind: Keep2\n")
+    head = commit_all(repo)
+    planted = {"README.md": "# planted\n", "b/keep.yaml": "kind: Planted\n"}
+    session = LocalRepoSession(repo, head, planted)
+
+    async def shas(**args) -> list[str]:
+        answer = await session.call_tool("list_commits", {**REPO, **args})
+        return [c["sha"] for c in json.loads(answer.content[0].text)]
+
+    # README.md's own history is second, first; planted at head, head comes first
+    assert await shas(path="README.md") == [head, second, first]
+    assert await shas(path="README.md", perPage=2) == [head, second]
+    assert await shas(path="README.md", perPage=2, page=2) == [first]
+    assert await shas(path="README.md", sha=second) == [second, first]  # not planted there
+    assert await shas(path="b/keep.yaml") == [head, first]  # head touched it for real: once
+    assert await shas(path="a/only.yaml") == [first]  # no overlay: its history as stored
 
 
 def template(text: str, **values: str) -> str:

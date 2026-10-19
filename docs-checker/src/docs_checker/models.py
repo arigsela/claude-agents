@@ -49,12 +49,19 @@ class AnthropicModels:
         http_timeout_s: float,
         transport: Any = None,
         on_response: Callable[[Any], Awaitable[None]] | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ):
+        """``api_key`` and ``base_url`` default to ChatAnthropic's own (the
+        ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_BASE_URL`` env values); the eval harness
+        passes both, so its key is the eval workspace's and nothing else."""
         self._specs = node_models
         self._levers = levers
         self._timeout_s = http_timeout_s
         self._transport = transport
         self._on_response = on_response
+        self._api_key = api_key
+        self._base_url = base_url
         self._cache: dict[str, Any] = {}
 
     def name(self, node: str) -> str:
@@ -72,12 +79,18 @@ class AnthropicModels:
         retry_limits = self._levers.retry_limits
         max_retries = 0 if retry_limits else 2
         timeout = self._timeout_s if retry_limits else None
+        explicit: dict[str, Any] = {}
+        if self._api_key is not None:
+            explicit["api_key"] = self._api_key
+        if self._base_url is not None:
+            explicit["base_url"] = self._base_url
         chat = ChatAnthropic(
             model=spec.model,
             max_tokens=spec.max_tokens,
             effort=spec.effort,
             max_retries=max_retries,
             default_request_timeout=timeout,
+            **explicit,
         )
         # Own the HTTP client so the request-id hook and a replay transport reach it.
         http_kwargs: dict[str, Any] = {"timeout": timeout}

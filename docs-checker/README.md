@@ -5,7 +5,9 @@ match the manifests they describe, and proposes the corrected line. It is built 
 **kagent 1.0 BYO runtime**, with a per-run cost ledger.
 
 Status: the runtime and the audit graph are wired and tested offline (scripted models, a
-local git fake of the agent-docs server); evals and the image come next. Design:
+local git fake of the agent-docs server), and so is the eval harness (record and replay,
+the $20 spend guard, scoring; `evals/README.md`); the curated eval set, the paid evals and
+the image come next. Design:
 `docs/superpowers/specs/2026-10-18-docs-checker-design.md`; plan:
 `docs/superpowers/plans/2026-10-18-docs-checker-plan.md`.
 

@@ -1,0 +1,417 @@
+"""The eval harness: replay cassettes, the spend guard, scoring and memory across runs.
+
+No test reaches the API: the "live" side of every recording is an httpx2
+MockTransport, and the repository is a temp git repo behind the local fake of the
+agent-docs server.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import httpx2
+import pytest
+
+from docs_checker.evals.__main__ import main
+from docs_checker.evals.harness import HarnessConfig, Instance, run_arm, run_instance
+from docs_checker.evals.replay import CassetteMiss, ReplayTransport
+from docs_checker.evals.score import LabelledLine, score
+from docs_checker.evals.spend import HarnessBusy, SpendCapExceeded, SpendGuard
+from docs_checker.levers import Levers
+from docs_checker.llm import REPLAYED_HEADER
+from docs_checker.state import Claim, Finding
+from tests.test_llm import OVERLOADED, message_body
+from tests.test_scope import make_tree
+
+URL = "https://api.anthropic.com/v1/messages"
+REQUEST = {
+    "model": "claude-haiku-5-5",
+    "max_tokens": 64,
+    "messages": [{"role": "user", "content": "q"}],
+}
+
+
+def refuse(request: httpx2.Request) -> httpx2.Response:
+    raise AssertionError(f"a replay run reached the network: {request.url}")
+
+
+# --- replay ------------------------------------------------------------------------------
+
+
+async def test_replay_returns_attempts_in_order(tmp_path):
+    statuses = iter([529, 200])
+
+    def live(request: httpx2.Request) -> httpx2.Response:
+        status = next(statuses)
+        if status == 529:
+            headers = {"request-id": "req_529", "retry-after": "0"}
+            return httpx2.Response(529, headers=headers, json=OVERLOADED)
+        return httpx2.Response(200, headers={"request-id": "req_200"}, json=message_body("ok"))
+
+    recorder = ReplayTransport(httpx2.MockTransport(live), tmp_path, "record-missing")
+    async with httpx2.AsyncClient(transport=recorder) as client:
+        first = await client.post(URL, json=REQUEST)
+        second = await client.post(URL, json=REQUEST)
+    assert [first.status_code, second.status_code] == [529, 200]
+    assert REPLAYED_HEADER not in first.headers  # it went to the API: cash
+    (cassette,) = tmp_path.glob("*.json")
+    assert [a["status"] for a in json.loads(cassette.read_text())["attempts"]] == [529, 200]
+
+    replay = ReplayTransport(httpx2.MockTransport(refuse), tmp_path, "replay")
+    reordered = dict(reversed(list(REQUEST.items())))  # the key is the canonical body
+    async with httpx2.AsyncClient(transport=replay) as client:
+        again = [await client.post(URL, json=reordered), await client.post(URL, json=REQUEST)]
+        with pytest.raises(CassetteMiss):  # only two attempts were recorded
+            await client.post(URL, json=REQUEST)
+        with pytest.raises(CassetteMiss):  # a changed prompt is a miss, never a guess
+            await client.post(URL, json={**REQUEST, "max_tokens": 65})
+    assert [(r.status_code, r.headers["request-id"]) for r in again] == [
+        (529, "req_529"),
+        (200, "req_200"),
+    ]
+    assert again[0].headers["retry-after"] == "0"
+    assert again[1].json() == message_body("ok")
+    assert {r.headers[REPLAYED_HEADER] for r in again} == {"1"}
+    assert len(replay.misses) == 2
+
+    # each run starts from the first attempt again
+    fresh = ReplayTransport(httpx2.MockTransport(refuse), tmp_path, "replay")
+    async with httpx2.AsyncClient(transport=fresh) as client:
+        assert (await client.post(URL, json=REQUEST)).status_code == 529
+
+    # the retry row: a synthetic 529 before each key's recordings, free and never recorded
+    injected = ReplayTransport(httpx2.MockTransport(refuse), tmp_path, "replay", overloaded=1)
+    async with httpx2.AsyncClient(transport=injected) as client:
+        statuses = [(await client.post(URL, json=REQUEST)) for _ in range(3)]
+    assert [r.status_code for r in statuses] == [529, 529, 200]
+    assert {r.headers[REPLAYED_HEADER] for r in statuses} == {"1"}
+    assert len(json.loads(cassette.read_text())["attempts"]) == 2
+
+
+async def test_cassette_never_contains_key_or_request(tmp_path):
+    api_key = "sk-ant-api03-" + "k" * 40
+    prompt = "PROMPT-MARKER: is chart vault at 0.30.1?"
+    leaked = "ghp_" + "x" * 36
+
+    def live(request: httpx2.Request) -> httpx2.Response:
+        assert request.headers["x-api-key"] == api_key
+        headers = {
+            "request-id": "req_1",
+            "anthropic-organization-id": "org-secret-id",
+            "set-cookie": "session=abc",
+        }
+        return httpx2.Response(200, headers=headers, json=message_body(f"token {leaked} found"))
+
+    recorder = ReplayTransport(httpx2.MockTransport(live), tmp_path, "record-missing")
+    body = {**REQUEST, "messages": [{"role": "user", "content": prompt}]}
+    async with httpx2.AsyncClient(transport=recorder) as client:
+        response = await client.post(URL, json=body, headers={"x-api-key": api_key})
+    (cassette,) = tmp_path.glob("*.json")
+    text = cassette.read_text()
+    for secret in (api_key, "PROMPT-MARKER", "org-secret-id", "session=abc", leaked, "x-api-key"):
+        assert secret not in text, secret
+    (attempt,) = json.loads(text)["attempts"]
+    assert set(attempt) == {"status", "request_id", "retry_after", "content_type", "body"}
+    assert attempt["request_id"] == "req_1"
+    # the recording run sees exactly what a replay will: the redacted body
+    assert leaked not in response.text and "[REDACTED]" in response.text
+
+
+# --- spend -------------------------------------------------------------------------------
+
+
+def test_spend_guard_reserves_and_keeps_reservation_on_crash(tmp_path):
+    path = tmp_path / ".spend.json"
+    guard = SpendGuard(path, cap_usd=1.0)
+    with guard.lock():
+        first = guard.reserve("run-1", 0.4, instance="a", levers="none")
+        assert (guard.settled_usd, guard.reserved_usd) == (0.0, 0.4)
+        guard.settle(first, cash_usd=0.1, workload_usd=0.3)
+        assert (guard.settled_usd, guard.reserved_usd) == (0.1, 0.0)
+        with pytest.raises(RuntimeError, match="crashed"):
+            guard.reserve("run-2", 0.5, instance="b", levers="none")
+            raise RuntimeError("the harness crashed mid-run")
+
+    # A new process: the crashed run may have spent its whole estimate, so it still counts.
+    again = SpendGuard(path, cap_usd=1.0)
+    with again.lock():
+        assert (again.settled_usd, again.reserved_usd) == (0.1, 0.5)
+        assert again.headroom_usd == pytest.approx(0.4)
+        with pytest.raises(SpendCapExceeded):
+            again.reserve("run-3", 0.45, instance="c", levers="none")
+        third = again.reserve("run-3", 0.4, instance="c", levers="none")  # fits exactly
+        with pytest.raises(HarnessBusy), SpendGuard(path, cap_usd=1.0).lock():
+            pass  # one harness at a time
+        again.settle(third, cash_usd=0.0, workload_usd=0.2)
+    with pytest.raises(RuntimeError, match="lock"):  # never outside the lock
+        again.reserve("run-4", 0.01, instance="d", levers="none")
+    # history estimates the next priced run of the same instance and levers
+    assert SpendGuard(path).estimate("a", "none") == (0.3, "history")
+    assert SpendGuard(path).estimate("z", "none") == (0.60, "default")
+    assert SpendGuard(path).estimate("z", "all") == (0.05, "default")
+
+
+# --- scoring -----------------------------------------------------------------------------
+
+
+def finding(instance: str, start: int, end: int, verdict: str = "stale") -> Finding:
+    claim = Claim(
+        doc="base-apps/x/docs.md",
+        line_start=start,
+        line_end=end,
+        text=f"claim on {start}-{end}",
+        kind="version",
+        values=["1.0"],
+    )
+    return Finding(
+        id=claim.id,
+        instance=instance,
+        commit="c" * 40,
+        doc=claim.doc,
+        line_start=start,
+        line_end=end,
+        claim=claim,
+        verdict=verdict,
+        evidence_hash="e",
+        confidence=0.9,
+        old_text="old",
+        replacement="new",
+    )
+
+
+def label(instance: str, line: int, value: str) -> LabelledLine:
+    return LabelledLine(instance=instance, line=line, label=value)
+
+
+def test_score_one_to_one_and_adjudication():
+    labels = [
+        label("a", 5, "stale"),
+        label("a", 9, "missing"),
+        label("a", 12, "true"),
+        label("a", 14, "uncertain"),
+        label("a", 20, "stale"),  # never found: FN
+        label("a", 40, "stale"),
+        label("a", 41, "stale"),
+        label("b", 5, "stale"),  # instance a's finding on line 5 cannot match it: FN
+    ]
+    findings = [
+        finding("a", 5, 6),  # TP
+        finding("a", 5, 5),  # the same label again: one-to-one, so FP
+        finding("a", 9, 9, "stale"),  # a missing line called stale: wrong class, FP
+        finding("a", 12, 12),  # a line labelled true: FP
+        finding("a", 14, 14),  # uncertain: neither FP nor FN
+        finding("a", 30, 30),  # no label: adjudicate, not FP
+        # A greedy pass gives line 40 to the first and leaves the second unmatched;
+        # the maximum matching gives the first line 41 instead, so both are TP.
+        finding("a", 39, 41),
+        finding("a", 40, 40),
+        finding("b", 9, 9, "missing"),  # a's label on line 9 is not b's
+    ]
+    result = score(findings, labels, workload_usd=0.6, cash_usd=0.25)
+
+    assert (result.tp, result.fp, result.fn, result.excluded) == (3, 3, 3, 1)
+    assert [(a["instance"], a["line_start"]) for a in result.to_adjudicate] == [("a", 30), ("b", 9)]
+    assert result.precision == 0.5 and result.recall == 0.5
+    assert (result.workload_usd, result.cash_usd) == (0.6, 0.25)
+    assert result.cost_per_verified == pytest.approx(0.2)
+    empty = score([], [label("a", 3, "true")])
+    assert (empty.precision, empty.recall, empty.cost_per_verified) == (None, None, None)
+    with pytest.raises(ValueError, match="twice"):
+        score([], [label("a", 3, "true"), label("a", 3, "stale")])
+
+
+# --- the harness on a temp repo ------------------------------------------------------------
+
+DOC = "base-apps/vault/docs.md"
+FILES = {
+    "base-apps/vault/values.yaml": "chart: vault\nversion: 0.31.0\nreplicas: 1\n",
+    DOC: (
+        "---\nsources:\n  - base-apps/vault/values.yaml\n---\n# Vault\n"
+        "Vault runs chart vault version 0.30.1.\n"
+    ),
+}
+CLAIM_TEXT = "Vault runs chart vault version 0.30.1"
+ANSWERS = {
+    "extract": {
+        "claims": [
+            {
+                "line_start": 6,
+                "line_end": 6,
+                "text": CLAIM_TEXT,
+                "kind": "chart",
+                "keys": ["chart", "version"],
+                "values": ["vault", "0.30.1"],
+                "source_hint": "",
+            }
+        ]
+    },
+    "judge": {"verdict": "stale", "confidence": 0.9, "reason": "0.31.0", "window_index": 0},
+    "fix": {"replacement": "Vault runs chart vault version 0.31.0."},
+}
+EVAL_KEY = "sk-ant-api03-" + "e" * 40
+
+
+def node_of(body: dict) -> str:
+    properties = body["output_config"]["format"]["schema"]["properties"]
+    for key, node in (("claims", "extract"), ("verdict", "judge"), ("replacement", "fix")):
+        if key in properties:
+            return node
+    raise AssertionError(f"unexpected request: {sorted(properties)}")
+
+
+class Api:
+    """The Anthropic API as a MockTransport: answers each node, counts what it served."""
+
+    def __init__(self):
+        self.nodes: list[str] = []
+        self.credentials: set[tuple[str, str | None, str | None]] = set()
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        node = node_of(json.loads(request.content))
+        self.nodes.append(node)
+        headers = request.headers
+        self.credentials.add(
+            (request.url.host, headers.get("x-api-key"), headers.get("authorization"))
+        )
+        headers = {"request-id": f"req_{len(self.nodes)}"}
+        return httpx2.Response(200, headers=headers, json=message_body(json.dumps(ANSWERS[node])))
+
+
+@pytest.fixture
+def eval_repo(tmp_path) -> tuple[Path, Instance]:
+    repo, commit = make_tree(tmp_path, FILES)
+    return repo, Instance(id="vault-stale", doc=DOC, commit=commit, split="dev", purpose="t")
+
+
+def config(tmp_path: Path, repo: Path, mode: str, api: Api | None = None) -> HarnessConfig:
+    live = httpx2.MockTransport(api or refuse)
+    key = EVAL_KEY if mode == "record-missing" else None
+    return HarnessConfig(
+        evals_dir=tmp_path / "evals", clone=repo, mode=mode, api_key=key, live=live
+    )
+
+
+LABELS = [LabelledLine(instance="vault-stale", line=6, label="stale")]
+
+
+async def test_replayed_calls_cost_workload_not_cash(tmp_path, eval_repo, monkeypatch):
+    repo, instance = eval_repo
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "not-for-evals")  # conftest sets the others
+    api = Api()
+    recorded = await run_instance(
+        config(tmp_path, repo, "record-missing", api), instance, Levers.all_on(), LABELS
+    )
+    assert api.nodes == ["extract", "judge", "fix"]
+    # the eval key only, to the API itself: never ANTHROPIC_API_KEY, _AUTH_TOKEN or _BASE_URL
+    assert api.credentials == {("api.anthropic.com", EVAL_KEY, None)}
+    paid = recorded.summary
+    assert paid.cash_cost_usd > 0 and paid.cash_cost_usd == paid.workload_cost_usd
+    assert (recorded.score.tp, recorded.score.fp, recorded.score.fn) == (1, 0, 0)
+
+    replayed = await run_instance(
+        config(tmp_path, repo, "replay"), instance, Levers.all_on(), LABELS
+    )
+    assert api.nodes == ["extract", "judge", "fix"]  # nothing more reached the API
+    free = replayed.summary
+    assert free.cash_cost_usd == 0.0
+    assert free.workload_cost_usd == paid.workload_cost_usd > 0
+    assert replayed.calls_by_node == recorded.calls_by_node == {"extract": 1, "judge": 1, "fix": 1}
+    assert replayed.score.tp == 1 and replayed.score.cash_usd == 0.0
+    assert replayed.score.cost_per_verified == pytest.approx(paid.workload_cost_usd)
+
+    # a lever change that changes a prompt is a miss in replay mode, never a guess
+    with pytest.raises(CassetteMiss):
+        await run_instance(
+            config(tmp_path, repo, "replay"), instance, Levers.without("cache_prefix"), LABELS
+        )
+
+
+async def test_second_run_with_memory_makes_no_extract_or_judge_calls(tmp_path, eval_repo):
+    repo, instance = eval_repo
+    memory = tmp_path / "memory.json"
+    api = Api()
+    (first,) = await run_arm(
+        config(tmp_path, repo, "record-missing", api),
+        [instance],
+        Levers.all_on(),
+        LABELS,
+        arm="short_circuit cold",
+        memory_out=memory,
+    )
+    assert first.status == "checked" and first.calls_by_node["extract"] == 1
+    assert json.loads(memory.read_text())["instances"]["vault-stale"]["docs"][DOC]
+
+    (second,) = await run_arm(
+        config(tmp_path, repo, "replay"),
+        [instance],
+        Levers.all_on(),
+        LABELS,
+        arm="short_circuit warm",
+        memory_in=memory,
+    )
+    assert second.status == "unchanged"
+    assert second.calls_by_node == {}  # no extract, judge or fix call, not even replayed
+    assert second.summary.workload_cost_usd == 0.0
+    assert second.score.tp == 1  # the open finding is carried, not lost
+    assert api.nodes == ["extract", "judge", "fix"]
+
+    evals = tmp_path / "evals"
+    records = [json.loads(line) for line in (evals / "results.jsonl").read_text().splitlines()]
+    instance_rows = [r for r in records if r["kind"] == "instance"]
+    assert [(r["arm"], r["memory_in"]) for r in instance_rows] == [
+        ("short_circuit cold", False),
+        ("short_circuit warm", True),
+    ]
+    table = (evals / "results.md").read_text()
+    assert "short_circuit warm" in table and "vault-stale" in table
+    # the priced run settled its reservation to its cash cost; the replay paid nothing
+    spend = SpendGuard(evals / ".spend.json")
+    assert spend.reserved_usd == 0.0
+    assert spend.settled_usd == pytest.approx(first.summary.cash_cost_usd)
+
+
+# --- the command line --------------------------------------------------------------------
+
+
+def write_eval_set(evals: Path, instances: list[Instance]) -> None:
+    evals.mkdir(parents=True, exist_ok=True)
+    data = {
+        "instances": [i.model_dump() for i in instances],
+        "sets": {"lever": [instances[0].id]},
+    }
+    (evals / "instances.json").write_text(json.dumps(data))
+
+
+def test_dry_run_prints_a_spend_table_without_a_call(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY", raising=False)
+    evals = tmp_path / "evals"
+    instances = [
+        Instance(id="one", doc=DOC, commit="a" * 40),
+        Instance(id="two", doc=DOC, commit="b" * 40, split="holdout"),
+    ]
+    write_eval_set(evals, instances)
+    guard = SpendGuard(evals / ".spend.json")
+    with guard.lock():
+        guard.record(instance="one", levers="none", workload_usd=0.42, mode="replay")
+
+    code = main(
+        ["run", "--instances", "all", "--levers", "none", "--dry-run", "--evals-dir", str(evals)]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "one" in out and "0.4200" in out and "history" in out
+    assert "two" in out and "0.6000" in out and "default" in out
+    assert "1.0200" in out  # the total
+    assert not (evals / "results.jsonl").exists()
+
+
+def test_record_missing_refuses_to_start_without_the_eval_key(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY", raising=False)
+    evals = tmp_path / "evals"
+    write_eval_set(evals, [Instance(id="one", doc=DOC, commit="a" * 40)])
+    args = ["run", "--instances", "lever", "--levers", "all", "--mode", "record-missing"]
+    code = main([*args, "--evals-dir", str(evals), "--clone", str(tmp_path)])
+    assert code == 2
+    assert "DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY" in capsys.readouterr().err
+    assert not (evals / ".spend.json").exists()

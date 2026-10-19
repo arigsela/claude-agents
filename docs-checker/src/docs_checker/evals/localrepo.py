@@ -20,9 +20,14 @@ github-mcp-server v1.14.0 gives (tests/fixtures/mcp), so the tool belt and
   (Ruling S1), so an eval never gets a search the deployment could not make (C#17).
 
 The repository it serves: the default branch ``main`` points at ``commit``, and
-only ``commit`` and its ancestors exist. ``overlays`` replace the text of files
-that exist at ``commit`` (planted mutations for evals); other commits read as
-stored.
+only ``commit`` and its ancestors exist. ``overlays`` are planted at ``commit``
+(mutations and extra docs for evals; Ruling O1), path to text: a text replaces the
+file there or adds a new one (with any directories it needs), and ``None`` deletes
+the file (it reads as absent and leaves every listing; a directory it empties goes
+too). ``list_commits`` at ``commit`` names ``commit`` first for an overlay path and
+every directory above one, as if the overlays were committed there. Other commits
+read as stored. A directory an overlay changed keeps its tree sha (a new one gets a
+made-up sha): nothing reads a tree by its sha.
 
 Git runs as an argument list with ``check=False``, never through a shell. A ref
 must be ``main`` or hex and a path may not climb with ``..``, so nothing from a
@@ -39,7 +44,7 @@ import os
 import re
 import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -136,6 +141,21 @@ def _climbs(path: str) -> bool:
     return ".." in path.replace("\\", "/").split("/")
 
 
+def _is_file_path(path: str) -> bool:
+    """A repository-relative file path: not empty, no leading or trailing ``/``, no
+    empty, ``.`` or ``..`` segment."""
+    return bool(path) and all(part not in ("", ".", "..") for part in path.split("/"))
+
+
+def _git_order(entry: _Entry) -> list[bytes]:
+    """The sort key of git's recursive order: siblings by name as bytes, a tree's
+    name compared as if it ended in ``/``, and a tree's contents right after it."""
+    parts = entry.path.split("/")
+    names = [part + "/" for part in parts[:-1]]
+    names.append(parts[-1] + ("/" if entry.kind == "tree" else ""))
+    return [name.encode() for name in names]
+
+
 def _blob_sha(data: bytes) -> str:
     """The sha git gives a blob with these bytes."""
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
@@ -187,7 +207,9 @@ class LocalRepoSession:
     a worker thread, so concurrent branches do not block the event loop.
     """
 
-    def __init__(self, clone: Path | str, commit: str, overlays: Mapping[str, str] | None = None):
+    def __init__(
+        self, clone: Path | str, commit: str, overlays: Mapping[str, str | None] | None = None
+    ):
         self.clone = Path(clone)
         sha = (
             None
@@ -199,17 +221,44 @@ class LocalRepoSession:
         self.commit = sha.strip()
         self._resolved: dict[str, str | None] = {}
         self._blobs: dict[str, bytes] = {}  # overlay blobs, by sha
-        tree = self._read_tree(self.commit)
-        planted: dict[str, _Entry] = {}
-        for path, text in (overlays or {}).items():
-            entry = tree.by_path.get(path)
-            if entry is None or entry.kind != "blob" or entry.mode == _SYMLINK or _climbs(path):
-                raise ValueError(f"an overlay must replace a file at {self.commit}: {path!r}")
+        self._overlaid = frozenset(overlays or ())
+        entries = self._planted(self._read_tree(self.commit), overlays or {})
+        self._trees: dict[str, _Tree] = {self.commit: _Tree(entries)}
+
+    def _planted(self, tree: _Tree, overlays: Mapping[str, str | None]) -> list[_Entry]:
+        """``tree``'s entries with the overlays applied, in git's order."""
+        entries = dict(tree.by_path)
+        for path, text in overlays.items():
+            entry = entries.get(path)
+            if not _is_file_path(path) or (
+                entry is not None and (entry.kind != "blob" or entry.mode == _SYMLINK)
+            ):
+                raise ValueError(f"an overlay must name a file path at {self.commit}: {path!r}")
+            if text is None:
+                if entry is None:
+                    raise ValueError(f"an overlay deletes a file that is not there: {path!r}")
+                del entries[path]
+                continue
+            parent = path.rpartition("/")[0]
+            while parent:
+                above = entries.get(parent)
+                if above is None:
+                    made_up = hashlib.sha1(f"overlay tree {parent}".encode()).hexdigest()
+                    entries[parent] = _Entry("040000", "tree", made_up, 0, parent)
+                elif above.kind != "tree":
+                    raise ValueError(f"an overlay puts a file inside a file: {path!r}")
+                parent = parent.rpartition("/")[0]
             data = text.encode("utf-8")
             self._blobs[_blob_sha(data)] = data
-            planted[path] = replace(entry, sha=_blob_sha(data), size=len(data))
-        entries = [planted.get(e.path, e) for e in tree.entries]
-        self._trees: dict[str, _Tree] = {self.commit: _Tree(entries)}
+            mode = entry.mode if entry is not None else "100644"
+            entries[path] = _Entry(mode, "blob", _blob_sha(data), len(data), path)
+        # git has no empty directories: drop those the deletions emptied, deepest first
+        if any(text is None for text in overlays.values()):
+            trees = [p for p, e in entries.items() if e.kind == "tree"]
+            for path in sorted(trees, reverse=True):
+                if not any(e.parent == path for e in entries.values()):
+                    del entries[path]
+        return sorted(entries.values(), key=_git_order)
 
     async def call_tool(
         self,
@@ -450,20 +499,33 @@ class LocalRepoSession:
                 f"failed to list commits: {sha}: GET https://api.github.com/repos/{owner}/{repo}"
                 f"/commits?{encoded}: 404 Not Found []"
             )
+        planted = commit == self.commit and self._touches_overlay(path)
+        skip = 0 if planted else (page - 1) * per_page
         out = self._git(
             "log",
             "-z",
             f"--format={_LOG_FORMAT}",
-            f"--max-count={per_page}",
-            f"--skip={(page - 1) * per_page}",
+            f"--max-count={page * per_page if planted else per_page}",
+            f"--skip={skip}",
             commit,
             "--",
             *([path] if path else []),
         )
         if out is None:
             return _error(f"failed to list commits: {sha}: git log failed")
-        commits = [self._commit(r, owner, repo) for r in out.split("\0") if r.strip()]
+        records = [r for r in out.split("\0") if r.strip()]
+        if planted:  # the overlays' own commit first, once; then the page asked for
+            head = self._git("log", "-1", "-z", f"--format={_LOG_FORMAT}", commit, "--")
+            if head is None:
+                return _error(f"failed to list commits: {sha}: git log failed")
+            records = [head.rstrip("\0")] + [r for r in records if not r.startswith(commit)]
+            records = records[(page - 1) * per_page : page * per_page]
+        commits = [self._commit(r, owner, repo) for r in records]
         return _answer(go_json(commits))
+
+    def _touches_overlay(self, path: str) -> bool:
+        """``path`` is an overlay path or a directory above one."""
+        return any(p == path or p.startswith(f"{path}/") for p in self._overlaid if path)
 
     def _get_commit(self, args: Mapping[str, Any]) -> CallToolResult:
         owner, repo, sha = _arg(args, "owner"), _arg(args, "repo"), _arg(args, "sha")
@@ -560,11 +622,12 @@ TOOLS = (
 
 
 def local_repo_tools(
-    clone: Path | str, commit: str, *, overlays: Mapping[str, str] | None = None
+    clone: Path | str, commit: str, *, overlays: Mapping[str, str | None] | None = None
 ) -> dict[str, list[BaseTool]]:
     """The agent-docs server's read tools, answered from ``clone`` with ``main`` at
-    ``commit`` and ``overlays`` planted there. Raises ValueError for a commit the
-    clone does not have or an overlay that does not replace a file at it."""
+    ``commit`` and ``overlays`` planted there (text to replace or add a file, None to
+    delete one). Raises ValueError for a commit the clone does not have or an overlay
+    that does not name a file path there (or deletes a file that is not there)."""
     session = LocalRepoSession(clone, commit, overlays)
     return {
         SERVER: [
