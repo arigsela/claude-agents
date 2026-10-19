@@ -313,13 +313,13 @@ async def test_judge_escalates_under_0_8():
     haiku = ScriptedModel([verdict(confidence=0.79)])
     sonnet = ScriptedModel([verdict(confidence=0.93)])
     ctx = make_ctx(names=NAMES, judge=haiku, judge_escalate=sonnet)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, calls = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
 
     assert decision == Decision(
         verdict="stale", confidence=0.93, reason="Window 0 shows version 0.31.0.",
         window_index=0, judged_by=SONNET,
     )  # fmt: skip
-    assert (len(haiku.calls), len(sonnet.calls)) == (1, 1)
+    assert (len(haiku.calls), len(sonnet.calls)) == (1, 1) and calls == 2
     assert [e.node for e in ctx.ledger.entries] == ["judge", "judge_escalate"]
     assert sonnet.calls[0] == haiku.calls[0]  # Sonnet is asked the same question
 
@@ -327,23 +327,23 @@ async def test_judge_escalates_under_0_8():
 async def test_a_confident_haiku_verdict_stands():
     haiku, sonnet = ScriptedModel([verdict(confidence=0.8)]), ScriptedModel([])
     ctx = make_ctx(names=NAMES, judge=haiku, judge_escalate=sonnet)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, calls = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert (decision.confidence, decision.judged_by) == (0.8, HAIKU)
-    assert sonnet.calls == []
+    assert sonnet.calls == [] and calls == 1  # the cap is charged one call, not two
 
 
 async def test_right_size_off_judges_once_on_the_judge_node():
     judge = ScriptedModel([verdict(confidence=0.3)])  # Sonnet already: nothing to escalate to
     ctx = make_ctx(Levers.without("right_size"), judge=judge)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, calls = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert (decision.confidence, decision.judged_by) == (0.3, SONNET)
-    assert [e.node for e in ctx.ledger.entries] == ["judge"]
+    assert [e.node for e in ctx.ledger.entries] == ["judge"] and calls == 1
 
 
 async def test_parse_failure_is_unsupported_without_retry():
     judge = ScriptedModel([reply("not json")])
     ctx = make_ctx(Levers.without("right_size"), judge=judge)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, calls = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert (decision.verdict, decision.confidence, decision.window_index) == (
         "unsupported",
         0.0,
@@ -357,13 +357,13 @@ async def test_parse_failure_is_unsupported_without_retry():
     haiku = ScriptedModel([reply("not json")])
     sonnet = ScriptedModel([reply('{"verdict": "stale"}')])
     ctx = make_ctx(names=NAMES, judge=haiku, judge_escalate=sonnet)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, calls = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert (decision.verdict, decision.confidence, decision.judged_by) == (
         "unsupported",
         0.0,
         SONNET,
     )
-    assert (len(haiku.calls), len(sonnet.calls)) == (1, 1)
+    assert (len(haiku.calls), len(sonnet.calls)) == (1, 1) and calls == 2
 
 
 @pytest.mark.parametrize(
@@ -374,14 +374,14 @@ async def test_parse_failure_is_unsupported_without_retry():
 async def test_an_impossible_verdict_is_unsupported(answer):
     judge = ScriptedModel([answer])
     ctx = make_ctx(Levers.without("right_size"), judge=judge)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, _ = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert (decision.verdict, decision.confidence) == ("unsupported", 0.0)
 
 
 async def test_a_long_reason_is_cut_to_300_characters():
     judge = ScriptedModel([verdict(reason="x" * 500)])
     ctx = make_ctx(Levers.without("right_size"), judge=judge)
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, _ = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
     assert decision.reason == "x" * 300 and decision.verdict == "stale"
 
 
@@ -624,7 +624,7 @@ async def test_what_reaches_the_wire_and_the_reservation_covers_it(levers, monke
         transport=httpx2.MockTransport(handler),
     )
     ctx = Ctx(models, CostLedger("r", emit=False), settings.levers, settings, belt_for(settings))
-    decision = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
+    decision, _ = await judge_claim(CLAIM, WINDOWS, ctx, commit=COMMIT)
 
     assert (decision.verdict, decision.judged_by) == ("supported", HAIKU)
     (body,) = bodies

@@ -20,6 +20,7 @@ from google.protobuf import struct_pb2
 from google.protobuf.json_format import MessageToDict, ParseDict
 from langgraph.checkpoint.memory import InMemorySaver
 
+from docs_checker import executor as executor_module
 from docs_checker import ledger as ledger_module
 from docs_checker.evals.localrepo import local_repo_tools
 from docs_checker.executor import (
@@ -497,12 +498,14 @@ class LimitSpy:
     def __init__(self, graph):
         self.graph = graph
         self.limits: list[tuple[float | None, float | None]] = []
+        self.deadlines: list[float | None] = []
 
     async def aget_state(self, config):
         return await self.graph.aget_state(config)
 
     async def ainvoke(self, graph_input, config, *, context):
         start = context.ledger.budget.limit_usd
+        self.deadlines.append(context.soft_deadline)
         try:
             return await self.graph.ainvoke(graph_input, config, context=context)
         finally:
@@ -644,6 +647,43 @@ async def test_run_timeout_fails_cleanly(docs_repo):
     assert executor._running == {}
     await asyncio.sleep(0.05)
     assert models.get("extract").active == 0  # the model call was cancelled, not left running
+
+
+async def test_the_soft_deadline_is_three_quarters_of_the_run_timeout(docs_repo):
+    repo, commit = docs_repo
+    settings = dataclasses.replace(fake_settings(), run_timeout_s=400.0)
+    spy = LimitSpy(build_graph(checkpointer=InMemorySaver(serde=checkpoint_serde())))
+    started = time.monotonic()
+    queue = await send(
+        docs_executor(repo, commit, settings=settings, graph=spy), a2a_message(f"check {VAULT_DOC}")
+    )
+    assert queue.states()[-1] == a2a_pb2.TaskState.TASK_STATE_COMPLETED
+    assert executor_module.SOFT_DEADLINE_FRACTION == 0.75
+    (deadline,) = spy.deadlines
+    assert deadline - started == pytest.approx(300.0, abs=5.0)
+
+
+async def test_past_the_soft_deadline_the_task_still_completes_with_report_and_memory(
+    docs_repo, monkeypatch
+):
+    # Review I3: past the soft deadline the run fans out no further and completes with
+    # the report and the memory, instead of failing as "timeout" with nothing.
+    monkeypatch.setattr(executor_module, "SOFT_DEADLINE_FRACTION", 0.0)
+    repo, commit = docs_repo
+    models = docs_models()
+    queue = await send(
+        docs_executor(repo, commit, models=models),
+        a2a_message("", {"scope": "all", "mode": "scheduled", "memory": None}),
+    )
+    assert queue.states()[-1] == a2a_pb2.TaskState.TASK_STATE_COMPLETED
+    artifact = queue.artifact()
+    report = keyed(artifact, REPORT_KEY)
+    assert len(report["skipped_budget"]) == 3 and all(
+        "time limit" in line for line in report["skipped_budget"]
+    )
+    assert models.get("extract").calls == []
+    assert keyed(artifact, MEMORY_KEY) == {"version": 1, "run": 1, "docs": {}, "decisions": {}}
+    assert keyed(artifact, LEDGER_KEY)["calls"] == 0
 
 
 async def test_a_failed_run_fails_the_task_with_its_reason(docs_repo):

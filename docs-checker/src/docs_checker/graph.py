@@ -9,12 +9,19 @@
   off-topic text is refused) and resolves its ref to the run's one commit (C#18).
 - ``scope`` discovers or validates the docs (bounded), parses each one's front
   matter (a malformed one is ``failed``) and, in scheduled mode with
-  ``short_circuit`` on, skips unchanged docs with their carried findings.
+  ``short_circuit`` on, skips unchanged docs with their carried findings. The
+  docs left pending go out never-checked first, then by the memory's ``run``
+  of their last check, oldest first (review I2): a weekly budget that runs out
+  reaches every doc eventually instead of starving the end of the listing.
 - ``dispatch`` fans out: with ``cache_prefix`` on the first doc goes alone, so
   the prompt cache is warm for the rest (C#41); after every round it sends what
-  is still pending. In interactive mode, docs skipped for budget are offered once
+  is still pending. It stops fanning out (the pending docs end ``skipped-budget``,
+  unread and unfingerprinted, with a "not started" reason) once the run's soft
+  deadline has passed or the remaining budget cannot hold a doc's first model
+  call (review I3). In interactive mode, docs skipped for budget are offered once
   through ``interrupt``: an approval raises the limit by the same amount and
-  re-sends only them, and nothing is judged twice (C#26).
+  re-sends only them, and nothing is judged twice (C#26). Past the deadline there
+  is no offer: time, not money, ran out.
 - ``doc`` runs the per-doc subgraph (``graph_doc.py``) and adapts its output to
   ``{"outcomes": {doc: outcome}}``.
 - ``collect`` drops dismissed findings, applies the confidence split and writes
@@ -36,6 +43,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -56,7 +64,7 @@ from docs_checker.dismissals import Dismissal, is_dismissed, parse_dismissals
 from docs_checker.frontmatter import DocMeta, FrontMatterError, SourceRef, parse_front_matter
 from docs_checker.gate import FixGate
 from docs_checker.graph_doc import NEEDS_LOOK_BELOW, DocState, build_doc_graph, reader_for
-from docs_checker.ledger import BudgetExceeded, CostLedger, Outcome
+from docs_checker.ledger import BudgetExceeded, CostLedger, Outcome, reservation_for
 from docs_checker.levers import Levers
 from docs_checker.llm import call_model
 from docs_checker.memory import CHECKER_KEY, SnapshotStore, fingerprint, skip_unchanged
@@ -176,10 +184,19 @@ class RunDeps:
     decisions: DecisionMemo = field(default_factory=DecisionMemo)
     store: SnapshotStore | None = None
     dismissals: tuple[list[Dismissal], list[str]] | None = None
+    # The run's soft deadline on ``clock`` (``time.monotonic`` seconds; the executor
+    # sets it under its hard ``run_timeout_s``). Past it no model call starts and no
+    # doc is sent, so the run reports and remembers what it has (review I3). None
+    # (tests, no executor) never runs out of time.
+    soft_deadline: float | None = None
+    clock: Callable[[], float] = time.monotonic
 
     def __post_init__(self) -> None:
         if self.levers is None:
             self.levers = self.settings.levers
+
+    def out_of_time(self) -> bool:
+        return self.soft_deadline is not None and self.clock() >= self.soft_deadline
 
 
 def budget_limit(request: RunRequest, settings: Settings) -> float:
@@ -356,13 +373,25 @@ async def scope(state: RunState, runtime: Runtime[RunDeps]) -> dict:
                 continue
         docs.append(meta)
     return {
-        "docs": docs,
+        "docs": _by_priority(docs, deps.store),
         "outcomes": outcomes,
         "truncated": truncated,
         "search": search,
         "round": 0,
         "continued": False,
     }
+
+
+def _by_priority(docs: list[DocMeta], store: SnapshotStore) -> list[DocMeta]:
+    """The pending docs, never-checked first, then by the ``run`` of their last check
+    (memory's doc entry), oldest first; ties keep the listing order (review I2)."""
+
+    def last_run(meta: DocMeta) -> tuple[bool, int]:
+        entry = store.get_doc(meta.path) or {}
+        run = entry.get("run")
+        return (isinstance(run, int), run if isinstance(run, int) else 0)
+
+    return sorted(docs, key=last_run)
 
 
 def _after_scope(state: RunState) -> str:
@@ -377,17 +406,56 @@ def _digest(*parts: object) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
+def _doc_floor_usd(deps: RunDeps) -> float:
+    """The least a doc's first model call reserves: its extraction with nothing but the
+    system prompt. A remaining budget under it would refuse every doc's first call
+    (B1: a reservation is an upper bound checked before the call), so there is no
+    point in loading and fingerprinting a doc it cannot pay for."""
+    return reservation_for(
+        deps.models.name("extract"),
+        len(prompts.EXTRACT),
+        deps.settings.node_models["extract"].max_tokens,
+        deps.ledger.rate_card,
+    )
+
+
+def _not_started(deps: RunDeps, commit: str, pending: list[str]) -> dict[str, DocOutcome] | None:
+    """Why the pending docs are not sent, as their outcomes: the run's soft deadline
+    passed, or the remaining budget cannot hold a doc's first call (review I3)."""
+    remaining = deps.ledger.budget.remaining_usd
+    if deps.out_of_time():
+        why = "not started: the run's time limit was reached"
+    elif remaining is not None and remaining < _doc_floor_usd(deps):
+        why = (
+            f"not started: the remaining run budget (${remaining:.4f}) cannot hold a doc's "
+            f"first model call (${_doc_floor_usd(deps):.4f})"
+        )
+    else:
+        return None
+    return {
+        path: DocOutcome(doc=path, commit=commit, status="skipped-budget", reason=why)
+        for path in pending
+    }
+
+
 async def dispatch(state: RunState, runtime: Runtime[RunDeps]) -> dict:
     """What to send next: the pending docs (the first one alone when warming the
-    prompt cache), or, once, the docs skipped for budget after an approval."""
+    prompt cache), or, once, the docs skipped for budget after an approval. Pending
+    docs the run can no longer afford, in time or money, are not sent at all."""
     deps = runtime.context
     outcomes = state.get("outcomes") or {}
     pending = [m.path for m in state.get("docs") or [] if m.path not in outcomes]
     rnd = state.get("round", 0)
     if pending:
-        if rnd == 0 and deps.levers.cache_prefix and len(pending) > 1:
-            return {"next_docs": pending[:1], "round": 1}
-        return {"next_docs": pending, "round": rnd + 1}
+        not_started = _not_started(deps, state["commit"], pending)
+        if not_started is None:
+            if rnd == 0 and deps.levers.cache_prefix and len(pending) > 1:
+                return {"next_docs": pending[:1], "round": 1}
+            return {"next_docs": pending, "round": rnd + 1}
+        logger.info(
+            "%d docs not started: %s", len(pending), next(iter(not_started.values())).reason
+        )
+        outcomes = {**outcomes, **not_started}
     skipped = [p for p, o in outcomes.items() if o.status == "skipped-budget"]
     budget = deps.ledger.budget
     if (
@@ -395,6 +463,7 @@ async def dispatch(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         and state["request"].mode == "interactive"
         and not state.get("continued")
         and budget.limit_usd is not None
+        and not deps.out_of_time()
     ):
         limit = budget.limit_usd
         digest = _digest(state["commit"], sorted(skipped), limit)
@@ -423,9 +492,14 @@ async def dispatch(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         )
         if _approved(reply, digest):
             budget.limit_usd = limit + limit
-            return {"next_docs": skipped, "continued": True, "round": rnd + 1}
-        return {"next_docs": [], "continued": True}
-    return {"next_docs": []}
+            return {
+                "next_docs": skipped,
+                "continued": True,
+                "round": rnd + 1,
+                "outcomes": outcomes,
+            }
+        return {"next_docs": [], "continued": True, "outcomes": outcomes}
+    return {"next_docs": [], "outcomes": outcomes}
 
 
 def _route(state: RunState) -> list[Send] | str:

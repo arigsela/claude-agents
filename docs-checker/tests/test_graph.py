@@ -533,7 +533,8 @@ async def test_call_cap_marks_doc_incomplete(tmp_path):
         "The service is named vault": ("supported", 0.9),
     }
 
-    # extract (1) + the first judge (reserved as 2, ruling U3) reach a cap of 3
+    # extract (1) + the first judgement (reserved as 2, ruling U3, charged 1) = 2 used;
+    # the second judgement's reservation of 2 does not fit a cap of 3
     h = Harness(repo, commit, settings={"max_calls_per_doc": 3}, claims=claims, verdicts=verdicts)
     result = await h.run(RunRequest(scope=[doc]))
     outcome = result["outcomes"][doc]
@@ -680,6 +681,226 @@ async def test_budget_exhaustion_in_scheduled_mode_is_reported_not_asked(tmp_pat
     assert result["outcomes"][TWO_CLAIM_DOC].status == "skipped-budget"
     assert result["report_data"].skipped_budget and result["outcome"] == "unverified"
     assert h.extract.calls == []  # refused by reservation before any call
+
+
+# --- the call cap charges what a judgement cost (review I1) ----------------------------
+
+
+def config_claims(lines: list[str], *, first: int, value: str) -> list[dict]:
+    """One model-judged ``config`` claim per line (no key: code cannot decide it)."""
+    return [
+        {"line_start": first + i, "line_end": first + i, "text": line.rstrip("."),
+         "kind": "config", "keys": [], "values": [value], "source_hint": ""}
+        for i, line in enumerate(lines)
+    ]  # fmt: skip
+
+
+def one_doc(tmp_path, lines: list[str], *, value: str) -> tuple[Path, str, str, dict]:
+    doc = "base-apps/vault/docs.md"
+    files = {
+        "base-apps/vault/values.yaml": f"chart: {value}\n",
+        doc: "---\nsources:\n  - base-apps/vault/values.yaml\n---\n" + "\n".join(lines) + "\n",
+    }
+    repo, commit = make_tree(tmp_path, files)
+    return repo, commit, doc, {doc: config_claims(lines, first=5, value=value)}
+
+
+async def test_haiku_only_judgements_charge_one_call_each(tmp_path):
+    # A judgement is reserved as two calls (ruling U3) but charged what it cost, so a
+    # doc with more than five Haiku-judged claims still fits the cap of 12.
+    lines = [f"Setting s{i} is vault." for i in range(6)]
+    repo, commit, doc, claims = one_doc(tmp_path, lines, value="vault")
+    verdicts = {line.rstrip("."): ("supported", 0.9) for line in lines}
+    h = Harness(repo, commit, settings={"max_calls_per_doc": 12}, claims=claims, verdicts=verdicts)
+    result = await h.run(RunRequest(scope=[doc]))
+    outcome = result["outcomes"][doc]
+    assert len(h.judge.calls) == 6
+    assert outcome.status == "checked" and outcome.counts == {"claims": 6, "supported": 6}
+
+
+async def test_an_escalated_judgement_charges_two_calls(tmp_path):
+    lines = ["Setting s0 is vault.", "Setting s1 is vault."]
+    repo, commit, doc, claims = one_doc(tmp_path, lines, value="vault")
+    first, second = (line.rstrip(".") for line in lines)
+
+    # extract (1) + an escalated judgement (Haiku then Sonnet: 2) = 3; the second
+    # judgement needs two more than a cap of 4 allows.
+    haiku = judge_model({first: ("supported", 0.5), second: ("supported", 0.9)})
+    sonnet = judge_model({first: ("supported", 0.95)})
+    h = Harness(
+        repo, commit, settings={"max_calls_per_doc": 4}, claims=claims,
+        judge=haiku, judge_escalate=sonnet,
+    )  # fmt: skip
+    outcome = (await h.run(RunRequest(scope=[doc])))["outcomes"][doc]
+    assert (len(haiku.calls), len(sonnet.calls)) == (1, 1)
+    assert (
+        outcome.status == "incomplete" and "call cap (4) left 1 claims unjudged" in outcome.reason
+    )
+
+    # Haiku confident on both: 1 + 1 + 1 = 3 calls, both judged under the same cap.
+    verdicts = {first: ("supported", 0.9), second: ("supported", 0.9)}
+    h = Harness(repo, commit, settings={"max_calls_per_doc": 4}, claims=claims, verdicts=verdicts)
+    outcome = (await h.run(RunRequest(scope=[doc])))["outcomes"][doc]
+    assert len(h.judge.calls) == 2 and outcome.status == "checked"
+
+
+# --- which docs go first, and when no more are started (reviews I2 and I3) -------------
+
+PAIR_DOCS = ("base-apps/a/docs.md", "base-apps/b/docs.md")
+PAIR_FILES = {
+    "base-apps/a/values.yaml": "name: alpha\n",
+    "base-apps/b/values.yaml": "name: beta\n",
+    PAIR_DOCS[0]: "---\nsources:\n  - base-apps/a/values.yaml\n---\nThe app is named alpha.\n",
+    PAIR_DOCS[1]: "---\nsources:\n  - base-apps/b/values.yaml\n---\nThe app is named beta.\n",
+}
+PAIR_CLAIMS = {
+    doc: config_claims([f"The app is named {value}."], first=5, value=value)
+    for doc, value in zip(PAIR_DOCS, ("alpha", "beta"), strict=True)
+}
+
+
+def expensive_judge() -> RoutedModel:
+    """Every judgement bills $2.00 (4M tokens on Haiku's upper tier): one fits a $2.005
+    budget, and what is left cannot hold another doc's first call."""
+    body = {"verdict": "supported", "confidence": 0.9, "reason": "r", "window_index": 0}
+    return RoutedModel(lambda _user: reply(json.dumps(body), uncached=4_000_000, output=50))
+
+
+def memory_with(docs: dict[str, int], *, run: int) -> dict:
+    """A snapshot whose doc entries carry these ``run`` numbers and a fingerprint that
+    never matches, so every one of them is pending again."""
+    return {
+        "version": 1,
+        "run": run,
+        "decisions": {},
+        "docs": {
+            path: {"status": "checked", "fingerprint": {"x": "y"}, "checker": "c",
+                   "open_findings": [], "run": n}
+            for path, n in docs.items()
+        },
+    }  # fmt: skip
+
+
+async def test_pending_docs_go_never_checked_first_then_by_oldest_run(fixture_repo):
+    # Discovery order is alphabetical, so a budget that runs out every week would starve
+    # the tail: docs memory never saw go first, then the one unchecked the longest.
+    repo, commit = fixture_repo
+    memory = memory_with({VAULT_DOC: 1, REDIS_DOC: 3}, run=3)  # the runbook: never checked
+    result = await Harness(repo, commit).run(
+        RunRequest(scope="all", mode="scheduled", memory=memory)
+    )
+    assert [m.path for m in result["docs"]] == [RUNBOOK, VAULT_DOC, REDIS_DOC]
+    assert {o.status for o in result["outcomes"].values()} == {"checked"}
+
+
+async def test_a_budget_that_fits_one_doc_reaches_the_other_doc_next_run(tmp_path, monkeypatch):
+    repo, commit = make_tree(tmp_path, PAIR_FILES)
+    a, b = PAIR_DOCS
+    calls = spy_on_tools(monkeypatch)
+    first = Harness(repo, commit, claims=PAIR_CLAIMS, judge=expensive_judge(), budget=Budget(2.005))
+    result = await first.run(RunRequest(scope="all", mode="scheduled"))
+    assert {d: o.status for d, o in result["outcomes"].items()} == {
+        a: "checked",
+        b: "skipped-budget",
+    }
+    # b was never started: no Send once the budget cannot hold a doc's first call, so
+    # none of its sources were read and nothing was fingerprinted for it.
+    assert result["outcomes"][b].reason.startswith("not started: ")
+    assert [c for c in calls if c[1].get("path") == "base-apps/b/values.yaml"] == []
+    assert [c for c in calls if c[0] == "list_commits" and c[1].get("path") == b] == []
+    assert len(first.extract.calls) == 1 and result["outcome"] == "unverified"
+    memory = first.deps.store.snapshot(set(result["outcomes"]))
+    assert memory["docs"][a]["run"] == 1 and b not in memory["docs"]
+
+    # Next week a's sources changed, so it is pending again; b, never checked, goes first.
+    memory["docs"][a]["fingerprint"] = {"x": "y"}
+    second = Harness(
+        repo, commit, claims=PAIR_CLAIMS, judge=expensive_judge(), budget=Budget(2.005)
+    )
+    result = await second.run(RunRequest(scope="all", mode="scheduled", memory=memory))
+    assert {d: o.status for d, o in result["outcomes"].items()} == {
+        a: "skipped-budget",
+        b: "checked",
+    }
+
+
+async def test_a_doc_skipped_before_it_started_is_offered_and_checked_on_approval(tmp_path):
+    repo, commit = make_tree(tmp_path, PAIR_FILES)
+    a, b = PAIR_DOCS
+    h = Harness(repo, commit, claims=PAIR_CLAIMS, judge=expensive_judge(), budget=Budget(2.005))
+    paused = await h.run(RunRequest(scope="all", mode="interactive"))
+    (interrupt,) = paused["__interrupt__"]
+    (request,) = interrupt.value["action_requests"]
+    assert request["name"] == "raise_budget" and request["args"]["docs"] == [b]
+    done = await h.resume(approval(request))
+    assert {d: o.status for d, o in done["outcomes"].items()} == {a: "checked", b: "checked"}
+    assert len(h.judge.calls) == 2 and "__interrupt__" not in done
+
+
+async def test_past_the_soft_deadline_no_doc_starts_and_the_report_still_comes(
+    fixture_repo, monkeypatch
+):
+    # A run near its time limit stops fanning out and reports what it has, instead of
+    # timing out with nothing (and nothing is read or fingerprinted for a doc not started).
+    repo, commit = fixture_repo
+    calls = spy_on_tools(monkeypatch)
+    h = Harness(repo, commit)
+    h.deps.soft_deadline = 0.0  # monotonic time is past it already
+    result = await h.run(RunRequest(scope="all", mode="scheduled"))
+    outcomes = result["outcomes"]
+    assert {o.status for o in outcomes.values()} == {"skipped-budget"}
+    assert all(
+        o.reason.startswith("not started: ") and "time limit" in o.reason for o in outcomes.values()
+    )
+    assert h.extract.calls == [] and h.judge.calls == []
+    assert [c for c in calls if c[1].get("path") == "base-apps/vault/values.yaml"] == []
+    assert [c for c in calls if c[0] == "list_commits"] == []
+    assert result["outcome"] == "unverified" and len(result["report_data"].skipped_budget) == 3
+    assert "__interrupt__" not in result
+    assert h.deps.store.snapshot(set(outcomes))["docs"] == {}
+
+
+async def test_the_soft_deadline_mid_run_ends_the_doc_and_starts_no_more(fixture_repo):
+    repo, commit = fixture_repo
+    now = [0.0]
+
+    def answer(user: str) -> AIMessage:
+        now[0] = 10.0  # the first extraction takes the run past its soft deadline
+        doc = re.search(r"^path: (\S+)$", user, re.MULTILINE).group(1)
+        return reply(json.dumps({"claims": CLAIMS.get(doc, [])}))
+
+    h = Harness(repo, commit, extract=RoutedModel(answer))
+    h.deps.clock = lambda: now[0]
+    h.deps.soft_deadline = 5.0
+    # Interactive: the docs are sent in the order given, the first one alone.
+    result = await h.run(RunRequest(scope=[VAULT_DOC, RUNBOOK], mode="interactive"))
+    vault, runbook = result["outcomes"][VAULT_DOC], result["outcomes"][RUNBOOK]
+    # The branch in flight finishes: the port claim is decided in code, the chart claim
+    # is not judged (no model call past the deadline) and the doc says why.
+    assert vault.status == "skipped-budget"
+    assert vault.reason == "the run's time limit was reached after 1 of 2 claims"
+    assert vault.counts == {"claims": 2, "supported": 1, "unsupported": 1}
+    assert runbook.status == "skipped-budget" and runbook.reason.startswith("not started: ")
+    assert len(h.extract.calls) == 1 and h.judge.calls == [] and h.fix.calls == []
+    assert "__interrupt__" not in result  # no budget to raise: the time is spent
+    assert result["report_data"].skipped_budget == [
+        f"{VAULT_DOC}: {vault.reason}",
+        f"{RUNBOOK}: {runbook.reason}",
+    ]
+
+
+async def test_only_checked_docs_are_fingerprinted(fixture_repo, monkeypatch):
+    repo, commit = fixture_repo
+    fail_reads_of(monkeypatch, "base-apps/vault/service.yaml", UNAVAILABLE)
+    calls = spy_on_tools(monkeypatch)
+    result = await Harness(repo, commit).run(
+        RunRequest(scope=[VAULT_DOC, REDIS_DOC], mode="scheduled")
+    )
+    vault, redis = result["outcomes"][VAULT_DOC], result["outcomes"][REDIS_DOC]
+    assert vault.status == "incomplete" and vault.fingerprint == {}
+    assert redis.status == "checked" and REDIS_DOC in redis.fingerprint
+    listed = {args.get("path") for name, args in calls if name == "list_commits"}
+    assert REDIS_DOC in listed and VAULT_DOC not in listed
 
 
 # --- the fix gate's ask ----------------------------------------------------------------

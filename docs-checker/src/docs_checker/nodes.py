@@ -369,18 +369,19 @@ async def _judge_once(
 
 async def judge_claim(
     claim: Claim, windows: list[Window], ctx: NodeContext, *, commit: str
-) -> Decision:
+) -> tuple[Decision, int]:
     """Haiku first (``judge``); under 0.8 confidence, Sonnet (``judge_escalate``) decides.
 
     With ``right_size`` off every node is Sonnet already, so ``judge`` is the only
     call. One call per model, never a retry: an unreadable or impossible answer
     (confidence outside 0..1, a window that does not exist) is ``unsupported`` at
-    0.0, which on Haiku sends the claim to Sonnet. Makes one or two model calls.
+    0.0, which on Haiku sends the claim to Sonnet. Returns the decision and the
+    number of model calls it took (1 or 2), which the per-doc call cap charges.
     """
     decision = await _judge_once("judge", claim, windows, ctx, commit)
     if ctx.levers.right_size and decision.confidence < prompts.ESCALATE_BELOW:
-        return await _judge_once("judge_escalate", claim, windows, ctx, commit)
-    return decision
+        return await _judge_once("judge_escalate", claim, windows, ctx, commit), 2
+    return decision, 1
 
 
 # --- fix ---------------------------------------------------------------------------

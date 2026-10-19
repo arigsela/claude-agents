@@ -24,7 +24,11 @@ Out, for a completed task, every part redacted on its way out:
 
 A run the graph could not do (its ref, its scope) fails the task with the reason,
 and so does a turn longer than ``run_timeout_s`` ("timeout"); the ledger summary
-travels with the failure, partial cost included. A paused run (an "ask") is
+travels with the failure, partial cost included. Before that, at
+``SOFT_DEADLINE_FRACTION`` of the timeout, the graph stops starting model calls
+and docs (``RunDeps.soft_deadline``), so a long run completes with the docs it
+checked, the rest ``skipped-budget`` with a time reason, instead of failing with
+nothing (review I3). A paused run (an "ask") is
 ``input-required`` carrying a kagent HITL ``tool_approval_request``; its ledger and
 replay memo wait in ``PausedTasks`` (the checkpoint db in production), so the
 resume continues them, in this process or after a restart.
@@ -34,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -73,6 +78,9 @@ REPORT_KEY = "docs-checker/report"
 
 # The report's note when a resume lost the paused run's ledger (C#25).
 RESTART_NOTE = "cost after restart is a lower bound"
+# The graph's soft deadline, as a fraction of run_timeout_s: what is left must hold the
+# branches in flight (a few model calls each) plus collect and report.
+SOFT_DEADLINE_FRACTION = 0.75
 
 # Tools grouped by the MCP server that advertised them (server name -> tools).
 ToolsProvider = Callable[[], Awaitable[Mapping[str, list[Any]]]]
@@ -293,7 +301,12 @@ class DocsCheckerExecutor(AgentExecutor):
         )
 
     async def _deps(
-        self, ledger: CostLedger, replay: dict[str, Any], store: SnapshotStore | None = None
+        self,
+        ledger: CostLedger,
+        replay: dict[str, Any],
+        store: SnapshotStore | None = None,
+        *,
+        soft_deadline: float | None = None,
     ) -> RunDeps:
         # The replay memo is the run's state across pauses: the belt keeps the
         # run's search count and pacing in it, so a resume does not reset them.
@@ -312,6 +325,7 @@ class DocsCheckerExecutor(AgentExecutor):
             replay=replay,
             fix_gate=self._fix_gate,
             store=store,
+            soft_deadline=soft_deadline,
         )
 
     def _request(self, context: RequestContext, ledger: CostLedger) -> tuple[dict, SnapshotStore]:
@@ -420,12 +434,13 @@ class DocsCheckerExecutor(AgentExecutor):
         task_id, context_id = context.task_id, context.context_id
         timeout = self._settings.run_timeout_s
         deadline = asyncio.timeout(timeout)
+        soft_deadline = time.monotonic() + SOFT_DEADLINE_FRACTION * timeout
         deps: RunDeps | None = None
         try:
             async with deadline:
                 config = run_config(task_id, self._settings, self._settings.levers)
                 graph_input, store = await self._graph_input(context, config, ledger, held=held)
-                deps = await self._deps(ledger, replay, store)
+                deps = await self._deps(ledger, replay, store, soft_deadline=soft_deadline)
                 if self._was_cancelled(task_id):
                     return
                 result = await self._graph.ainvoke(graph_input, config, context=deps)
