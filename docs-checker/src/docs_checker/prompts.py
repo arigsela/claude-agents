@@ -229,6 +229,11 @@ _DISGUISE = re.compile(
     r"|@[\w.-]*"  # mentions (and a digest's @)
     r"|<!--"  # HTML comments
 )
+# Brackets: shortcut ([x]) and reference ([x][y]) links resolve against a [x]: definition
+# anywhere in the doc, so no bracket construct may be new.
+_BRACKET_MARKS = ("[", "]", "](", "]:")
+# Tokens split only at these: any other separator (U+001F, a hair space) stays inside.
+_SEPARATORS = re.compile(r"[ \t\n]+")
 _LEAD = "`'\"(*"  # stripped from a token's start: quotes, backticks, parens, emphasis
 _TRAIL = ".,;:!?`'\")*"  # and from its end: sentence punctuation as well
 _WORD = re.compile(r"[A-Za-z]+")
@@ -247,6 +252,26 @@ def _urls(text: str) -> set[str]:
 
 def _links(text: str) -> set[str]:
     return {m.group() for m in _LINK.finditer(text)}
+
+
+def _bracket_spans(text: str) -> list[str]:
+    """Every balanced ``[...]`` span in ``text``: nested ones, and across lines."""
+    spans: list[str] = []
+    opened: list[int] = []
+    for at, char in enumerate(text):
+        if char == "[":
+            opened.append(at)
+        elif char == "]" and opened:
+            spans.append(text[opened.pop() : at + 1])
+    return spans
+
+
+def _new_brackets(old: str, new: str) -> bool:
+    """``new`` has more ``[``, ``]``, ``](`` or ``]:`` than ``old``, or a bracketed
+    span ``old`` does not have verbatim."""
+    return any(new.count(mark) > old.count(mark) for mark in _BRACKET_MARKS) or any(
+        span not in old for span in _bracket_spans(new)
+    )
 
 
 def _whole(token: str, text: str) -> bool:
@@ -280,10 +305,16 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
        bidi, control, or a line break such as U+2028) unless ``old`` has it;
     5. a URL (``scheme://...``, ``www....``) or a markdown link, image, reference or
        definition, ``<scheme:...>`` autolink or HTML ``<a>``/``<img>`` that ``old``
-       does not have verbatim (U1: one copied unchanged may stay);
+       does not have verbatim (U1: one copied unchanged may stay); and any bracket
+       construct ``old`` lacks: every balanced ``[...]`` span (nested ones and ones
+       across lines too) must occur verbatim in ``old``, and ``new`` may not have more
+       ``[``, ``]``, ``](`` or ``]:`` than ``old`` (a shortcut link ``[x]`` resolves
+       against a ``[x]: url`` definition anywhere in the doc);
     6. an HTML entity (``&colon;``, ``&#58;``), a backslash escape, an ``@`` mention
        or ``<!--`` unless ``old`` has that same substring;
-    7. a token from nowhere. Tokens are whitespace-separated, with only quotes,
+    7. a token from nowhere. Tokens are separated by spaces, tabs and newlines only
+       (any other separator, such as U+001F or a hair space, stays inside the token
+       and makes it unknown unless ``old`` has it the same way), with only quotes,
        backticks, parens and ``*`` stripped from the start and those plus sentence
        punctuation (``.,;:!?``) from the end, so a leading ``../``, ``./`` or ``/``
        stays. A token of ASCII letters only (a plain word) may change. Any other
@@ -309,10 +340,12 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
         return None
     if not _urls(new) <= _urls(old) or not _links(new) <= _links(old):
         return None
+    if _new_brackets(old, new):
+        return None
     if any(m.group() not in old for m in _DISGUISE.finditer(new)):
         return None
     sources = (old, code_only(evidence_text))
-    for raw in new.split():
+    for raw in _SEPARATORS.split(new):
         token = raw.lstrip(_LEAD).rstrip(_TRAIL)
         if not token or _WORD.fullmatch(token) or _known(token, sources):
             continue

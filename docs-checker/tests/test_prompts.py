@@ -239,6 +239,59 @@ def test_a_url_or_link_from_the_evidence_is_rejected_too():
         assert validate_replacement(OLD, new, evidence) is None, added
 
 
+@pytest.mark.parametrize(
+    "old, new, evidence",
+    [
+        # (a) A shortcut reference resolves against a [docs]: definition anywhere in
+        # the doc; "[" and "]" are known tokens when the evidence has "args: []" ...
+        (OLD, OLD.replace("0.30.1", "0.31.0").replace("vault.", "vault, see [ docs ]."),
+         EVIDENCE + "\nargs: []"),
+        # ... or the old line has a checkbox.
+        ("- [ ] Vault runs chart version 0.30.1 from base-apps/vault/values.yaml.",
+         "- [ ] Vault runs chart version 0.31.0 from base-apps/vault/values.yaml, see [ install guide ].",
+         EVIDENCE),
+        # A definition the old line lacks.
+        ("- [ ] Vault 0.30.1", "- [ ]: //evil.example Vault 0.31.0", EVIDENCE),
+        # (b) Balanced brackets inside link text.
+        ("Vault ]( 0.30.1 //evil.example/x [ ]",
+         "Vault [ a [ b ] c ]( //evil.example/x ) 0.31.0", EVIDENCE),
+        # (c) Link text across a line break.
+        ("Vault [ ]( 0.30.1\n//evil.example/x two",
+         "Vault [ see\ndocs ]( //evil.example/x ) 0.31.0", EVIDENCE),
+        # Each span verbatim in the old line, but one more of them: only the counts stop it.
+        ("See [docs] for 0.30.1.", "See [docs] for 0.31.0, and [docs].", EVIDENCE),
+    ],
+    ids=["shortcut-ref-evidence-brackets", "shortcut-ref-checkbox", "definition",
+         "nested-brackets", "multiline-link-text", "repeated-span"],
+)  # fmt: skip
+def test_a_bracket_span_the_old_line_lacks_is_rejected(old, new, evidence):
+    assert validate_replacement(old, new, evidence) is None
+
+
+def test_a_link_kept_unchanged_still_allows_the_fix():
+    old = "- [ ] Vault 0.30.1, see [the notes](https://x.example/n) and [ref][1]."
+    new = "- [ ] Vault 0.31.0, see [the notes](https://x.example/n) and [ref][1]."
+    assert validate_replacement(old, new, EVIDENCE) == new
+
+
+@pytest.mark.parametrize(
+    "sep", ["\x1f", "\u200a", "\xa0", "\x1c", "\u3000"], ids=["x1f", "hair", "nbsp", "x1c", "ideo"]
+)
+def test_an_invisible_separator_in_the_old_line_does_not_split_a_token(sep):
+    # Rule 4 admits the separator because the old line has it; it must not then cut
+    # a new host, path or URL into pieces that each look known.
+    old = f"Vault{sep} runs chart 0.30.1 (or 0.30.0 / 0.29.x) see base-apps/ and /values.yaml."
+    for new in (
+        f"Vault runs chart 0.31.0, get it from www{sep}.{sep}evil{sep}.{sep}example",
+        f"Vault runs chart 0.31.0, run evil{sep}.{sep}example{sep}/{sep}install{sep}.{sep}sh",
+        f"Vault runs chart 0.31.0 see base-apps/{sep}evil{sep}/values.yaml.",
+    ):
+        assert validate_replacement(old, new, EVIDENCE) is None, repr(new)
+    # A token that keeps the separator exactly as the old line has it is still fine.
+    kept = f"Vault{sep} runs chart 0.31.0 (or 0.30.0 / 0.29.x) see base-apps/ and /values.yaml."
+    assert validate_replacement(old, kept, EVIDENCE) == kept
+
+
 def _swap(path: str) -> str:
     """The probe's old line with its path replaced and the version fixed."""
     return OLD_PATH.replace("0.30.1", "0.31.0").replace("base-apps/vault/values.yaml", path)
