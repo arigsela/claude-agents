@@ -307,7 +307,7 @@ def test_an_invisible_separator_in_the_old_line_does_not_split_a_token(sep):
         ("    [docs] pins chart 0.30.1.", "[docs] pins chart 0.31.0."),
         ("```\n[docs] pins chart 0.30.1.\n```", "Note:\n[docs] pins chart 0.31.0.\nDone."),
         ("  - a 0.30.1\n    b", "  - a 0.31.0\n  b"),
-        # A "]:" the skeleton keeps: inside a quote it is a definition _LINK misses.
+        # A "]:" inside a quote is a definition _LINK misses; the run "]:" differs from "]".
         ("> [docs] guide for 0.30.1", "> [docs]: guide 0.31.0"),
     ],
     ids=[
@@ -341,6 +341,54 @@ def test_the_skeleton_allows_fixes_that_keep_it():
     # link is no longer the old one verbatim (U1) and neither is its [...] span.
     in_text = "See [vault 0.30.1](https://x.example/n)."
     assert validate_replacement(in_text, in_text.replace("0.30.1", "0.31.0"), EVIDENCE) is None
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        # A tilde fence has no character the markup runs see.
+        ("~~~\n[docs] pins chart 0.30.1.\n~~~", "Note:\n[docs] pins chart 0.31.0.\nDone."),
+        # Filling the blank line makes the indented code a paragraph continuation.
+        ("Chart 0.30.1 notes\n\n    [docs] pins it", "Chart 0.31.0 notes\nand\n    [docs] pins it"),
+        # A wider list marker pulls the indented code into the item as a paragraph.
+        ("x a 0.30.1\n\n      [docs] pins it", "-  a 0.31.0\n\n      [docs] pins it"),
+        # A blanked line ends an HTML block opened by a "<div>" above the old lines.
+        ("text here\n[docs] chart 0.30.1", "\n[docs] chart 0.31.0"),
+        # The definition marker dropped: "[docs]" is a live shortcut again.
+        ('[docs]: ./notes.md "Vault 0.30.1"', '[docs] ./notes.md "Vault 0.31.0"'),
+    ],
+    ids=[
+        "tilde-fence-replaced", "blank-line-filled", "list-marker-widened",
+        "line-blanked-in-html-block", "definition-marker-dropped",
+    ],
+)  # fmt: skip
+def test_a_changed_block_structure_is_rejected(old, new):
+    """Ruling G2(a): blankness and the block prefix of every line, and a ":" right
+    after "]", are part of the skeleton too."""
+    # "args:\n  - a" makes "-" a known token, as in the probe; only the prefix stops it.
+    assert validate_replacement(old, new, EVIDENCE + "\nargs:\n  - a") is None
+
+
+@pytest.mark.parametrize(
+    "old",
+    [
+        "- Vault runs chart 0.30.1.",
+        "  * Vault runs chart 0.30.1.",
+        "3. Vault runs chart 0.30.1.",
+        "> Vault runs chart 0.30.1.",
+        "> - Vault runs chart 0.30.1.",
+        "## Vault 0.30.1",
+        "    Vault runs chart 0.30.1.",
+        "| Vault | 0.30.1 |",
+        "Vault 0.30.1\n===",
+        "Title\n\n- Vault runs chart 0.30.1.\n\n  Still the item.",
+    ],
+    ids=["bullet", "indented-star", "ordered", "quote", "quoted-bullet", "heading",
+         "indented", "table-row", "setext", "multi-line"],
+)  # fmt: skip
+def test_a_version_fix_that_keeps_the_block_structure_is_accepted(old):
+    new = old.replace("0.30.1", "0.31.0")
+    assert validate_replacement(old, new, EVIDENCE) == new
 
 
 def _swap(path: str) -> str:
