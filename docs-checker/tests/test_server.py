@@ -5,6 +5,7 @@ stub over plaintext gRPC (the Atenet router carries it to the actor's port).
 """
 
 import asyncio
+import logging
 import uuid
 
 import grpc
@@ -252,8 +253,11 @@ def test_main_serves_the_docs_checker_graph(tmp_path, monkeypatch):
         raise _Served
 
     monkeypatch.setattr(server, "start", fake_start)
-    with pytest.raises(_Served):
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", root.handlers[:])  # main reconfigures the root logger
+    with pytest.raises(SystemExit) as exited:  # main logs the error and exits 1
         server.main()
+    assert exited.value.code == 1
 
     assert seen["nodes"] == {"intake", "scope", "dispatch", "doc", "collect", "report"}
     assert isinstance(seen["saver"], AsyncSqliteSaver)

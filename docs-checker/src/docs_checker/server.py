@@ -22,6 +22,13 @@ TaskStore and request handler, around a LangGraph executor.
 ``AsyncSqliteSaver`` at ``settings.checkpoint_db``, opened once for the server's
 lifetime under the data dir that Substrate snapshots (/data), with paused tasks'
 ledgers and memos in the same db and the production fix gate.
+
+The wake-up probe gives a golden actor 30 s to answer /readyz, and the sandbox
+shows only what the process writes to stdout. So ``main`` logs every startup
+phase to stdout, and a checkpoint db that cannot be opened in
+``CHECKPOINT_OPEN_TIMEOUT_S`` (an unwritable /data, or SQLite blocking on the
+sandbox's file system) leaves checkpoints and paused tasks in memory, with a
+warning, instead of keeping the agent from ever becoming ready.
 """
 
 from __future__ import annotations
@@ -29,8 +36,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import sys
+import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,7 +58,7 @@ from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.executor import DocsCheckerExecutor
 from docs_checker.gate import AllowGate, FixGate, build_fix_gate
-from docs_checker.graph import build_graph, open_checkpointer
+from docs_checker.graph import build_graph, checkpoint_serde, open_checkpointer
 from docs_checker.llm import request_id_hook
 from docs_checker.models import AnthropicModels
 from docs_checker.paused import PausedTasks
@@ -57,6 +66,9 @@ from docs_checker.paused import PausedTasks
 logger = logging.getLogger(__name__)
 
 A2A_SERVICE = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"].full_name
+
+# Well inside the 30 s wake-up probe, after the imports have taken their share.
+CHECKPOINT_OPEN_TIMEOUT_S = 10.0
 
 
 SKILL_DESCRIPTION = (
@@ -302,18 +314,55 @@ async def open_executor(settings: Settings, **overrides: Any) -> AsyncIterator[D
     paused tasks' ledgers and memos in the same db, written under the checkpointer's
     lock. A new process on the same db resumes what an earlier one paused.
     ``overrides`` go to ``build_executor`` (tests inject models and tools)."""
-    async with open_checkpointer(settings.checkpoint_db) as checkpointer:
-        await checkpointer.setup()
-        paused = PausedTasks(checkpointer.conn, lock=checkpointer.lock)
-        await paused.setup()
+    async with AsyncExitStack() as stack:
+        checkpointer, paused = await _open_checkpoints(stack, settings)
         graph = build_graph(checkpointer=checkpointer)
         yield build_executor(settings, graph=graph, paused=paused, **overrides)
 
 
+async def _open_checkpoints(stack: AsyncExitStack, settings: Settings) -> tuple[Any, Any]:
+    """The SQLite checkpointer and paused-task store at ``settings.checkpoint_db``,
+    or, when that db cannot be opened within ``CHECKPOINT_OPEN_TIMEOUT_S``, an
+    in-memory checkpointer and no paused-task db: the agent still serves, but a
+    pause does not outlive this process (the executor's lost-pause path answers a
+    resume that finds nothing)."""
+
+    async def durable() -> tuple[Any, PausedTasks]:
+        checkpointer = await stack.enter_async_context(open_checkpointer(settings.checkpoint_db))
+        await checkpointer.setup()
+        paused = PausedTasks(checkpointer.conn, lock=checkpointer.lock)
+        await paused.setup()
+        return checkpointer, paused
+
+    try:
+        opened = await asyncio.wait_for(durable(), timeout=CHECKPOINT_OPEN_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001 - unwritable /data, a blocked fs, a timeout
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        logger.warning(
+            "checkpoints stay in memory for this process: cannot open %s (%s: %s)",
+            settings.checkpoint_db,
+            type(exc).__name__,
+            exc,
+        )
+        return InMemorySaver(serde=checkpoint_serde()), None
+    logger.info("checkpoints and paused tasks in %s", settings.checkpoint_db)
+    return opened
+
+
 async def serve(settings: Settings | None = None) -> None:
+    started = time.monotonic()
+
+    def phase(what: str, *args: Any) -> None:
+        logger.info("startup +%.1fs: " + what, time.monotonic() - started, *args)
+
     settings = settings or load_settings()
+    phase(
+        "settings loaded (under kagent: %s, data dir %s)", settings.under_kagent, settings.data_dir
+    )
     card = build_agent_card(settings)
     async with open_executor(settings) as executor:
+        phase("executor ready")
         handler, controller = build_request_handler(settings, executor, card)
         running = await start(
             handler,
@@ -321,6 +370,7 @@ async def serve(settings: Settings | None = None) -> None:
             ready_port=settings.ready_port,
             controller=controller,
         )
+        phase("serving")
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -330,5 +380,17 @@ async def serve(settings: Settings | None = None) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(serve())
+    """Serve until SIGTERM. Logs go to stdout, the stream the sandbox keeps; a
+    startup error is logged with its traceback before the process exits 1."""
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    try:
+        asyncio.run(serve())
+    except Exception:
+        logger.exception("docs-checker stopped on an error")
+        sys.stdout.flush()
+        raise SystemExit(1) from None

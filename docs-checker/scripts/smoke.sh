@@ -152,6 +152,7 @@ config="$(dk exec "$sidecar" /app/.venv/bin/python -m tests.smoke_stack config)"
 # --- the agent: the image under test, configured the way kagent configures it -------------
 dk create --name "$agent" --network "$net" --network-alias docs-checker \
   --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges \
+  --mount type=tmpfs,destination=/data,tmpfs-mode=0755 \
   -e KAGENT_CONFIG_JSON="$config" \
   -e ANTHROPIC_API_KEY=kagent-credential-injected \
   -e DOCS_CHECKER_REPLAY_DIR=/smoke/cassettes \
@@ -196,6 +197,15 @@ dk logs "$sidecar" 2>&1 | grep '^ok: '
 
 # The agent's logs, read once; a failed read is a failure, not an empty log.
 agent_logs="$(dk logs "$agent" 2>&1)" || fail "docker logs of the agent failed"
+# A Substrate sandbox keeps only stdout, and its /data (mounted above) is root-owned.
+agent_stdout="$(dk logs "$agent" 2>/dev/null)" || fail "docker logs of the agent failed"
+for said in "docs-checker: starting" "startup +" "checkpoints stay in memory for this process"; do
+  case "$agent_stdout" in
+    *"$said"*) ;;
+    *) fail "the agent's stdout lacks '${said}' (a sandbox would show nothing)" ;;
+  esac
+done
+echo "ok: the agent logs its startup on stdout, and serves with a root-owned /data"
 replay="$(printf '%s\n' "$agent_logs" |
   sed -n 's/.*\(model replay is active: every response comes from [^;]*\).*/\1/p')"
 replay="${replay%%$'\n'*}"
