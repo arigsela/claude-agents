@@ -1,13 +1,19 @@
+import dataclasses
+import json
 import math
 import sys
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from docs_checker.config import Settings
 from docs_checker.gate import (
     AngleGate,
+    EmbeddingError,
     FixAction,
     FixGate,
+    OllamaEmbedder,
     RecordingGate,
     Thresholds,
     ToolCallContext,
@@ -351,6 +357,94 @@ async def test_production_factory_uses_the_rules_gate():
     assert isinstance(deps.fix_gate, FixGate)
     assert await decide(bad, deps.fix_gate) == "refuse"
     assert await decide(fix(), deps.fix_gate) == "allow"
+
+
+# --- the Ollama embedder: offline use only (plan R2) ---------------------------------
+
+
+def ollama_transport(seen: list, vectors_for=lambda texts: [[float(len(t)), 1.0] for t in texts]):
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(
+            200, json={"model": body["model"], "embeddings": vectors_for(body["input"])}
+        )
+
+    return httpx.MockTransport(handle)
+
+
+async def test_ollama_embedder_one_vector_per_text():
+    seen: list = []
+    embedder = OllamaEmbedder("http://ollama.test:11434", transport=ollama_transport(seen))
+    vectors = await embedder.embed(["intent", "the action, longer"])
+    assert vectors == [[6.0, 1.0], [18.0, 1.0]]  # one per text, in order
+    # One batched call; an over-long text is an error, never silently truncated.
+    assert seen == [
+        (
+            "POST",
+            "/api/embed",
+            {
+                "model": "nomic-embed-text",
+                "input": ["intent", "the action, longer"],
+                "truncate": False,
+            },
+        )
+    ]
+    assert await embedder.embed([]) == [] and len(seen) == 1
+
+
+MALFORMED_REPLIES = {
+    "not JSON": b"<html>busy</html>",
+    "a list body": b"[[1.0, 0.0], [0.0, 1.0]]",
+    "a string body": b'"embeddings"',
+    "no embeddings": b'{"model": "nomic-embed-text"}',
+    "embeddings not a list": b'{"embeddings": "1.0, 0.0"}',
+    "one vector for two texts": b'{"embeddings": [[1.0, 0.0]]}',
+    "three vectors for two texts": b'{"embeddings": [[1.0], [0.0], [2.0]]}',
+    "a null vector": b'{"embeddings": [null, [1.0, 0.0]]}',
+    "a scalar vector": b'{"embeddings": [1.0, [1.0, 0.0]]}',
+    "a string vector": b'{"embeddings": ["10", "01"]}',
+    "a nested wrong type": b'{"embeddings": [[1.0, "0.5"], [1.0, 0.0]]}',
+    "a nested list": b'{"embeddings": [[[1.0], [0.0]], [[1.0], [0.0]]]}',
+    "a boolean component": b'{"embeddings": [[true, 0.0], [1.0, 0.0]]}',
+    "ragged dimensions": b'{"embeddings": [[1.0, 0.0], [1.0]]}',
+    "empty vectors": b'{"embeddings": [[], []]}',
+    "a NaN component": b'{"embeddings": [[NaN, 0.0], [1.0, 0.0]]}',
+    "an infinite component": b'{"embeddings": [[Infinity, 0.0], [1.0, 0.0]]}',
+}
+
+
+@pytest.mark.parametrize("body", MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys())
+async def test_ollama_embedder_refuses_a_malformed_reply_with_one_named_error(body):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=body))
+    with pytest.raises(EmbeddingError):
+        await OllamaEmbedder(transport=transport).embed(["a", "b"])
+
+
+async def test_ollama_embedder_passes_on_an_http_error():
+    transport = httpx.MockTransport(lambda request: httpx.Response(404, json={"error": "no"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        await OllamaEmbedder(transport=transport).embed(["a"])
+
+
+async def test_production_never_constructs_the_ollama_embedder(monkeypatch):
+    built: list = []
+
+    def spy(self, *args, **kwargs):
+        built.append((args, kwargs))
+
+    monkeypatch.setattr(OllamaEmbedder, "__init__", spy)
+    gate = build_fix_gate(fake_settings())
+    assert gate._embedder is None and gate._thresholds is None
+    executor = build_executor(
+        fake_settings(), graph=build_test_graph(), models=FakeModels(), tools=_tools
+    )
+    deps = await executor._deps(executor._new_ledger("task-1", "ctx-1"), {})
+    assert deps.fix_gate._embedder is None
+    assert built == []
+    # And no setting could name one.
+    names = [f.name for f in dataclasses.fields(Settings)]
+    assert not [n for n in names if "embed" in n or "ollama" in n or "angle" in n]
 
 
 # --- the render check through the whole gate (rulings G4 and G5) --------------------

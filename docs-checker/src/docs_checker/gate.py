@@ -29,7 +29,8 @@ person. Two layers:
    rules run is a refusal (fail closed).
 2. Angle (offline only, plan R2): with an embedder, the angle between the intent
    and the rendered fix may add an ask or a refusal, never allow what the rules
-   refused.
+   refused. ``OllamaEmbedder`` serves only the offline drift demonstration
+   (``evals/drift.py``, ``docs/drift-demo.md``); production never builds one.
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+import httpx
 
 from docs_checker.prompts import is_word, occurs_whole, replacement_tokens, validate_replacement
 from docs_checker.render import structure_refusal
@@ -83,6 +86,78 @@ class ToolGate(Protocol):
 
 class Embedder(Protocol):
     async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+class EmbeddingError(ValueError):
+    """An embedder's reply that is not one finite vector per text, all of one dimension."""
+
+
+def _number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _embedding_vectors(body: object, count: int) -> list[list[float]]:
+    """The ``embeddings`` of an ``/api/embed`` reply, checked: a JSON object whose
+    ``embeddings`` is a list of ``count`` non-empty lists of finite numbers, all of one
+    length. Anything else raises ``EmbeddingError``."""
+    if not isinstance(body, dict):
+        raise EmbeddingError(f"the reply is a JSON {type(body).__name__}, not an object")
+    vectors = body.get("embeddings")
+    if not isinstance(vectors, list):
+        raise EmbeddingError("the reply has no list of embeddings")
+    if len(vectors) != count:
+        raise EmbeddingError(f"the reply has {len(vectors)} vectors for {count} texts")
+    for n, vector in enumerate(vectors):
+        if not isinstance(vector, list) or not vector:
+            raise EmbeddingError(f"vector {n} is not a non-empty list")
+        if not all(_number(x) for x in vector):
+            raise EmbeddingError(f"vector {n} has a component that is not a finite number")
+    dimensions = sorted({len(vector) for vector in vectors})
+    if len(dimensions) > 1:
+        raise EmbeddingError(f"the vectors have different dimensions: {dimensions}")
+    return [[float(x) for x in vector] for vector in vectors]
+
+
+class OllamaEmbedder:
+    """An ``Embedder`` over Ollama's ``/api/embed`` (``nomic-embed-text``; texts sent as
+    they are, no task prefix). Offline use only (plan R2): the drift demonstration
+    (``evals/drift.py``) embeds with it. Production configures no embedder
+    (``build_fix_gate``) and no setting names one.
+
+    One request per call. ``truncate`` is off, so a text longer than the model's context
+    is an error rather than a silently shortened vector. An HTTP error status raises
+    ``httpx.HTTPStatusError``; a reply that is not one vector per text, ``EmbeddingError``.
+    """
+
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:11434",
+        model: str = "nomic-embed-text",
+        *,
+        timeout_s: float = 60.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
+        self.base_url = base_url
+        self.model = model
+        self._timeout_s = timeout_s
+        self._transport = transport
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        texts = list(texts)
+        if not texts:
+            return []
+        async with httpx.AsyncClient(
+            base_url=self.base_url, timeout=self._timeout_s, transport=self._transport
+        ) as client:
+            response = await client.post(
+                "/api/embed", json={"model": self.model, "input": texts, "truncate": False}
+            )
+        response.raise_for_status()
+        try:
+            body = response.json()
+        except ValueError as error:
+            raise EmbeddingError("the reply is not JSON") from error
+        return _embedding_vectors(body, len(texts))
 
 
 def render_intent(card_description: str, question: str) -> str:
