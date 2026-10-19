@@ -9,6 +9,7 @@ the final boundary so the gateway can publish it and the lifecycle worker can
 suspend the actor.
 """
 
+import logging
 import uuid
 
 import grpc
@@ -49,6 +50,40 @@ async def _tools():
 
 def models():
     return FakeModels(worker=ScriptedModel([reply("done")]))
+
+
+QUESTION = "Who owns vault?"
+# a2a logs (and drops) a second initial Task for a task that already exists at ERROR here.
+ACTIVE_TASK_LOGGER = "a2a.server.agent_execution.active_task"
+
+
+async def _send(handler, client=None) -> a2a_pb2.Task:
+    """One SendMessage over real gRPC to a server serving ``handler``."""
+    server = await start(
+        handler, a2a_address="127.0.0.1:0", ready_port=0, ready_host="127.0.0.1", controller=client
+    )
+    try:
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{server.a2a_port}") as channel:
+            response = await a2a_pb2_grpc.A2AServiceStub(channel).SendMessage(
+                a2a_pb2.SendMessageRequest(
+                    message=a2a_pb2.Message(
+                        message_id=str(uuid.uuid4()),
+                        role=a2a_pb2.Role.ROLE_USER,
+                        parts=[a2a_pb2.Part(text=QUESTION)],
+                    )
+                )
+            )
+    finally:
+        await server.stop(grace=0)
+    return response.task
+
+
+def _active_task_errors(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == ACTIVE_TASK_LOGGER and r.levelno >= logging.ERROR
+    ]
 
 
 async def test_a_task_is_created_versioned_and_settled_through_the_controller(controller, identity):
@@ -102,3 +137,38 @@ async def test_a_task_is_created_versioned_and_settled_through_the_controller(co
     # Every call was scoped to the actor's session and carried its identity.
     assert store.sessions == {session}
     assert store.identities == {"kagent/session-" + session + "/actor-uid-1"}
+
+
+async def test_under_kagent_the_task_starts_once(controller, identity, caplog):
+    # kagent-core's settling executor enqueues and persists the initial Task before it
+    # calls ours; a second one from our executor would be logged at ERROR and dropped.
+    store, api_url = controller
+    identity_path, _ = identity
+    settings = fake_settings(runtime={"control_plane_url": api_url, "name": "docs-checker"})
+    executor = build_executor(
+        settings, graph=build_test_graph(), models=models(), tools=_tools, gate=RecordingGate()
+    )
+    handler, client = build_request_handler(
+        settings, executor, build_agent_card(settings), identity_path=identity_path
+    )
+    with caplog.at_level(logging.WARNING, logger=ACTIVE_TASK_LOGGER):
+        task = await _send(handler, client)
+    assert task.status.state == a2a_pb2.TaskState.TASK_STATE_COMPLETED
+    assert _active_task_errors(caplog) == []
+    stored, _ = store.tasks[task.id]
+    assert stored.history[0].parts[0].text == QUESTION  # the one initial Task, kagent's
+
+
+async def test_off_kagent_the_executor_starts_the_task(caplog):
+    # No controller (local mode, DefaultRequestHandlerV2): our executor creates the task.
+    settings = fake_settings()
+    executor = build_executor(
+        settings, graph=build_test_graph(), models=models(), tools=_tools, gate=RecordingGate()
+    )
+    handler, client = build_request_handler(settings, executor, build_agent_card(settings))
+    assert client is None
+    with caplog.at_level(logging.WARNING, logger=ACTIVE_TASK_LOGGER):
+        task = await _send(handler)
+    assert task.status.state == a2a_pb2.TaskState.TASK_STATE_COMPLETED
+    assert task.history[0].parts[0].text == QUESTION
+    assert _active_task_errors(caplog) == []

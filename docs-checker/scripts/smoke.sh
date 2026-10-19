@@ -126,7 +126,8 @@ identity="kagent/session-${session}/smoke-actor-uid"
 # docker cp keeps these modes, and a non-root runtime must read them.
 find "$stage" -type d -exec chmod 755 {} + && find "$stage" -type f -exec chmod 644 {} +
 
-dk network create "$net" >/dev/null
+# --internal: the containers reach each other, and nothing reaches out.
+dk network create --internal "$net" >/dev/null
 
 # --- the sidecar: the fake controller, the fake agent-docs server, the client --------------
 dk create --name "$sidecar" --network "$net" \
@@ -163,6 +164,11 @@ running "$agent" || fail "the agent exited at startup"
 uid="$(dk exec "$agent" id -u)" || fail "id -u failed in the agent"
 pid1_uid="$(dk exec "$agent" sh -c "sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' /proc/1/status")" ||
   fail "could not read the agent's process uid"
+for value in "$uid" "$pid1_uid"; do
+  case "$value" in
+    "" | *[!0-9]*) fail "could not read the agent's uid (process: '${pid1_uid}', exec: '${uid}')" ;;
+  esac
+done
 [ "$uid" != 0 ] && [ "$pid1_uid" != 0 ] || fail "the agent runs as uid ${pid1_uid} (exec: ${uid})"
 echo "ok: the agent runs as uid ${pid1_uid} (id -u in the container: ${uid})"
 cmdline="$(dk exec "$agent" sh -c "tr '\0' ' ' </proc/1/cmdline")" ||
@@ -193,4 +199,7 @@ replay="$(dk logs "$agent" 2>&1 |
 replay="${replay%%$'\n'*}"
 [ -n "$replay" ] || fail "the agent did not log that model replay is active"
 echo "ok: the agent logged: ${replay}"
+replaced="$(dk logs "$agent" 2>&1 | grep -c 'already exists. Ignoring task replacement')" || true
+[ "$replaced" = 0 ] || fail "the agent started the task twice (${replaced} task replacement errors)"
+echo "ok: the agent started the task once (no task replacement errors)"
 echo "smoke ok"

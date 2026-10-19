@@ -114,7 +114,7 @@ def commit_fixture(dest: Path) -> str:
         )
         return done.stdout
 
-    git("init", "-q", "-b", "main")
+    git("init", "-q", "--object-format=sha1", "-b", "main")
     git("add", "-A")
     git("commit", "-q", "--no-gpg-sign", "-m", "smoke fixture")
     sha = git("rev-parse", "HEAD").strip()

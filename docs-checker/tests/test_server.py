@@ -326,4 +326,6 @@ async def test_the_replay_seam_sends_nothing(tmp_path):
     transport = replay_only(tmp_path)
     assert transport.mode == "replay" and isinstance(transport.inner, Offline)
     with pytest.raises(RuntimeError, match="replay-only"):
-        await Offline().handle_async_request(httpx2.Request("POST", "https://api.anthropic.com"))
+        await transport.inner.handle_async_request(
+            httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        )

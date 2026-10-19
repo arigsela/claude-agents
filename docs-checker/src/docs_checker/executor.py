@@ -381,7 +381,11 @@ class DocsCheckerExecutor(AgentExecutor):
 
     async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id, context_id = context.task_id, context.context_id
-        if context.current_task is None:
+        # A new task starts here only off kagent (DefaultRequestHandlerV2). Under kagent,
+        # kagent-core's settling executor has already enqueued and persisted the initial
+        # Task before calling this one (current_task is still None), and a second one
+        # would be logged at ERROR and dropped by a2a.
+        if context.current_task is None and not self._settings.under_kagent:
             await event_queue.enqueue_event(
                 a2a_pb2.Task(
                     id=task_id,
