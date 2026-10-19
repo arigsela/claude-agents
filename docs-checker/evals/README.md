@@ -13,6 +13,7 @@ goes through a $20 spend guard (spec §8).
 | `canary/<id>.md`, `canary/<id>.json` | The canary doc and its sidecar (injected fix, pass condition) | yes |
 | `labels/*.json` | Labelled lines, one JSON list per file (Task 17) | yes |
 | `labels-raw/{a,b}/<id>.json` | Each labeller's own rows, kept for provenance; never loaded or scored | yes |
+| `labels-adjudication/` | The decisions and audited overrides applied to `labels/eval-set.json`; never loaded | yes |
 | `cassettes/` | Recorded model responses, one file per request key | yes |
 | `results.jsonl` | One record per run and per arm, appended | yes |
 | `results.md` | The same records as a table, between its markers; prose outside them is kept | yes |
@@ -210,6 +211,16 @@ Two rules keep the holdout clean:
 - A holdout headline run never takes `--memory-in` from a dev run's `--memory-out`.
 - Prompts carry no instance-specific facts: no few-shot examples from the eval docs.
 
+### Label status
+
+`labels/eval-set.json` holds 943 labelled lines over the 11 instances: 870 the two labellers
+agreed on (32 of them since changed by an audited override) and 73 disagreements decided by
+Claude. The decisions and overrides are in `labels-adjudication/`; `labels-raw/` has what
+each labeller wrote. Every row has `reviewed_by_ari: false`. Ari reviews every positive and
+every adjudicated row (`adjudicated_by: "claude"`), starting with `h658-vault-runbook` line 40
+(both labellers said `true`; an audit made it `stale`, ruling R1f) and the 8 positives only
+one labeller gave. Until then the precision gate is provisional.
+
 ## Labelling rubric
 
 Label every claim line of the instance's doc, as the file reads at the instance's commit
@@ -228,7 +239,8 @@ overlay). Line 1 is the front matter's opening `---`.
   cannot make a line `true` or `stale`.
 - A comment in a non-doc file is not evidence on its own (ruling R1d; the checker's evidence
   windows strip comments too, `evidence.py`): a call that rests only on a comment is
-  `uncertain`.
+  `uncertain`. Docstrings and string literals do count as evidence (ruling R1e): the agent
+  strips only comments.
 - A line with several facts: if any fact is contradicted, `stale`; if any named thing is
   absent, `missing` (`missing` wins over `stale`); `true` only when every checkable fact on
   it is confirmed; otherwise `uncertain`.

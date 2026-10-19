@@ -329,6 +329,17 @@ def test_an_override_note_keeps_what_it_replaced():
     assert (by_line[9].labeller_a, by_line[9].labeller_b) == ("true", "true")
 
 
+def test_an_override_may_keep_the_label_and_change_only_its_source():
+    result = merged()
+    same = {**override(9, "true", "true", "h.yaml:4"), "note": "better evidence"}
+    done = labels.adjudicate(
+        result.labels, decisions(*DECISIONS), result.disagreements, overrides(same)
+    )
+    row9 = {lab.line: lab for lab in done}[9]
+    assert (row9.label, row9.source, row9.adjudicated_by) == ("true", "h.yaml:4", "claude")
+    assert row9.note == "audit (was true, source f.yaml:9): better evidence"
+
+
 def test_a_blank_line_disagreement_takes_only_drop():
     result = merged()
     labelled = [*DECISIONS[:4], row(8, "true", "f.yaml:8")]

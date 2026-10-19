@@ -1,0 +1,513 @@
+[
+  {
+    "instance": "h656-donetick-docs",
+    "line": 46,
+    "label": "uncertain",
+    "source": "",
+    "note": "Only the istio-ingress/gateway.yaml:218-221 comment says chores-tracker owned the host before donetick took it on 2026-08-03; history with no config evidence (R1d)."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 47,
+    "label": "stale",
+    "source": "base-apps/donetick/certificate.yaml:4",
+    "note": "The sentence spanning 47-48 says the certificate is named for chores, but the Certificate's metadata.name is donetick-tls; labelled on each line of the claim."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 48,
+    "label": "stale",
+    "source": "base-apps/donetick/certificate.yaml:4",
+    "note": "Listener https-chores and TLS via donetick-tls hold (istio-ingress/gateway.yaml:222,230), but the Certificate is named donetick-tls, not for chores."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 58,
+    "label": "true",
+    "source": "base-apps/donetick/configmap.yaml:20",
+    "note": "database.migration: true runs the migration on every boot, so a new image migrates on its first boot; Recreate is at deployments.yaml:14 (the :11 comment is not needed)."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 74,
+    "label": "uncertain",
+    "source": "",
+    "note": "The SA facts hold, but the line opens the CNPG-provisioning claim of 74-75, which depends on whether the operator reconciles the declared role (live state; only the cnpg-cluster.yaml:101-105 comment says it does not)."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 75,
+    "label": "uncertain",
+    "source": "",
+    "note": "managed.roles declares donetick with passwordSecret donetick-db-credentials (cnpg-cluster.yaml:106-110), but whether a Vault rotation reaches Postgres is operator runtime state, and the stale reading rests only on the :101-105 comment (R1d)."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 76,
+    "label": "uncertain",
+    "source": "",
+    "note": "Same rotation claim as line 75: config declares it, live reconciliation is not settled by the repo, and the contrary rests only on a comment."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 89,
+    "label": "stale",
+    "source": "base-apps/donetick/configmap.yaml:16",
+    "note": "'Flip it to true after registering' presumes the false of lines 87-88, but is_user_creation_disabled is already true."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 90,
+    "label": "uncertain",
+    "source": "",
+    "note": "That re-enabling signup is the only recovery is upstream behaviour stated only in the configmap.yaml:13-15 comment (R1d)."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 91,
+    "label": "uncertain",
+    "source": "",
+    "note": "Continuation of line 90's upstream recovery claim."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 98,
+    "label": "uncertain",
+    "source": "",
+    "note": "The in-cluster host is confirmed (configmap.yaml:21), but 'neither is configurable' (spanning 97-98) is upstream code."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 105,
+    "label": "true",
+    "source": "base-apps/donetick/runbook.md",
+    "note": "A pointer to the runbook, which exists; as with the agreed doc-pointer rows, the file's existence is what non-doc evidence can settle."
+  },
+  {
+    "instance": "h656-donetick-docs",
+    "line": 106,
+    "label": "uncertain",
+    "source": "",
+    "note": "'Not retired by this app' is interpretive, and the claim continues into the chores_user role, which only the cnpg-cluster.yaml:16-17 comment records."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 44,
+    "label": "uncertain",
+    "source": "",
+    "note": "KV v2 at k8s-secrets is confirmed by the SecretStores, but role names do not follow the namespace everywhere (donetick-db, kagent-db, ecr-credentials-sync) and the Vault-side roles and policies are not in git."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 48,
+    "label": "uncertain",
+    "source": "",
+    "note": "The allow-list in istio-ingress and svc/vault 8200 (vault/services.yaml:57) hold, but the vault.arigsela.com record is reconciled by wan-ip-monitor (cronjob.yaml:150), not istio-ingress, and the OIDC method lives in Vault; neither cleanly true nor contradicted."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 36,
+    "label": "uncertain",
+    "source": "",
+    "note": "What the UI shows (how a finding is defined, approval display) is app-repo behaviour."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 37,
+    "label": "uncertain",
+    "source": "",
+    "note": "The page features are app-repo behaviour."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 42,
+    "label": "true",
+    "source": "scripts/agent-audit.py:1021",
+    "note": "The --summary payload the alert reads carries only agent, tool and count (agent-audit.py:1019-1029, run by agent-audit-cronjob.yaml:145); the repo slug spanning to 43 is catalog-info.yaml:14."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 52,
+    "label": "uncertain",
+    "source": "",
+    "note": "oauth2-proxy and the probes reach 127.0.0.1:8000 (deployment.yaml:88,121), but the loopback-only bind and uvicorn/FastAPI are image facts stated only in the deployment.yaml:29-32 comment (R1d)."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 68,
+    "label": "uncertain",
+    "source": "",
+    "note": "tag@digest (deployment.yaml:34), the OIDC role and v* tags (web-ecr-push.yaml:16,40) and IMMUTABLE (terraform/roots/asela-cluster/ecr.tf:33) hold; release.yml is app-repo and 'created by hand' is history, though ecr.tf now declares the repository."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 71,
+    "label": "stale",
+    "source": "base-apps/agent-audit-web/external-secrets.yaml:61",
+    "note": "The line inventories Vault key agent-audit-web-db as db-user, db-password, db-name, but both ExternalSecrets also read db-name-v1 (external-secrets.yaml:58-61, postgresql/external-secrets-agent-audit-web-db.yaml:30-33)."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 54,
+    "label": "true",
+    "source": "base-apps/kagent/agents/homelab-knowledge.yaml:31",
+    "note": "Agents live in kagent and carry spec.templateRef and harnessRef; the claim continues on line 55, agreed true."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 59,
+    "label": "uncertain",
+    "source": "",
+    "note": "The Deployment name kagent-controller is chart-rendered; the repo has only the Service (httproute-mcp.yaml:34) and comments."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 90,
+    "label": "uncertain",
+    "source": "",
+    "note": "Reject and approve outcomes are upstream runtime behaviour; agent-audit.py:302-310 is a comment (R1d)."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 111,
+    "label": "uncertain",
+    "source": "",
+    "note": "The WorkerPool values set no affinity (kagent.yaml:84-97), but the worker Deployment is rendered by ate-controller, whose defaults the repo cannot show; 'harmless' is judgement."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 123,
+    "label": "uncertain",
+    "source": "",
+    "note": "That a 403 from the model means the egress credential policy rests only on the substrate.yaml:81-85 comment; runtime behaviour."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 133,
+    "label": "uncertain",
+    "source": "",
+    "note": "'The input may already be running' is upstream A2A semantics stated only in the kagent_a2a.py:59-63 comments."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 137,
+    "label": "uncertain",
+    "source": "",
+    "note": "The agent-docs-mcp Deployment is rendered by kmcp from the MCPServer (agent-docs-mcp.yaml:2-4), so its name is an operator default."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 142,
+    "label": "uncertain",
+    "source": "",
+    "note": "The Deployment name is kmcp-rendered and the env-var injection is stated only in the agent-docs-mcp.yaml:26 comment (secretRefs at :27-28)."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 152,
+    "label": "uncertain",
+    "source": "",
+    "note": "The line carries the taxonomy/admission claim and the start of 'errors right after a controller restart clear on their own', runtime behaviour that continues on 153."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 153,
+    "label": "uncertain",
+    "source": "",
+    "note": "Transient post-restart errors are runtime behaviour."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 161,
+    "label": "true",
+    "source": "base-apps/kagent/agents/k8s-reader.yaml:34",
+    "note": "k8s-reader runs on kagent-stateless, whose spec.kagent is empty (no memory), so the claim spanning 160-161 holds."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 164,
+    "label": "uncertain",
+    "source": "",
+    "note": "deploy/kagent-controller is a chart-rendered name not in the repo."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 175,
+    "label": "uncertain",
+    "source": "",
+    "note": "The ClusterRole leaves out secrets but is narrower than 'everything else' (api.kagent.dev read-only at kagent-tools.yaml:163-165, CRUD verbs only); the line repeats the header comment's shorthand and is neither confirmed nor cleanly contradicted."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 176,
+    "label": "uncertain",
+    "source": "",
+    "note": "Same claim as line 175."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 213,
+    "label": "uncertain",
+    "source": "",
+    "note": "deploy/k8s-credential-provider is rendered by the Substrate chart (the repo shows only the pod label in substrate/catalog-info.yaml:10), and the old-value behaviour is runtime."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 214,
+    "label": "uncertain",
+    "source": "",
+    "note": "Same kmcp-rendered Deployment and comment-only env injection as line 142."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 217,
+    "label": "uncertain",
+    "source": "",
+    "note": "deploy/kagent-controller is chart-rendered; the init-Job step is on line 216."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 221,
+    "label": "uncertain",
+    "source": "",
+    "note": "The Vault-side policy is not in git."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 222,
+    "label": "uncertain",
+    "source": "",
+    "note": "The Vault kubernetes-auth role bindings are not in git."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 225,
+    "label": "uncertain",
+    "source": "",
+    "note": "deploy/kagent-controller is chart-rendered and 'is safe' is runtime behaviour."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 226,
+    "label": "uncertain",
+    "source": "",
+    "note": "Where sessions live and agents reconciling after a restart are upstream behaviour; kagent.yaml:59-62 is a comment."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 227,
+    "label": "uncertain",
+    "source": "",
+    "note": "Transient RemoteMCPServer reconcile errors are runtime behaviour."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 232,
+    "label": "uncertain",
+    "source": "",
+    "note": "That a bump resets sessions and memory rests on comments (embedding-model-config.yaml:3-4) and the runbook's own procedure."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 240,
+    "label": "true",
+    "source": "renovate.json5:152",
+    "note": "The kagent-substrate prBodyNotes tell the bump to re-render with helm template --kube-version."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 241,
+    "label": "stale",
+    "source": "renovate.json5:163",
+    "note": "renovate.json5:155-166 puts the Harness golang-adk image in group kagent-substrate behind dashboard approval, so the Harness-only Renovate PR this line assumes does not arrive (the change #751 made)."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 242,
+    "label": "stale",
+    "source": "renovate.json5:163",
+    "note": "Same claim as line 241."
+  },
+  {
+    "instance": "h751-kagent-runbook",
+    "line": 248,
+    "label": "uncertain",
+    "source": "",
+    "note": "pg-backup.sh targets only the CNPG primary (pg-backup.sh:106-111) and the bucket exists (cnpg-cluster.yaml:64), but the pg/ prefix is in no non-doc file."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 4,
+    "label": "true",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:49",
+    "note": "Plan k3s-agent: concurrency 1, cordon true (:63), no drain key, control plane excluded (:58-59) and no plan-server.yaml; two workers in ansible/inventory/hosts.yml:18-20."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 74,
+    "label": "true",
+    "source": "scripts/hop-verify.sh:447",
+    "note": "hop-verify.sh watch compares the hop window with 900 s and reports 'the 15min bound in §V.9' in code, not a comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 208,
+    "label": "uncertain",
+    "source": "",
+    "note": "Thinking by default and the adapter's block mapping are upstream facts; anthropic-claude-sonnet-5-5.yaml:4-6 is a comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 215,
+    "label": "uncertain",
+    "source": "",
+    "note": "A dated cache-hit measurement the repo cannot settle."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 218,
+    "label": "uncertain",
+    "source": "",
+    "note": "The 0.10 summarizer incident is history stated only in the kagent-chat.yaml:8-10 comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 219,
+    "label": "not-a-claim",
+    "source": "",
+    "note": "'Re-test before adding it to them' is an instruction with no checkable fact."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 251,
+    "label": "uncertain",
+    "source": "",
+    "note": "MCP initialisation at run start and the failed run are upstream runtime behaviour; brave-search-mcp.yaml:150-155 is a comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 252,
+    "label": "uncertain",
+    "source": "",
+    "note": "Same upstream runtime claim as line 251."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 253,
+    "label": "uncertain",
+    "source": "",
+    "note": "Same upstream runtime claim as line 251."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 254,
+    "label": "uncertain",
+    "source": "",
+    "note": "A consequence of that upstream behaviour plus an incident recorded only in a comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 255,
+    "label": "uncertain",
+    "source": "",
+    "note": "Incident history, recorded only in the brave-search-mcp.yaml:155 comment, and a runbook pointer."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 308,
+    "label": "uncertain",
+    "source": "",
+    "note": "Whether 0.10 memory was migrated is history in no non-doc file, and the line continues into the dump paths of 309."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 353,
+    "label": "stale",
+    "source": "base-apps/kagent/authorization-policy.yaml:68",
+    "note": "The rules at authorization-policy.yaml:60-71 also admit the kagent-controller and default (worker) principals on every port-8083 path without a token, so user paths are not limited to token holders and the UI principal."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 354,
+    "label": "stale",
+    "source": "base-apps/kagent/authorization-policy.yaml:68",
+    "note": "Same claim as line 353 (it spans 353-354)."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 360,
+    "label": "uncertain",
+    "source": "",
+    "note": "Counterfactual Istio behaviour and an incident, stated only in the istio-ingress/authorizationpolicy.yaml:334-338 comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 364,
+    "label": "uncertain",
+    "source": "",
+    "note": "That the controller reads ?user_id first in insecure mode is upstream behaviour stated only in the httproute-waypoint.yaml:2-6 comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 382,
+    "label": "true",
+    "source": "base-apps/wan-ip-monitor/configmap-reconcile.yaml:256",
+    "note": "The reconciler rewrites only single-value A records already in the zone (configmap-reconcile.yaml:256-265), so a new host needs a hand-made record as well as its MANAGED_HOSTNAMES entry."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 386,
+    "label": "uncertain",
+    "source": "",
+    "note": "OTel to Coroot is configured (kagent.yaml:147-150), but the actor-stdout claim that starts here (continuing on 387-388) is runtime behaviour."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 451,
+    "label": "true",
+    "source": "base-apps/kagent/runbook.md",
+    "note": "A pointer to the runbook's alpha-bump procedure; the runbook exists."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 454,
+    "label": "uncertain",
+    "source": "",
+    "note": "The WorkerPool values set no anti-affinity, but where workers land after a drain depends on ate-controller defaults, and the line is a dated observation."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 455,
+    "label": "uncertain",
+    "source": "",
+    "note": "patch.yml exists, but the 'open as SPEC T102' status is documentation only."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 457,
+    "label": "uncertain",
+    "source": "",
+    "note": "The reboot/new-IP Substrate bug is upstream and stated only in the ansible/playbooks/tasks/patch-node.yml:91-97 comment."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 471,
+    "label": "uncertain",
+    "source": "",
+    "note": "The prompts reference kagent-builtin-prompts (k8s-agent.yaml:47-49), but what breaks when it is removed or renamed is upstream rendering behaviour."
+  },
+  {
+    "instance": "planted-ollama-port",
+    "line": 47,
+    "label": "uncertain",
+    "source": "",
+    "note": "768 dimensions, kagent_v1 storage and the 15-day default rest on comments (embedding-model-config.yaml:3-4, kagent-memory.yaml:21-22) and an upstream default; only the clean-database migration is config (renovate.json5:175)."
+  },
+  {
+    "instance": "planted-ollama-version",
+    "line": 47,
+    "label": "uncertain",
+    "source": "",
+    "note": "768 dimensions, kagent_v1 storage and the 15-day default rest on comments (embedding-model-config.yaml:3-4, kagent-memory.yaml:21-22) and an upstream default; only the clean-database migration is config (renovate.json5:175)."
+  }
+]

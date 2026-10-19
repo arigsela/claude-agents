@@ -1,0 +1,258 @@
+[
+  {
+    "instance": "h656-donetick-docs",
+    "line": 33,
+    "from": "stale",
+    "label": "stale",
+    "source": "scripts/pg-backup.sh:52",
+    "note": "Source only: cnpg-cluster.yaml:16 is a comment (R1d); the pg-backup.sh:51-53 error text (code) says postgresql-cluster hosts chores_tracker, which still contradicts 'MySQL'."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 92,
+    "from": "stale",
+    "label": "uncertain",
+    "source": "",
+    "note": "R1d: only the substrate.yaml:16-19 comment says the four Substrate components run by tag; substrate.yaml sets no image values, so whether the chart pins them by digest is a chart default."
+  },
+  {
+    "instance": "kagent-live",
+    "line": 93,
+    "from": "stale",
+    "label": "uncertain",
+    "source": "",
+    "note": "Same claim as line 92 (spans 92-93); the contradiction rests only on the substrate.yaml:16-19 comment."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 93,
+    "from": "stale",
+    "label": "stale",
+    "source": "base-apps/system-upgrade-controller/plan-agent.yaml:46",
+    "note": "Source only: k3s-authn.yml:37 reads as 'the cluster's version' only through its inline comment; the Plan pinned at v1.37.1+k3s1 shows the 1.36 to 1.37 hop already happened."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 58,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/vault-backup.sh:148",
+    "note": "Source only: :13 is a usage comment; the code suspends the app (:137-138), scales to 0 (:148) and back (:178), checks the unseal (:182-186) and writes the .sha256 (:197)."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 61,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/vault-backup.sh:51",
+    "note": "Source only: :21 is a comment; --dest (:46), --argo-app (:51) and s3:// or local destinations (:111-114, :202-205) are code."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 69,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/vault-restore.sh:64",
+    "note": "Source only: :14 is a comment; checksum (:64), INCONSISTENT gate (:46-51), move aside (:71-74), extract (:78) and verify (:96) are code, and argo-sync-window.sh:77 suspends master-app plus every PVC app, vault included."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 41,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/agent-audit.py:1021",
+    "note": "Source only: agent-audit-cronjob.yaml:27 is a comment; the --summary payload (agent-audit.py:1019-1029, run at agent-audit-cronjob.yaml:145) carries no arguments."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 54,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "The database names kagent and kagent_v1 come from Vault (db-name, db-name-v1) and appear only in comments (deployment.yaml:40,46); the read-only archive is live database state."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 61,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "Service port 4180 only and no command/args are config, but the image CMD's loopback bind and --no-access-log are stated only in the deployment.yaml:29-32 comment."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 62,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "Exec probes are config (deployment.yaml:86-103), but /readyz's database-or-archive semantics and the banner are app behaviour stated only in the :101 comment."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 73,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "The file exists, but the role name kagent_audit_web_ro is taken from Vault db-user and is named only in the init-agent-audit-web-role.yaml:3 comment."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 87,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "The ungated check and alert leaving acknowledged calls out is code (agent-audit.py:1130), but the line opens 'So the Findings page lists those calls' (87-88), app behaviour that is uncertain on 88."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 45,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "Concurrency 1, privileged jobs and cordon are config, but cordon, replace, restart and uncordon, and pods surviving an agent restart, are upstream behaviour stated only in the plan-agent.yaml:8-14 comments; the timings are history."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 46,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "That both workers carry k3s-upgrade=true is cluster state recorded only in the plan-agent.yaml:12 comment; only the DoesNotExist backstop (:58-59) is config."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 64,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/hop-verify.sh:410",
+    "note": "Source only: :7 is a comment; the gate) and watch) actions are code (:410, :431)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 65,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh:70",
+    "note": "Source only: :24 is a comment; pause) (:70) clears syncPolicy.automated and resume) (:95) restores it."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 71,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:75",
+    "note": "Source only: plan-agent.yaml:45 is a comment; the version-not-channel test's docstring names §V.3 as one minor at a time (a docstring, which the agent's comment stripping keeps)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 75,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/k3s-backup.sh:100",
+    "note": "Source only: :9 is a comment; k3s-backup.sh:100 refuses a live state.db under §V15 and k3s-restore.sh:46,124 enforce §V.16 in code."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 76,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:42",
+    "note": "Source only: system-upgrade-controller.yaml:7 is a comment; the test enforcing control-plane exclusion carries '§V.17: SUC scope is agents only' (:42, :52)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 77,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "argo-sync-window.sh pauses PVC apps in code, but that this is rule V.18 is stated only in comments and SPEC.md, as for line 72 (V.4)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 78,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/hop-verify.sh:149",
+    "note": "Source only: :155 is a comment; hop-verify.sh:148-149 (V.50, istio-cni restart) and :182-183 (V.51, pod-CIDR/IPAM) are code."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 81,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_suc_plan.py:67",
+    "note": "Source only: plan-agent.yaml:29 is a comment; test_plan_does_not_drain asserts no drain, with the local-path node-affinity and absent-means-no-drain message (:64-70)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 82,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_hop_scripts.py:95",
+    "note": "Source only: plan-agent.yaml:16 is a comment; test docstrings (:95-100, :120-122) and the hop-verify CNI check (:147-149) carry the data/<hash> rotation, stale hostPath, sandbox failures and Ready-throughout outage."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 84,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "hop-verify.sh:149 restarts istio-cni only where the gate finds wedged pods; the standing per-node requirement and §T.86 rest on the plan-agent.yaml:22-25 comment and SPEC.md."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 86,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_hop_scripts.py:131",
+    "note": "Source only: hop-verify.sh:155-157 are comments; the test docstring (:131-134) and hop-verify's IPAM check (:182-183) carry the leak and the audit step."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 87,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/argo-sync-window.sh:77",
+    "note": "Source only: :43 is a comment; pause suspends master-app plus discover_apps' PVC and StatefulSet apps (:44-61, :77), and this app has no PVC."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 89,
+    "from": "true",
+    "label": "true",
+    "source": "tests/k3s-upgrade/test_backup_scripts.py:3",
+    "note": "Source only: k3s-backup.sh:4 is a comment; the test docstring (:3-4) states SQLite without --cluster-init and one-way migration, and k3s-backup.sh handles -wal/-shm in code (:151-159)."
+  },
+  {
+    "instance": "h751-suc-docs",
+    "line": 92,
+    "from": "true",
+    "label": "true",
+    "source": "scripts/hop-verify.sh:354",
+    "note": "Source only: :285 is a comment; hop-verify retries the delegation probe while it is 'not yet synced' (:352-357), as tests/admission-policies/conftest.py:108-119 does."
+  },
+  {
+    "instance": "h751-agent-audit-web-docs",
+    "line": 53,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "Outside the comment-source scope (its note relies on a comment): host and port are config (deployment.yaml:37,39), but the role kagent_audit_web_ro comes from Vault db-user and is named only in comments."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 66,
+    "from": "true",
+    "label": "uncertain",
+    "source": "",
+    "note": "Outside the comment-source scope (its note relies on a comment): ciphertext needing alias/vault-auto-unseal is code (vault-backup.sh:212), but 'the Shamir recovery keys won't decrypt it' is an upstream fact stated only in comments (vault-backup.sh:17-18, vault-kms.tf:19-21)."
+  },
+  {
+    "instance": "h658-vault-runbook",
+    "line": 40,
+    "from": "true",
+    "label": "stale",
+    "source": "base-apps/atlantis/external-secrets.yaml:12",
+    "note": "Outside the stated scope, found while auditing line 69: on a rebuilt cluster Atlantis's GitHub and AWS credentials come from Vault through ESO (atlantis/external-secrets.yaml:11-25), and Vault cannot start without this Secret, so 'let Atlantis plan, apply' cannot recreate it (what #658 rewrote)."
+  }
+]

@@ -418,31 +418,17 @@ def committed_specs() -> tuple[dict, dict[str, dict], dict[str, dict]]:
 
 
 def test_holdout_has_three_positives():
-    """At least three positives in the holdout (C#33), which is 30-40% of the set. Once
-    any holdout instance has labels, only labelled ``stale``/``missing`` lines count.
-    Before that the known ones stand in: the holdout's planted answer keys and the lines
-    its history PRs corrected."""
-    eval_set = load_eval_set(EVALS_DIR)
-    source, planted, _ = committed_specs()
+    """At least three labelled positives (``stale``/``missing``) in the holdout (C#33),
+    which is 30-40% of the set and has labels on every instance."""
+    eval_set = load_eval_set(EVALS_DIR)  # refuses labels still awaiting adjudication
     holdout = {i.id for i in eval_set.instances.values() if i.split == "holdout"}
     assert 0.3 <= len(holdout) / len(eval_set.instances) <= 0.4
-    labelled = [label for label in eval_set.labels if label.instance in holdout]
-    if labelled:
-        positives = {
-            (lab.instance, lab.line) for lab in labelled if lab.label in ("stale", "missing")
-        }
-    else:
-        positives = {
-            (spec["id"], expected["line"])
-            for spec in planted.values()
-            if spec["id"] in holdout
-            for expected in spec["expected"]
-        } | {
-            (entry["id"], line)
-            for entry in source["instances"]
-            if entry["id"] in holdout
-            for line in entry.get("diff_lines", [])
-        }
+    assert holdout <= {label.instance for label in eval_set.labels}
+    positives = {
+        (label.instance, label.line)
+        for label in eval_set.labels
+        if label.instance in holdout and label.label in ("stale", "missing")
+    }
     assert len(positives) >= 3, sorted(positives)
 
 
