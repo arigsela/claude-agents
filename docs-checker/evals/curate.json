@@ -8,7 +8,7 @@
       "pr": 751,
       "merge": "58738acceb4f0f69d9bf9aa5eb8f3cd83ea994b4",
       "diff_lines": [63],
-      "split": "dev",
+      "split": "holdout",
       "purpose": "history: #751 (docs: fix statements the post-cutover merges made stale), at its parent; the PR rewrote line 63, which says v0.2.0 is deployed."
     },
     {
@@ -28,7 +28,7 @@
       "pr": 751,
       "merge": "58738acceb4f0f69d9bf9aa5eb8f3cd83ea994b4",
       "diff_lines": [31],
-      "split": "dev",
+      "split": "holdout",
       "purpose": "history: #751, at its parent; the PR rewrote line 31, which names the 1.35 -> 1.36 hop as the last one."
     },
     {
@@ -55,7 +55,7 @@
       "id": "kagent-live",
       "doc": "base-apps/kagent/docs.md",
       "head": true,
-      "split": "holdout",
+      "split": "dev",
       "purpose": "live positive: the doc at HEAD, whose Harness table was found stale on 2026-10-18 (line 198 gives k8s-reader as kagent-stateless's only user; implementer and restarter use it too)."
     }
   ],

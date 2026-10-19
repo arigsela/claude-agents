@@ -6,7 +6,7 @@
       "commit": "fa5c6eaf6aba9db2aa0fa8558d6654e0281ba294",
       "head": false,
       "overlays": {},
-      "split": "dev",
+      "split": "holdout",
       "purpose": "history: #751 (docs: fix statements the post-cutover merges made stale), at its parent; the PR rewrote line 63, which says v0.2.0 is deployed."
     },
     {
@@ -24,7 +24,7 @@
       "commit": "fa5c6eaf6aba9db2aa0fa8558d6654e0281ba294",
       "head": false,
       "overlays": {},
-      "split": "dev",
+      "split": "holdout",
       "purpose": "history: #751, at its parent; the PR rewrote line 31, which names the 1.35 -> 1.36 hop as the last one."
     },
     {
@@ -51,7 +51,7 @@
       "commit": "c08a1b0292291a46f50eb86a84e6e24e4078028e",
       "head": true,
       "overlays": {},
-      "split": "holdout",
+      "split": "dev",
       "purpose": "live positive: the doc at HEAD, whose Harness table was found stale on 2026-10-18 (line 198 gives k8s-reader as kagent-stateless's only user; implementer and restarter use it too)."
     },
     {
