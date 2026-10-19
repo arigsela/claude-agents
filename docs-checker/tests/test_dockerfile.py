@@ -178,3 +178,51 @@ def test_the_dockerignore_reader_follows_docker_rules():
     assert not excluded("src/a.py", rules) and not excluded("src/deep/a.py", rules)
     assert excluded("src/__pycache__/a.pyc", rules)
     assert not excluded("x/a", "x/*/b") and excluded("x/a/b/c", "x/*/b")
+
+
+# --- Dockerfile.agentcore -------------------------------------------------------------
+
+AGENTCORE_TEXT = (ROOT / "Dockerfile.agentcore").read_text()
+AGENTCORE = instructions(AGENTCORE_TEXT)
+AGENTCORE_FINAL = stages(AGENTCORE_TEXT)[-1]
+
+
+def test_agentcore_dockerfile_arm64():
+    assert "docker build --platform linux/arm64" in AGENTCORE_TEXT
+    assert not any("amd64" in args for _, args in AGENTCORE)
+
+
+def test_agentcore_dockerfile_port_9000():
+    assert [args for k, args in AGENTCORE_FINAL if k == "EXPOSE"] == ["9000"]
+
+
+def test_agentcore_entrypoint():
+    entrypoints = [args for k, args in AGENTCORE_FINAL if k == "ENTRYPOINT"]
+    assert entrypoints == ['["/app/.venv/bin/docs-checker-agentcore"]']
+    assert not [args for k, args in AGENTCORE_FINAL if k == "CMD"]
+    user = [args for k, args in AGENTCORE_FINAL if k == "USER"][-1]
+    assert user == "65532:65532"
+
+
+def test_agentcore_install_is_locked_with_its_extras():
+    runs = [args for k, args in AGENTCORE if k == "RUN"]
+    syncs = [s.strip() for run in runs for s in re.findall(r"uv sync[^&;]*", run)]
+    assert syncs
+    for sync in syncs:
+        assert sync.startswith("uv sync --locked --no-dev --extra agentcore --extra kagent"), sync
+    assert "--invalidation-mode unchecked-hash" in " ".join(runs)
+    assert ("COPY", "profiles/ /app/profiles/") in AGENTCORE_FINAL
+
+
+def test_agentcore_base_images_pinned_by_digest():
+    named = {args.split()[-1] for k, args in AGENTCORE if k == "FROM" and " AS " in f" {args} "}
+    for base in [args.split()[0] for k, args in AGENTCORE if k == "FROM"]:
+        if base not in named:
+            assert re.search(r"@sha256:[0-9a-f]{64}$", base), base
+
+
+def test_agentcore_entrypoint_is_a_project_script():
+    import tomllib
+
+    scripts = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["scripts"]
+    assert scripts["docs-checker-agentcore"] == "docs_checker.agentcore:main"

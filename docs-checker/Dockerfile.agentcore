@@ -1,0 +1,68 @@
+# docs-checker for Amazon Bedrock AgentCore Runtime (protocol A2A, ARM64 microVMs).
+#
+#   docker build --platform linux/arm64 --provenance=false -f Dockerfile.agentcore \
+#     -t docs-checker:agentcore docs-checker
+#   bash docs-checker/scripts/smoke_agentcore.sh     # one A2A task, end to end, replayed
+#
+# The same two-stage bookworm build as the kagent image (Dockerfile): a uv-managed
+# Python 3.13 under /python, the locked venv under /app/.venv, neither git nor uv in
+# the final stage. It installs the agentcore extra (A2A JSON-RPC over HTTP, the on-disk
+# task store, boto3) and the kagent extra, whose kagent-core carries the hitl/v1
+# helpers the executor's approval pauses use; nothing here talks to a kagent controller.
+#
+# Cold start: every module is precompiled with unchecked-hash .pyc files, so a fresh
+# microVM never stats sources to validate bytecode (the homelab's 23.5 s of imports).
+# Bases are pinned by digest (multi-arch indexes; the arm64 variant is pulled).
+
+FROM ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 AS uv-bin
+
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS build
+COPY --from=uv-bin /uv /usr/local/bin/uv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV UV_PYTHON=3.13 \
+    UV_PYTHON_PREFERENCE=only-managed \
+    UV_PYTHON_INSTALL_DIR=/python \
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_LINK_MODE=copy \
+    UV_NO_PROGRESS=1
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra agentcore --extra kagent --no-editable --no-install-project
+COPY README.md ./
+COPY src/ ./src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra agentcore --extra kagent --no-editable \
+    && /app/.venv/bin/python -m compileall -q -j 0 --invalidation-mode unchecked-hash /app/.venv \
+    && rm -rf /python/.lock /python/.temp
+
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 docs-checker \
+    && useradd --uid 65532 --gid 65532 --create-home --home-dir /home/docs-checker \
+        --shell /usr/sbin/nologin docs-checker \
+    && mkdir -p /mnt/workspace/docs-checker \
+    && chown -R 65532:65532 /mnt/workspace
+COPY --from=build /python /python
+COPY --from=build /app/.venv /app/.venv
+COPY profiles/ /app/profiles/
+ENV PATH=/app/.venv/bin:$PATH \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# /mnt/workspace is where AgentCore mounts the session storage (the task and checkpoint
+# dbs live there); the image's own copy, owned by this user, serves a plain `docker run`.
+USER 65532:65532
+WORKDIR /home/docs-checker
+
+# AgentCore's A2A contract: JSON-RPC on 9000 at /, the card, /ping.
+EXPOSE 9000
+
+ENTRYPOINT ["/app/.venv/bin/docs-checker-agentcore"]

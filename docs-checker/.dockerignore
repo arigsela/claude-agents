@@ -6,6 +6,7 @@
 !uv.lock
 !README.md
 !src/
+!profiles/
 
 # Inside src/ (a later line wins over the allowlist above).
 **/__pycache__

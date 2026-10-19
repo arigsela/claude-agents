@@ -614,6 +614,77 @@ async def sidecar(agent: str, identity: str, timeout_s: float) -> list[str]:
         await controller.stop(grace=0)
 
 
+async def agentcore_sidecar(agent: str, timeout_s: float) -> list[str]:
+    """The AgentCore smoke: the agent-docs fake on every interface (alias
+    ``agent-docs-mcp``), then a JSON-RPC client against ``agent`` on 9000: /ping, the
+    card, one SendMessage, and the report checked as in ``verify``."""
+    import time
+
+    workdir = Path(tempfile.mkdtemp(prefix="smoke-"))
+    commit = commit_fixture(workdir / "repo")
+    session = CountingSession(LocalRepoSession(workdir / "repo", commit))
+    http, http_task, _ = await serve_http(mcp_app(session), "0.0.0.0", MCP_PORT)
+    print(f"sidecar: agent-docs fake on :{MCP_PORT}/mcp, fixture commit {commit[:12]}", flush=True)
+    base = f"http://{agent}:9000"
+    lines: list[str] = []
+    try:
+        async with httpx2.AsyncClient(timeout=timeout_s) as client:
+            started = time.monotonic()
+            while True:
+                try:
+                    ping = await client.get(f"{base}/ping")
+                    if ping.status_code == 200:
+                        break
+                except httpx2.TransportError:
+                    pass
+                if time.monotonic() - started > timeout_s:
+                    raise SmokeFailure(f"/ping did not answer 200 in {timeout_s:g} s")
+                await asyncio.sleep(0.1)
+            _require(ping.json() == {"status": "Healthy"}, f"/ping said {ping.text}")
+            lines.append(
+                f"ok: /ping answered Healthy {time.monotonic() - started:.1f} s after the sidecar started"
+            )
+            card = (await client.get(f"{base}/.well-known/agent-card.json")).json()
+            binding = card["supportedInterfaces"][0]["protocolBinding"]
+            _require(binding == "JSONRPC", f"the card advertises {binding}")
+            lines.append("ok: the agent card advertises JSONRPC")
+            message = a2a_pb2.Message(
+                message_id=str(uuid.uuid4()),
+                role=a2a_pb2.Role.ROLE_USER,
+                parts=[a2a_pb2.Part(text=REQUEST)],
+            )
+            params = MessageToDict(a2a_pb2.SendMessageRequest(message=message))
+            response = await client.post(
+                f"{base}/",
+                json={"jsonrpc": "2.0", "id": "smoke", "method": "SendMessage", "params": params},
+            )
+            body = response.json()
+            _require("error" not in body, f"JSON-RPC error: {body.get('error')}")
+            task = body["result"]["task"]
+    finally:
+        await stop_http(http, http_task)
+    state = task["status"]["state"]
+    _require(state == "TASK_STATE_COMPLETED", f"the task ended {state}: {task['status']}")
+    data: dict[str, Any] = {}
+    for artifact in task.get("artifacts", []):
+        for part in artifact["parts"]:
+            if isinstance(part.get("data"), dict):
+                data.update(part["data"])
+    report, ledger = data.get(REPORT_KEY) or {}, data.get(LEDGER_KEY) or {}
+    stale = [
+        f
+        for f in report.get("findings") or []
+        if f.get("doc") == DOC and int(f.get("line_start", 0)) == STALE_LINE
+    ]
+    _require(len(stale) == 1 and stale[0].get("replacement") == FIXED_LINE, f"report: {report}")
+    lines.append(f"ok: the task COMPLETED and finds {DOC}:{STALE_LINE} stale, fixed to 0.7.1")
+    _require(float(ledger.get("cash_cost_usd", -1)) == 0.0, f"cash spent: {ledger}")
+    lines.append(f"ok: ledger: {int(ledger.get('calls', 0))} model calls, all replayed")
+    _require(dict(session.calls).get("get_file_contents", 0) > 0, f"calls: {dict(session.calls)}")
+    lines.append(f"ok: the agent read the repo through the MCP fake ({dict(session.calls)})")
+    return lines
+
+
 def config_json(controller: str, mcp: str) -> str:
     return json.dumps(adk_config(controller, mcp), separators=(",", ":"))
 
@@ -629,6 +700,9 @@ def main(argv: list[str] | None = None) -> int:
     conf.add_argument("--controller", default=f"http://controller:{CONTROLLER_PORT}")
     conf.add_argument("--mcp", default=f"http://agent-docs-mcp:{MCP_PORT}/mcp")
     commands.add_parser("record", help="rewrite tests/fixtures/cassettes-smoke (no API)")
+    core = commands.add_parser("agentcore-sidecar", help="the MCP fake and a JSON-RPC client")
+    core.add_argument("--agent", required=True, help="the runtime's host name")
+    core.add_argument("--timeout", type=float, default=300.0, help="seconds per wait")
     args = parser.parse_args(argv)
 
     if args.command == "config":
@@ -637,6 +711,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "record":
             lines = asyncio.run(record())
+        elif args.command == "agentcore-sidecar":
+            lines = asyncio.run(agentcore_sidecar(args.agent, args.timeout))
         else:
             lines = asyncio.run(sidecar(args.agent, args.identity, args.timeout))
     except (SmokeFailure, grpc.aio.AioRpcError) as error:
