@@ -1,0 +1,18 @@
+{
+  "id": "planted-wkb-namespace",
+  "doc": "base-apps/weather-kitchen-backend/docs.md",
+  "kind": "namespace",
+  "split": "holdout",
+  "purpose": "planted namespace (holdout): line 39 puts certificate.yaml and reference-grant.yaml in namespace weather-kitchen-backend; both are in weather-kitchen.",
+  "line": 39,
+  "old": "weather-kitchen",
+  "new": "weather-kitchen-backend",
+  "expected": [
+    {
+      "line": 39,
+      "label": "stale",
+      "source": "base-apps/weather-kitchen-backend/certificate.yaml:5",
+      "note": "namespace: weather-kitchen (reference-grant.yaml:6 too), not weather-kitchen-backend"
+    }
+  ]
+}

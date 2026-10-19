@@ -1,0 +1,18 @@
+{
+  "id": "planted-ollama-version",
+  "doc": "base-apps/ollama/docs.md",
+  "kind": "version",
+  "split": "dev",
+  "purpose": "planted version (lever: the small doc): line 25 gives the Ollama version as 0.34.2; deployments.yaml pins ollama/ollama:0.35.1.",
+  "line": 25,
+  "old": "0.35.1",
+  "new": "0.34.2",
+  "expected": [
+    {
+      "line": 25,
+      "label": "stale",
+      "source": "base-apps/ollama/deployments.yaml:30",
+      "note": "image: ollama/ollama:0.35.1@sha256:..., not 0.34.2"
+    }
+  ]
+}

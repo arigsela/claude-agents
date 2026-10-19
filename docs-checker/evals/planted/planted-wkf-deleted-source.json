@@ -1,0 +1,24 @@
+{
+  "id": "planted-wkf-deleted-source",
+  "doc": "base-apps/weather-kitchen-frontend/docs.md",
+  "kind": "deleted-source",
+  "split": "dev",
+  "purpose": "planted deleted source (lever): base-apps/admission-policies/inject-ecr-pull-secret.yaml, front-matter source on line 19, is deleted; line 28 names it as what injects the ECR pull secret.",
+  "line": 19,
+  "old": "base-apps/admission-policies/inject-ecr-pull-secret.yaml",
+  "new": null,
+  "expected": [
+    {
+      "line": 19,
+      "label": "missing",
+      "source": "base-apps/admission-policies/inject-ecr-pull-secret.yaml",
+      "note": "the front-matter source no longer exists"
+    },
+    {
+      "line": 28,
+      "label": "missing",
+      "source": "base-apps/admission-policies/inject-ecr-pull-secret.yaml",
+      "note": "names the deleted MutatingAdmissionPolicy file"
+    }
+  ]
+}

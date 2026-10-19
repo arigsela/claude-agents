@@ -1,0 +1,18 @@
+{
+  "id": "planted-ollama-port",
+  "doc": "base-apps/ollama/docs.md",
+  "kind": "port",
+  "split": "dev",
+  "purpose": "planted port: line 39 gives the ollama Service port as 11435; services.yaml has 11434.",
+  "line": 39,
+  "old": "11434",
+  "new": "11435",
+  "expected": [
+    {
+      "line": 39,
+      "label": "stale",
+      "source": "base-apps/ollama/services.yaml:12",
+      "note": "port: 11434, not 11435"
+    }
+  ]
+}

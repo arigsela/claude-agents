@@ -7,7 +7,10 @@ goes through a $20 spend guard (spec §8).
 
 | Path | What | In git |
 |---|---|---|
-| `instances.json` | The instances and named sets (Task 17) | yes |
+| `instances.json` | The instances and named sets, built by `curate build` (Task 17) | yes |
+| `curate.json` | What `instances.json` is built from: HEAD, the history and live instances, the sets | yes |
+| `planted/<id>.json` | One planted fact each, with its answer key | yes |
+| `canary/<id>.md`, `canary/<id>.json` | The canary doc and its sidecar (injected fix, pass condition) | yes |
 | `labels/*.json` | Labelled lines, one JSON list per file (Task 17) | yes |
 | `cassettes/` | Recorded model responses, one file per request key | yes |
 | `results.jsonl` | One record per run and per arm, appended | yes |
@@ -122,6 +125,35 @@ instance's commit.
   "labeller_a": "stale", "labeller_b": "stale", "adjudicated_by": null,
   "reviewed_by_ari": false}]
 ```
+
+### Curating it
+
+`instances.json` is never edited by hand. `python -m docs_checker.evals.curate` (needs the
+clone, read-only) builds it and handles the labels:
+
+```bash
+.venv/bin/python -m docs_checker.evals.curate build       # instances.json from the sources
+.venv/bin/python -m docs_checker.evals.curate packets --out DIR   # numbered docs + manifest.json
+.venv/bin/python -m docs_checker.evals.curate merge --a DIR --b DIR \
+  --out evals/labels/<name>.json --disagreements DIR/disagreements.json
+.venv/bin/python -m docs_checker.evals.curate adjudicate --labels evals/labels/<name>.json \
+  --decisions decisions.json --disagreements DIR/disagreements.json
+.venv/bin/python -m docs_checker.evals.curate validate    # exit 1 with a listing on any problem
+```
+
+- `build` checks every source against git: a history instance's `diff_lines` must be the
+  lines its PR (`merge`, a child of `commit`) rewrote; a planted `version`, `port` or
+  `namespace` changes the one occurrence of `old` on `line` to `new`, and its answer key's
+  evidence (`path:line`, never documentation) must hold `old`; a `deleted-source` plant
+  deletes a non-doc file the doc lists as the front-matter source on `line`; a canary
+  minus its `injected_lines` must be its `copied_from` doc, at a path that does not exist.
+- `merge` keeps lines both labellers gave the same label, and lines one marked
+  `not-a-claim` and the other left out. Anything else, `stale` against `missing` included,
+  is a disagreement row with both sides; `adjudicate` writes each decision with
+  `adjudicated_by: "claude"` and both labellers' calls.
+- `validate` fails on a label past the end of the served doc or on a blank line, a line
+  labelled twice, an instance with no labels, a claim line a labeller skipped or the two
+  disagree on without adjudication, and a planted line whose label is not its answer key.
 
 ## Labelling rubric
 

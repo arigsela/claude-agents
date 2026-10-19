@@ -1,0 +1,65 @@
+{
+  "head": "c08a1b0292291a46f50eb86a84e6e24e4078028e",
+  "instances": [
+    {
+      "id": "h751-agent-audit-web-docs",
+      "doc": "base-apps/agent-audit-web/docs.md",
+      "commit": "fa5c6eaf6aba9db2aa0fa8558d6654e0281ba294",
+      "pr": 751,
+      "merge": "58738acceb4f0f69d9bf9aa5eb8f3cd83ea994b4",
+      "diff_lines": [63],
+      "split": "dev",
+      "purpose": "history: #751 (docs: fix statements the post-cutover merges made stale), at its parent; the PR rewrote line 63, which says v0.2.0 is deployed."
+    },
+    {
+      "id": "h751-kagent-runbook",
+      "doc": "base-apps/kagent/runbook.md",
+      "commit": "fa5c6eaf6aba9db2aa0fa8558d6654e0281ba294",
+      "pr": 751,
+      "merge": "58738acceb4f0f69d9bf9aa5eb8f3cd83ea994b4",
+      "diff_lines": [241, 242],
+      "split": "dev",
+      "purpose": "history: #751, at its parent; the larger lever doc, whose evidence lies outside its sources: the PR rewrote lines 241-242 because renovate.json5 groups the Harness image with the charts."
+    },
+    {
+      "id": "h751-suc-docs",
+      "doc": "base-apps/system-upgrade-controller/docs.md",
+      "commit": "fa5c6eaf6aba9db2aa0fa8558d6654e0281ba294",
+      "pr": 751,
+      "merge": "58738acceb4f0f69d9bf9aa5eb8f3cd83ea994b4",
+      "diff_lines": [31],
+      "split": "dev",
+      "purpose": "history: #751, at its parent; the PR rewrote line 31, which names the 1.35 -> 1.36 hop as the last one."
+    },
+    {
+      "id": "h656-donetick-docs",
+      "doc": "base-apps/donetick/docs.md",
+      "commit": "a7f26e8bbdfeb443c2685f21d86f63455c42d1b7",
+      "pr": 656,
+      "merge": "16eb5cf09f9d5a3777dee7a596b058a9f242b845",
+      "diff_lines": [32, 33, 34, 35, 36],
+      "split": "dev",
+      "purpose": "history: #656 (docs: remove stale docs and refresh the agent entry points), at its parent; the PR rewrote lines 32-36, which call donetick chores-tracker's intended successor and chores-tracker pending retirement, though its manifests were already gone."
+    },
+    {
+      "id": "h658-vault-runbook",
+      "doc": "base-apps/vault/runbook.md",
+      "commit": "94e41209d62b77acb749b1b471fa3945fabbbf80",
+      "pr": 658,
+      "merge": "3b9be6f05c9ddcec522b20932c11efb93191de33",
+      "diff_lines": [40, 64, 69],
+      "split": "holdout",
+      "purpose": "history: #658 (docs: fix five post-merge review findings from #657), at its parent; the PR rewrote line 40 (re-applying the KMS Secret through Atlantis on a rebuilt cluster), line 64 (--argo-app vault alone) and line 69 (what argo-sync-window.sh pause suspends)."
+    },
+    {
+      "id": "kagent-live",
+      "doc": "base-apps/kagent/docs.md",
+      "head": true,
+      "split": "holdout",
+      "purpose": "live positive: the doc at HEAD, whose Harness table was found stale on 2026-10-18 (line 198 gives k8s-reader as kagent-stateless's only user; implementer and restarter use it too)."
+    }
+  ],
+  "sets": {
+    "lever": ["planted-ollama-version", "planted-wkf-deleted-source", "h751-kagent-runbook"]
+  }
+}
