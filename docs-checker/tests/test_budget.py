@@ -7,6 +7,8 @@ from docs_checker.ledger import (
     Budget,
     BudgetExceeded,
     Reservation,
+    Usage,
+    cost_usd,
     reservation_for,
 )
 
@@ -69,20 +71,33 @@ async def test_an_exact_fit_is_not_refused_by_float_rounding():
     assert budget.remaining_usd == pytest.approx(0.0)
 
 
-def test_reservation_is_the_prompt_at_the_uncached_rate_plus_max_tokens_at_output():
-    # 3000 chars ~ 1000 input tokens at $2/M, plus 1000 output tokens at $10/M.
-    assert reservation_for("claude-sonnet-5-5", 3000, 1000, CARD) == pytest.approx(0.012)
+def test_reservation_prices_the_prompt_at_the_dearest_input_rate_plus_max_tokens_at_output():
+    # 2500 chars -> 1000 tokens at Sonnet's 1h cache-write rate ($4/M, the dearest
+    # input-side rate), plus 1000 output tokens at $10/M.
+    assert reservation_for("claude-sonnet-5-5", 2500, 1000, CARD) == pytest.approx(0.014)
 
 
 def test_reservation_rounds_the_token_estimate_up():
-    assert reservation_for("claude-sonnet-5-5", 1, 0, CARD) == pytest.approx(2.00 / 1_000_000)
+    assert reservation_for("claude-sonnet-5-5", 1, 0, CARD) == pytest.approx(4.00 / 1_000_000)
 
 
-def test_reservation_uses_the_haiku_tier_of_the_estimated_prompt():
-    small = reservation_for("claude-haiku-5-5", 300_000, 0, CARD)  # 100k tokens
-    large = reservation_for("claude-haiku-5-5", 300_003, 0, CARD)  # 100_001 tokens
-    assert small == pytest.approx(100_000 * 0.10 / 1_000_000)
-    assert large == pytest.approx(100_001 * 0.50 / 1_000_000)
+def test_a_tiered_model_reserves_at_its_highest_tier():
+    # A short Haiku prompt is still reserved at the >100k tier: the estimate can't
+    # know the real token count, and the tier sets both the input and output rate.
+    assert reservation_for("claude-haiku-5-5", 250, 100, CARD) == pytest.approx(
+        (100 * 1.00 + 100 * 2.50) / 1_000_000
+    )
+
+
+def test_the_reservation_covers_a_cache_write_heavy_call_on_dense_text():
+    # 300k chars of SHAs and YAML at 2.5 chars/token is 120k real tokens, over
+    # Haiku's 100k tier, all written to the 1h cache, with the full output used.
+    chars, max_tokens = 300_000, 4096
+    usage = Usage(
+        uncached_input=0, cache_write_5m=0, cache_write_1h=120_000, cache_read=0, output=max_tokens
+    )
+    actual = cost_usd(usage, CARD.rates_for("claude-haiku-5-5", usage.prompt_tokens))
+    assert reservation_for("claude-haiku-5-5", chars, max_tokens, CARD) >= actual
 
 
 def test_a_model_without_a_price_cannot_be_reserved_for():

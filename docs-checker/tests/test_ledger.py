@@ -265,3 +265,4 @@ async def test_the_summary_reports_reservations_still_open():
     summary = ledger.summary("failed")
     assert summary.reserved_unsettled_usd == pytest.approx(0.05)
     assert summary.to_dict()["reserved_unsettled_usd"] == pytest.approx(0.05)
+    assert summary.complete is False  # an open reservation may have been billed

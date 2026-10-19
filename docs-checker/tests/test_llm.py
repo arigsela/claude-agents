@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import anthropic
 import httpx2
@@ -343,9 +344,61 @@ async def test_a_cancelled_attempt_leaves_its_reservation_unsettled():
     branch.cancel()
     with pytest.raises(asyncio.CancelledError):
         await branch
-    # Whether the request was billed is unknown: it stays reserved, and the summary says so.
+    # Whether the request was billed is unknown: it is ledgered with unknown usage,
+    # it stays reserved, and the summary says the bill is incomplete.
+    (entry,) = ledger.entries
+    assert (entry.status, entry.usage, entry.cost_usd) == ("error", None, None)
     assert ledger.budget.reserved_usd == pytest.approx(each)
-    assert ledger.summary("failed").reserved_unsettled_usd == pytest.approx(each)
+    summary = ledger.summary("failed")
+    assert summary.reserved_unsettled_usd == pytest.approx(each)
+    assert summary.unknown_calls == 1
+    assert summary.complete is False
+
+
+async def test_a_cancelled_http_call_keeps_its_request_id():
+    # The response arrived (and the hook recorded its id) but the attempt was
+    # cancelled before the message came back.
+    reached, hold = asyncio.Event(), asyncio.Event()
+
+    async def stall(response):  # runs after request_id_hook
+        reached.set()
+        await hold.wait()
+
+    chat, _ = chat_over(
+        [httpx2.Response(200, headers={"request-id": "req_cut"}, json=message_body("x"))]
+    )
+    chat._async_client._client.event_hooks["response"].append(stall)
+    ledger = CostLedger("r", emit=False)
+    branch = asyncio.create_task(call(chat, ledger))
+    await reached.wait()
+    branch.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await branch
+    assert ledger.entries[0].request_id == "req_cut"
+
+
+async def test_overhead_chars_raise_the_reservation():
+    # Bound tool schemas and the output format are part of the prompt too.
+    messages = [HumanMessage("Is chart vault at 0.30.1?")]
+    plain = reservation_for(HAIKU, prompt_chars(messages), 256, CARD)
+    with_overhead = reservation_for(HAIKU, prompt_chars(messages) + 5000, 256, CARD)
+    assert with_overhead > plain
+    ledger = CostLedger("r", emit=False)
+    no_usage = ScriptedModel([AIMessage(content="no usage reported")])
+    await call(no_usage, ledger, overhead_chars=5000)
+    assert ledger.budget.spent_usd == pytest.approx(with_overhead)  # unknown: reservation kept
+
+
+async def test_an_actual_cost_over_the_reservation_logs_a_warning(caplog):
+    huge = reply("ok", uncached=1_000_000)  # far more than a one-line prompt can reserve
+    ledger = CostLedger("r", emit=False)
+    with caplog.at_level(logging.WARNING, logger="docs_checker.llm"):
+        await call(ScriptedModel([huge]), ledger)
+    (record,) = [r for r in caplog.records if r.name == "docs_checker.llm"]
+    assert record.levelno == logging.WARNING
+    text = record.getMessage()
+    assert "judge" in text and HAIKU in text
+    assert f"{ledger.entries[0].cost_usd:.8f}" in text
 
 
 def test_prompt_chars_counts_text_blocks_and_tool_calls():

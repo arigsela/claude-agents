@@ -12,9 +12,12 @@ Every attempt also goes through the run budget and the request-id recorder:
 
 - **Budget (C#1).** Before each attempt ``call_model`` reserves
   ``reservation_for(...)`` on ``ledger.budget``; ``BudgetExceeded`` propagates
-  before any call is made. After the attempt it settles to the priced cost, or
-  keeps the whole reservation when the cost is unknown (an error, no usage). An
-  attempt cancelled in flight stays reserved: whether it was billed is unknown.
+  before any call is made. Callers pass ``overhead_chars`` for prompt parts the
+  messages don't show (bound tool schemas, the output format). After the attempt
+  it settles to the priced cost, or keeps the whole reservation when the cost is
+  unknown (an error, no usage), and logs a warning when the actual exceeded the
+  reservation. An attempt cancelled in flight is ledgered with unknown usage and
+  stays reserved: whether it was billed is unknown, so the run is not complete.
 - **Structured output (C#2).** ``with_structured_output(..., include_raw=True)``
   returns ``{"raw", "parsed", "parsing_error"}``. Usage is read from ``raw`` and
   the dict is returned unchanged; a parse failure is a result, not a retry.
@@ -35,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
@@ -44,6 +48,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from docs_checker.ledger import REPLAYED_METADATA_KEY, CostLedger, reservation_for
+
+logger = logging.getLogger("docs_checker.llm")
 
 # HTTP statuses worth a second attempt: timeout, conflict, rate limit, 5xx, overloaded.
 RETRYABLE_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
@@ -135,15 +141,18 @@ async def call_model(
     ledger: CostLedger,
     budget: RetryBudget = DEFAULT_BUDGET,
     max_tokens: int,
+    overhead_chars: int = 0,
     sleep: Sleep = asyncio.sleep,
 ) -> Any:
     """Invoke ``model`` once per attempt; every attempt is reserved, ledgered and settled.
 
     ``max_tokens`` is the output cap the model was built with: it bounds the
-    output side of each reservation. Returns what the model returned (a
-    structured-output dict unchanged).
+    output side of each reservation. ``overhead_chars`` is the size of what the
+    request carries besides ``messages`` (bound tool schemas, the output schema).
+    Returns what the model returned (a structured-output dict unchanged).
     """
-    amount = reservation_for(model_name, prompt_chars(messages), max_tokens, ledger.rate_card)
+    chars = prompt_chars(messages) + overhead_chars
+    amount = reservation_for(model_name, chars, max_tokens, ledger.rate_card)
     for attempt in range(1, budget.max_attempts + 1):
         if attempt > 1:  # back off before a retry, holding no reservation
             delay = min(budget.max_delay, budget.base_delay * 2 ** (attempt - 2))
@@ -153,6 +162,19 @@ async def call_model(
             started = time.monotonic()
             try:
                 result = await model.ainvoke(list(messages))
+            except asyncio.CancelledError as error:
+                # The request may have reached the API: ledger it as unknown and
+                # leave the reservation open (reported as reserved_unsettled_usd).
+                ledger.record_error(
+                    node=node,
+                    model=model_name,
+                    attempt=attempt,
+                    error=error,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    request_id=recorder.get("request_id"),
+                    replayed=bool(recorder.get("replayed")),
+                )
+                raise
             except Exception as error:
                 ledger.record_error(
                     node=node,
@@ -177,5 +199,14 @@ async def call_model(
             latency_ms=int((time.monotonic() - started) * 1000),
         )
         ledger.budget.settle(reservation, entry.cost_usd)
+        if entry.cost_usd is not None and entry.cost_usd > reservation.amount_usd:
+            logger.warning(
+                "actual cost over its reservation: node=%s model=%s reserved_usd=%.8f "
+                "actual_usd=%.8f",
+                node,
+                model_name,
+                reservation.amount_usd,
+                entry.cost_usd,
+            )
         return result
     raise AssertionError("unreachable")

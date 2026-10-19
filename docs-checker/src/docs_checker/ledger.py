@@ -178,17 +178,26 @@ def cost_usd(usage: Usage, rates: Rates) -> float:
 
 
 def reservation_for(model: str, prompt_chars: int, max_tokens: int, rate_card: RateCard) -> float:
-    """A conservative bound on one attempt's cost: the prompt as ``ceil(chars / 3)``
-    tokens at the uncached input rate, plus ``max_tokens`` at the output rate.
+    """An upper bound on one attempt's cost (controller ruling B1).
 
-    A model the rate card cannot price has no bound, so the run budget could not
-    hold it: that is an error, not a free call.
+    - Input: ``ceil(chars / 2.5)`` tokens, since dense text such as SHAs and YAML
+      runs under 3 chars per token, at the dearest input-side rate (uncached, 5m
+      or 1h cache write), since any of the prompt may be written to the cache.
+    - Output: ``max_tokens`` at the output rate.
+    - Both rates come from the model's highest-priced tier: the estimate can't
+      tell which tier the real prompt lands in, and the tier sets both rates.
+
+    Callers add what the messages don't show (bound tool schemas, the output
+    format) to ``prompt_chars``. A model the rate card cannot price has no bound,
+    so the run budget could not hold it: that is an error, not a free call.
     """
-    prompt_tokens = -(-prompt_chars // 3)
-    rates = rate_card.rates_for(model, prompt_tokens)
-    if rates is None:
+    tiers = [rates for _, rates in rate_card.models.get(model, ())]
+    if not tiers:
         raise ValueError(f"rate card {rate_card.version} has no price for {model}")
-    return (prompt_tokens * rates.input + max_tokens * rates.output) / 1_000_000
+    input_rate = max(max(r.input, r.cache_write_5m, r.cache_write_1h) for r in tiers)
+    output_rate = max(r.output for r in tiers)
+    prompt_tokens = -(-2 * prompt_chars // 5)  # ceil(chars / 2.5)
+    return (prompt_tokens * input_rate + max_tokens * output_rate) / 1_000_000
 
 
 class BudgetExceeded(Exception):
@@ -294,8 +303,9 @@ class RunSummary:
     cache_read: int
     output: int
     cost_usd_known: float
-    # Cost of the calls whose usage is known. With unknown calls present the true
-    # run cost is higher; ``complete`` says whether this number is the whole bill.
+    # Cost of the calls whose usage is known. With unknown calls or open
+    # reservations the true run cost may be higher; ``complete`` says whether
+    # this number is the whole bill.
     # The two costs below are lower bounds in the same way (C#28):
     workload_cost_usd: float  # every priced call, replayed ones included (= cost_usd_known)
     cash_cost_usd: float  # only the priced calls that went to the API
@@ -437,7 +447,7 @@ class CostLedger:
             workload_cost_usd=workload,
             cash_cost_usd=round(cash, 8),
             reserved_unsettled_usd=round(self.budget.reserved_usd, 8),
-            complete=priced_all,
+            complete=priced_all and self.budget.reserved_usd == 0,
             cache_hit_rate=(read / prompt) if prompt else None,
             by_node={k: round(v, 8) for k, v in sorted(by_node.items())},
             rate_card_version=self.rate_card.version,
