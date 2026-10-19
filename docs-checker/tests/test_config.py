@@ -202,6 +202,7 @@ def test_unknown_model_provider_is_refused():
 AGENTCORE_ENV = {
     "DOCS_CHECKER_RUNTIME": "agentcore",
     "DOCS_CHECKER_MCP_URL": "https://gw.example/mcp",
+    "AWS_REGION": "us-west-2",
 }
 
 
@@ -225,9 +226,11 @@ def test_agentcore_ignores_kagent_config():
     assert [s.name for s in settings.mcp_servers] == ["github"]
 
 
-def test_agentcore_requires_mcp_url():
+def test_agentcore_requires_mcp_url_and_region():
     with pytest.raises(ValueError, match="DOCS_CHECKER_MCP_URL"):
-        load_settings({"DOCS_CHECKER_RUNTIME": "agentcore"})
+        load_settings({"DOCS_CHECKER_RUNTIME": "agentcore", "AWS_REGION": "us-west-2"})
+    with pytest.raises(ValueError, match="AWS_REGION"):
+        load_settings({k: v for k, v in AGENTCORE_ENV.items() if k != "AWS_REGION"})
 
 
 def test_runtime_default_follows_kagent_config():

@@ -276,6 +276,9 @@ def _agentcore_mcp_servers(env: Mapping[str, str]) -> tuple[McpServer, ...]:
     url = env.get("DOCS_CHECKER_MCP_URL", "")
     if not url:
         raise ValueError("DOCS_CHECKER_MCP_URL is required with DOCS_CHECKER_RUNTIME=agentcore")
+    if not env.get("AWS_REGION"):
+        # The Gateway requests are SigV4 signed for this region.
+        raise ValueError("AWS_REGION is required with DOCS_CHECKER_RUNTIME=agentcore")
     return (McpServer(name="github", url=url, tools=tuple(sorted(READ_ONLY_TOOLS))),)
 
 
@@ -366,7 +369,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         replay_dir=_replay_dir(env.get("DOCS_CHECKER_REPLAY_DIR", "")),
         model_provider=model_provider,
         bedrock_model_ids=bedrock_model_ids,
-        aws_region=aws_region,
+        aws_region=aws_region or env.get("AWS_REGION", ""),
         bedrock_effort=_flag(env, "BEDROCK_EFFORT", False),
         runtime=runtime_kind,
         sqlite_nolock=agentcore,

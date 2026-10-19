@@ -43,6 +43,15 @@ from docs_checker.redact import redact, redact_obj
 ToolStatus = Literal["ok", "absent", "denied", "transient", "error"]
 
 READ_ONLY_TOOLS = frozenset({"get_file_contents", "search_code", "list_commits", "get_commit"})
+# AgentCore Gateway lists a target's tools as <target>___<tool>.
+GATEWAY_PREFIX_SEPARATOR = "___"
+
+
+def canonical_tool_name(name: str) -> str:
+    """A tool's name without one leading Gateway target prefix (``github___x`` -> ``x``)."""
+    _, sep, rest = name.partition(GATEWAY_PREFIX_SEPARATOR)
+    return rest if sep and rest else name
+
 
 # The tools each node's code may call. intake resolves the run's ref to one commit.
 NODE_TOOLS: dict[str, frozenset[str]] = {
@@ -381,8 +390,13 @@ class ToolBelt:
             # A server the AgentTemplate does not bind contributes nothing.
             allowed = READ_ONLY_TOOLS & set(bindings.get(server, ()))
             for tool in tools:
-                if tool.name in allowed:
-                    offered.setdefault(tool.name, []).append((server, tool))
+                # Authorized and called by the canonical name; the renamed copy keeps the
+                # MCP tool it wraps, so the server still receives its own (prefixed) name.
+                name = canonical_tool_name(tool.name)
+                if name in allowed:
+                    if name != tool.name:
+                        tool = tool.model_copy(update={"name": name})
+                    offered.setdefault(name, []).append((server, tool))
         self._tools: dict[str, tuple[str, Any]] = {}
         self.ambiguous: frozenset[str] = frozenset(
             name for name, entries in offered.items() if len(entries) > 1

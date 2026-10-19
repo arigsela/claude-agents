@@ -333,3 +333,34 @@ async def test_the_replay_seam_sends_nothing(tmp_path):
         await transport.inner.handle_async_request(
             httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
         )
+
+
+@pytest.mark.parametrize("runtime", ["agentcore", "local"])
+async def test_gateway_tools_are_sigv4_signed_on_agentcore(monkeypatch, runtime):
+    import dataclasses
+
+    import langchain_mcp_adapters.client as mcp_client
+
+    from docs_checker.aws_auth import SigV4Auth
+    from docs_checker.config import McpServer
+    from docs_checker.server import load_mcp_tools
+
+    seen: dict = {}
+
+    class Capture:
+        def __init__(self, connections, **_):
+            seen.update(connections)
+
+        async def get_tools(self, server_name):
+            return []
+
+    monkeypatch.setattr(mcp_client, "MultiServerMCPClient", Capture)
+    settings = dataclasses.replace(
+        load_settings({}),
+        runtime=runtime,
+        aws_region="us-west-2",
+        mcp_servers=(McpServer(name="github", url="https://gw.example/mcp"),),
+    )
+    await load_mcp_tools(settings)
+    auth = seen["github"].get("auth")
+    assert isinstance(auth, SigV4Auth) if runtime == "agentcore" else auth is None

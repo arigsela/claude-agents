@@ -810,3 +810,54 @@ async def test_a_search_always_carries_exactly_one_scope():
         "search_code", {"query": "repo:ARIGSELA/kubernetes chart"}, node="locate", intent="i"
     )
     assert log == [("search_code", "chart repo:arigsela/kubernetes")]
+
+
+def test_canonical_tool_name():
+    from docs_checker.tools import canonical_tool_name
+
+    assert canonical_tool_name("github___get_file_contents") == "get_file_contents"
+    assert canonical_tool_name("get_commit") == "get_commit"
+    assert canonical_tool_name("a___b___get_commit") == "b___get_commit"  # one prefix only
+
+
+def renamed(tool: StructuredTool, name: str) -> StructuredTool:
+    return tool.model_copy(update={"name": name})
+
+
+def test_prefixed_write_tool_refused():
+    """Review Focus 2: Gateway lists tools as <target>___<tool>; only the read tools pass."""
+
+    async def write(owner: str, repo: str, path: str, content: str) -> str:
+        raise AssertionError("a write tool was called")
+
+    writer = StructuredTool.from_function(
+        coroutine=write, name="github___create_or_update_file", description="Write a file"
+    )
+    reader = renamed(file_reader("github", []), "github___get_file_contents")
+    bindings = {"github": tuple(sorted(READ_ONLY_TOOLS))}
+    belt = ToolBelt({"github": [writer, reader]}, RecordingGate(), bindings=bindings)
+    assert [t.name for t in belt.schemas_for("load")] == ["get_file_contents"]
+    assert belt.server_of("create_or_update_file") is None
+    assert belt.server_of("github___create_or_update_file") is None
+
+
+async def test_prefixed_call_sends_original_name():
+    import copy
+
+    from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
+    from mcp.types import Tool
+
+    from tests.fakes import FixtureSession, fixture
+
+    schema = copy.deepcopy(fixture("tools_list")["tools"]["get_file_contents"])
+    schema["name"] = "github___get_file_contents"
+    session = FixtureSession({"content": [{"type": "text", "text": "chart: vault"}]})
+    tool = convert_mcp_tool_to_langchain_tool(
+        session, Tool.model_validate(schema), server_name="github", handle_tool_errors=False
+    )
+    belt = ToolBelt(
+        {"github": [tool]}, RecordingGate(), bindings={"github": ("get_file_contents",)}
+    )
+    result, event = await belt.call("get_file_contents", IN_REPO, node="load", intent="i")
+    assert [name for name, _ in session.calls] == ["github___get_file_contents"]
+    assert result.ok and event["server"] == "github"

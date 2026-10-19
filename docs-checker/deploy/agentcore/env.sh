@@ -24,3 +24,10 @@ TAGS_KV=(Consumer=docs-checker Environment=sb-asela Service=Bedrock)
 
 here_agentcore="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="$here_agentcore/out"
+
+GATEWAY_NAME=docs-checker
+GATEWAY_ROLE_NAME=docs-checker-gateway
+GATEWAY_TARGET_NAME=github
+GITHUB_CREDENTIAL_PROVIDER=docs-checker-github
+# GitHub's hosted MCP server, repos toolset only, read-only mode.
+GITHUB_MCP_URL=https://api.githubcopilot.com/mcp/x/repos/readonly

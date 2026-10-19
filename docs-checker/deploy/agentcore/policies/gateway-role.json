@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WorkloadIdentity",
+      "Effect": "Allow",
+      "Action": ["bedrock-agentcore:GetWorkloadAccessToken"],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:workload-identity-directory/default/workload-identity/*"
+      ]
+    },
+    {
+      "Sid": "GithubPat",
+      "Effect": "Allow",
+      "Action": ["bedrock-agentcore:GetResourceApiKey"],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:token-vault/default",
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:token-vault/default/apikeycredentialprovider/docs-checker-github",
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:us-west-2:414696729697:workload-identity-directory/default/workload-identity/*"
+      ]
+    },
+    {
+      "Sid": "GithubPatSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-west-2:414696729697:secret:bedrock-agentcore-identity!default/apikey/docs-checker-github*"
+    }
+  ]
+}
