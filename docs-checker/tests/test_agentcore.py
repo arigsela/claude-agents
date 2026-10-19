@@ -209,3 +209,40 @@ async def test_nolock_task_store_survives_concurrent_saves(tmp_path):
         results = await asyncio.gather(*(one(i) for i in range(300)), return_exceptions=True)
         assert [r for r in results if isinstance(r, Exception)] == []
         assert (await store.get("t0", context)).history[0].parts[0].text == "x" * 4000
+
+
+async def test_first_request_waits_for_session_storage(tmp_path, monkeypatch):
+    """Live on AgentCore, a new session's storage refused writes for a few seconds
+    (SQLITE_FULL on the first commit, fine 5 s later on the same session): the first
+    request waits until a probe transaction commits."""
+    import sqlite3
+
+    from docs_checker import agentcore
+
+    attempts: list[int] = []
+    real = agentcore.probe_storage
+
+    def flaky(path):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real(path)
+
+    monkeypatch.setattr(agentcore, "probe_storage", flaky)
+    monkeypatch.setattr(agentcore, "STORAGE_RETRY_S", 0.01)
+    async with (
+        open_app(agentcore_settings(tmp_path), tools=_tools) as app,
+        client_for(app) as client,
+    ):
+        assert (await client.get("/ping")).status_code == 200  # never waits
+        assert attempts == []
+        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
+        assert (await client.get("/.well-known/agent-card.json")).status_code == 200
+    assert len(attempts) == 3  # two refusals, one commit, then never again
+
+
+def test_probe_storage_commits_a_transaction(tmp_path):
+    from docs_checker.agentcore import probe_storage
+
+    probe_storage(str(tmp_path / "docs-checker"))
+    assert (tmp_path / "docs-checker" / "storage-probe.sqlite").is_file()
