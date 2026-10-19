@@ -370,8 +370,35 @@ def test_a_changed_block_structure_is_rejected(old, new):
 
 
 @pytest.mark.parametrize(
+    "old, new",
+    [
+        # The text after a fence prefix emptied: the content line becomes the closer.
+        ("~~~\n~~~ a\n[docs] pins chart 0.30.1.", "~~~\n~~~ \n[docs] pins chart 0.31.0."),
+        ("```\n``` a\n[docs] pins chart 0.30.1.", "```\n``` \n[docs] pins chart 0.31.0."),
+        # An HTML block start moved off the line start: the "<div>" no longer opens one.
+        ("Chart 0.30.1\n<div>\n[docs] pins it", "Chart 0.31.0\nsee <div>\n[docs] pins it"),
+        # A thematic break of underscores turned into text: the code becomes a continuation.
+        ("Chart 0.30.1\n___\n    [docs] pins it", "Chart 0.31.0\nand\n    [docs] pins it"),
+        # A setext underline turned into text, the same way.
+        ("Chart 0.30.1\n--- \n    [docs] pins it", "Chart 0.31.0\n--- a\n    [docs] pins it"),
+        # A definition moved off the line start is a shortcut link, not a definition.
+        ('[docs]: notes "Vault 0.30.1"', 'see [docs]: notes "Vault 0.31.0"'),
+    ],
+    ids=[
+        "tilde-content-made-closer", "backtick-content-made-closer", "html-start-moved",
+        "underscore-break-made-text", "setext-underline-made-text", "definition-moved",
+    ],
+)  # fmt: skip
+def test_text_after_an_unchanged_block_prefix_cannot_change_the_block_kind(old, new):
+    """Ruling G3: "_" is a block marker; after the prefix, whether the rest is blank and
+    whether it starts with "<" or "[" must match old's line for line."""
+    assert validate_replacement(old, new, EVIDENCE + "\nargs:\n  - a") is None
+
+
+@pytest.mark.parametrize(
     "old",
     [
+        "Vault runs chart version 0.30.1 in namespace vault.",
         "- Vault runs chart 0.30.1.",
         "  * Vault runs chart 0.30.1.",
         "3. Vault runs chart 0.30.1.",
@@ -382,9 +409,14 @@ def test_a_changed_block_structure_is_rejected(old, new):
         "| Vault | 0.30.1 |",
         "Vault 0.30.1\n===",
         "Title\n\n- Vault runs chart 0.30.1.\n\n  Still the item.",
+        "```\nVault runs chart 0.30.1.\n```",
+        "~~~ yaml\nversion: 0.30.1\n~~~",
+        "[docs] pins chart 0.30.1.",
+        "<b>Vault</b> runs chart 0.30.1.",
     ],
-    ids=["bullet", "indented-star", "ordered", "quote", "quoted-bullet", "heading",
-         "indented", "table-row", "setext", "multi-line"],
+    ids=["plain", "bullet", "indented-star", "ordered", "quote", "quoted-bullet", "heading",
+         "indented", "table-row", "setext", "multi-line", "fenced-content",
+         "tilde-fenced-content", "shortcut-kept", "html-start-kept"],
 )  # fmt: skip
 def test_a_version_fix_that_keeps_the_block_structure_is_accepted(old):
     new = old.replace("0.30.1", "0.31.0")

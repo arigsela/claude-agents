@@ -234,11 +234,14 @@ _DISGUISE = re.compile(
 # reshaped. Runs, not single characters: "[docs] (x)" is not the link "[docs](x)". A ":"
 # right after "]" belongs to the run (ruling G2(a)): "[x]:" is a definition, "[x]" a link.
 _MARKUP_RUN = re.compile(r"(?:[\[\]()<>\\`!]|(?<=\]):)+")
-# Block structure outside those characters (ruling G2(a)): a line's indentation, list
-# markers and their width, ordered-list numbers, quote marks, heading marks, both fence
-# kinds, table pipes and setext underlines. A changed prefix, or a line made blank or
-# filled, can turn an indented code line or a fenced one into a paragraph.
-_BLOCK_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+>|=]|#{1,6}|\d{1,9}[.)]|~{3,}|`{3,})[ \t]*)*")
+# Block structure outside those characters (rulings G2(a) and G3): a line's indentation,
+# list markers and their width, ordered-list numbers, quote marks, heading marks, both
+# fence kinds, table pipes, setext underlines and thematic breaks (including "___"). A
+# changed prefix, or a line made blank or filled, can turn an indented code line or a
+# fenced one into a paragraph. The text after the prefix matters too (G3): a fence line
+# with nothing after it is a closer, and a "<" or "[" right after the prefix opens an
+# HTML block or a link definition only there.
+_BLOCK_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+>|=_]|#{1,6}|\d{1,9}[.)]|~{3,}|`{3,})[ \t]*)*")
 # Tokens split only at these: any other separator (U+001F, a hair space) stays inside.
 _SEPARATORS = re.compile(r"[ \t\n]+")
 _LEAD = "`'\"(*"  # stripped from a token's start: quotes, backticks, parens, emphasis
@@ -280,12 +283,25 @@ def _new_brackets(old: str, new: str) -> bool:
     return any(span not in old for span in _bracket_spans(new))
 
 
-def _skeleton(text: str) -> tuple[list[str], list[tuple[bool, str]]]:
+def _line_shape(line: str) -> tuple[bool, str, bool, bool, bool]:
+    """Whether the line is blank, its block prefix (indentation, list, quote, heading,
+    fence and break marks), and for the text after the prefix whether it is blank and
+    whether it starts with ``<`` or with ``[``."""
+    prefix = _BLOCK_PREFIX.match(line).group()
+    rest = line[len(prefix) :]
+    return (
+        line.strip() == "",
+        prefix,
+        rest.strip() == "",
+        rest.startswith("<"),
+        rest.startswith("["),
+    )
+
+
+def _skeleton(text: str) -> tuple[list[str], list[tuple[bool, str, bool, bool, bool]]]:
     """The runs of markup characters in order (``[docs](x)`` is ``["[", "](", ")"]``,
-    ``[docs]: x`` is ``["[", "]:"]``) and, per line, whether it is blank and its block
-    prefix (indentation, list, quote, heading and fence marks)."""
-    lines = [(line.strip() == "", _BLOCK_PREFIX.match(line).group()) for line in text.split("\n")]
-    return _MARKUP_RUN.findall(text), lines
+    ``[docs]: x`` is ``["[", "]:"]``) and the shape of every line (``_line_shape``)."""
+    return _MARKUP_RUN.findall(text), [_line_shape(line) for line in text.split("\n")]
 
 
 def _whole(token: str, text: str) -> bool:
@@ -317,12 +333,15 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     3. a different number of lines than ``old``;
     4. a character that is not printable ASCII or ``\\n`` (non-ASCII, zero-width,
        bidi, control, or a line break such as U+2028) unless ``old`` has it;
-    5. a different markdown skeleton (rulings G0 and G2(a)): the runs of the characters
-       ``[ ] ( ) < > \\ ` !`` plus a ``:`` right after ``]`` in order (which constructs
-       there are, and which of their characters touch), and for each line whether it
-       is blank and its block prefix (indentation, list markers and their width,
-       ordered-list numbers, ``>``, ``#``, tilde and backtick fences, ``|`` and ``=``)
-       must equal ``old``'s; only the text after them may change;
+    5. a different markdown skeleton (rulings G0, G2(a) and G3): the runs of the
+       characters ``[ ] ( ) < > \\ ` !`` plus a ``:`` right after ``]`` in order (which
+       constructs there are, and which of their characters touch), and for each line
+       whether it is blank, its block prefix (indentation, list markers and their
+       width, ordered-list numbers, ``>``, ``#``, tilde and backtick fences, ``|``,
+       ``=`` and ``_``), and for the text after the prefix whether it is blank and
+       whether it starts with ``<`` or with ``[`` must equal ``old``'s; only the text
+       after the prefix may change, and not from or into nothing, an HTML block start
+       or a link definition;
     6. a URL (``scheme://...``, ``www....``) or a markdown link, image, reference or
        definition, ``<scheme:...>`` autolink or HTML ``<a>``/``<img>`` that ``old``
        does not have verbatim (U1: one copied unchanged may stay); and any bracket
