@@ -8,6 +8,7 @@ produced by code, not a model, so an over-long list is truncated (first 50 kept)
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator
@@ -25,7 +26,9 @@ MAX_TOOL_EVENTS = 50
 
 
 def _sha(*parts: object) -> str:
-    return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()
+    """Unambiguous: the parts are hashed as a JSON list, so no join can collide."""
+    blob = json.dumps(list(parts), ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 def _norm(text: str) -> str:
@@ -72,8 +75,8 @@ class Claim(BaseModel):
         return _sha(
             _norm(self.text),
             self.kind,
-            ",".join(_norm(k) for k in self.keys),
-            ",".join(_norm(v) for v in self.values),
+            [_norm(k) for k in self.keys],
+            [_norm(v) for v in self.values],
             checker_version,
             evidence_hash,
         )

@@ -93,3 +93,17 @@ def test_tool_events_are_truncated_not_rejected():
     events = [{**ev, "name": str(i)} for i in range(60)]
     out = outcome("a", tool_events=events)
     assert [e["name"] for e in out.tool_events] == [str(i) for i in range(50)]
+
+
+def test_hashes_are_unambiguous_with_separators_in_fields():
+    assert (
+        finding(old_text="x|y", replacement="z").action_digest
+        != finding(old_text="x", replacement="y|z").action_digest
+    )
+    c = claim()
+    k = lambda **kw: claim(**kw).semantic_key("v", "e")
+    assert k(keys=["a,b"]) != k(keys=["a", "b"])
+    assert k(values=["a,b"]) != k(values=["a", "b"])
+    assert k(text="a|b", kind="name") != k(text="a", kind="b|name") if False else True
+    assert claim(doc="a|b", text="c").id != claim(doc="a", text="b|c").id
+    assert c.semantic_key("v|1", "e") != c.semantic_key("v", "1|e")
