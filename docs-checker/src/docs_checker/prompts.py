@@ -229,9 +229,14 @@ _DISGUISE = re.compile(
     r"|@[\w.-]*"  # mentions (and a digest's @)
     r"|<!--"  # HTML comments
 )
+# The markdown skeleton (ruling G0): runs of these characters, in order, must match old's,
+# so no link, image, reference, code span, escape, fence or tag is added, dropped or
+# reshaped. Runs, not single characters: "[docs] (x)" is not the link "[docs](x)".
+_MARKUP_RUN = re.compile(r"[\[\]()<>\\`!]+")
 # Brackets: shortcut ([x]) and reference ([x][y]) links resolve against a [x]: definition
-# anywhere in the doc, so no bracket construct may be new.
-_BRACKET_MARKS = ("[", "]", "](", "]:")
+# anywhere in the doc. The skeleton fixes "[", "]" and "]("; a "]:" takes a ":", which is
+# not markup (and inside a "> " quote a definition is not one _LINK sees).
+_DEFINITION = "]:"
 # Tokens split only at these: any other separator (U+001F, a hair space) stays inside.
 _SEPARATORS = re.compile(r"[ \t\n]+")
 _LEAD = "`'\"(*"  # stripped from a token's start: quotes, backticks, parens, emphasis
@@ -267,11 +272,18 @@ def _bracket_spans(text: str) -> list[str]:
 
 
 def _new_brackets(old: str, new: str) -> bool:
-    """``new`` has more ``[``, ``]``, ``](`` or ``]:`` than ``old``, or a bracketed
-    span ``old`` does not have verbatim."""
-    return any(new.count(mark) > old.count(mark) for mark in _BRACKET_MARKS) or any(
+    """``new`` has more ``]:`` than ``old``, or a bracketed span ``old`` does not have
+    verbatim (a link's text or a reference swapped while the skeleton stays)."""
+    return new.count(_DEFINITION) > old.count(_DEFINITION) or any(
         span not in old for span in _bracket_spans(new)
     )
+
+
+def _skeleton(text: str) -> tuple[list[str], list[str]]:
+    """The runs of markup characters in order (``[docs](x)`` is ``["[", "](", ")"]``)
+    and each line's leading whitespace (an indent can make code, or end it)."""
+    indents = [line[: len(line) - len(line.lstrip())] for line in text.split("\n")]
+    return _MARKUP_RUN.findall(text), indents
 
 
 def _whole(token: str, text: str) -> bool:
@@ -303,16 +315,20 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     3. a different number of lines than ``old``;
     4. a character that is not printable ASCII or ``\\n`` (non-ASCII, zero-width,
        bidi, control, or a line break such as U+2028) unless ``old`` has it;
-    5. a URL (``scheme://...``, ``www....``) or a markdown link, image, reference or
+    5. a different markdown skeleton (ruling G0): the runs of the characters
+       ``[ ] ( ) < > \\ ` !`` in order (which constructs there are, and which of their
+       characters touch) and each line's leading whitespace must equal ``old``'s; only
+       the text between them may change;
+    6. a URL (``scheme://...``, ``www....``) or a markdown link, image, reference or
        definition, ``<scheme:...>`` autolink or HTML ``<a>``/``<img>`` that ``old``
        does not have verbatim (U1: one copied unchanged may stay); and any bracket
        construct ``old`` lacks: every balanced ``[...]`` span (nested ones and ones
        across lines too) must occur verbatim in ``old``, and ``new`` may not have more
-       ``[``, ``]``, ``](`` or ``]:`` than ``old`` (a shortcut link ``[x]`` resolves
-       against a ``[x]: url`` definition anywhere in the doc);
-    6. an HTML entity (``&colon;``, ``&#58;``), a backslash escape, an ``@`` mention
+       ``]:`` than ``old`` (a shortcut link ``[x]`` resolves against a ``[x]: url``
+       definition anywhere in the doc);
+    7. an HTML entity (``&colon;``, ``&#58;``), a backslash escape, an ``@`` mention
        or ``<!--`` unless ``old`` has that same substring;
-    7. a token from nowhere. Tokens are separated by spaces, tabs and newlines only
+    8. a token from nowhere. Tokens are separated by spaces, tabs and newlines only
        (any other separator, such as U+001F or a hair space, stays inside the token
        and makes it unknown unless ``old`` has it the same way), with only quotes,
        backticks, parens and ``*`` stripped from the start and those plus sentence
@@ -337,6 +353,8 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     if new.count("\n") != old.count("\n"):
         return None
     if any(_foreign(char) and char not in old for char in set(new)):
+        return None
+    if _skeleton(new) != _skeleton(old):
         return None
     if not _urls(new) <= _urls(old) or not _links(new) <= _links(old):
         return None

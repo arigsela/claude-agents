@@ -258,11 +258,14 @@ def test_a_url_or_link_from_the_evidence_is_rejected_too():
         # (c) Link text across a line break.
         ("Vault [ ]( 0.30.1\n//evil.example/x two",
          "Vault [ see\ndocs ]( //evil.example/x ) 0.31.0", EVIDENCE),
-        # Each span verbatim in the old line, but one more of them: only the counts stop it.
+        # Each span verbatim in the old line, but one more of them: the skeleton stops it.
         ("See [docs] for 0.30.1.", "See [docs] for 0.31.0, and [docs].", EVIDENCE),
+        # Same skeleton, valid tokens, but the shortcut now names another definition:
+        # only the span rule stops it.
+        ("See [ docs ] for 0.30.1 guide.", "See [ guide ] for 0.31.0 docs.", EVIDENCE),
     ],
     ids=["shortcut-ref-evidence-brackets", "shortcut-ref-checkbox", "definition",
-         "nested-brackets", "multiline-link-text", "repeated-span"],
+         "nested-brackets", "multiline-link-text", "repeated-span", "shortcut-text-swap"],
 )  # fmt: skip
 def test_a_bracket_span_the_old_line_lacks_is_rejected(old, new, evidence):
     assert validate_replacement(old, new, evidence) is None
@@ -290,6 +293,54 @@ def test_an_invisible_separator_in_the_old_line_does_not_split_a_token(sep):
     # A token that keeps the separator exactly as the old line has it is still fine.
     kept = f"Vault{sep} runs chart 0.31.0 (or 0.30.0 / 0.29.x) see base-apps/ and /values.yaml."
     assert validate_replacement(old, kept, EVIDENCE) == kept
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("The `[docs]` section pins chart 0.30.1.", "The [docs] section pins chart 0.31.0."),
+        ("The \\[docs] section pins chart 0.30.1.", "The [docs] section pins chart 0.31.0."),
+        ("Chart 0.30.1, see [docs](notes).", "Chart 0.31.0, see [docs]."),
+        ("Chart 0.30.1, see [docs](notes).", "Chart 0.31.0, see [docs] (notes)."),
+        ("Chart 0.30.1, see [docs][1].", "Chart 0.31.0, see [docs]."),
+        ("Chart 0.30.1 ![logo](logo.png)", "Chart 0.31.0 ![logo]"),
+        ("    [docs] pins chart 0.30.1.", "[docs] pins chart 0.31.0."),
+        ("```\n[docs] pins chart 0.30.1.\n```", "Note:\n[docs] pins chart 0.31.0.\nDone."),
+        ("  - a 0.30.1\n    b", "  - a 0.31.0\n  b"),
+        # A "]:" the skeleton keeps: inside a quote it is a definition _LINK misses.
+        ("> [docs] guide for 0.30.1", "> [docs]: guide 0.31.0"),
+    ],
+    ids=[
+        "code-span-removed", "escape-removed", "link-destination-dropped",
+        "link-destination-split-off", "full-reference-made-shortcut", "image-destination-dropped",
+        "indented-code-made-paragraph", "fence-lines-replaced", "continuation-indent-changed",
+        "quoted-definition",
+    ],
+)  # fmt: skip
+def test_a_changed_markdown_skeleton_is_rejected(old, new):
+    """Ruling G0: a span kept verbatim but moved into a new markdown context becomes a
+    live shortcut link to a hidden "[docs]: https://evil..." definition elsewhere."""
+    assert validate_replacement(old, new, EVIDENCE) is None
+
+
+def test_a_bracket_inside_a_code_span_cannot_re_pair_a_link():
+    old = "Vault 0.30.1 [ a `]` x ] ]( //evil.example/x"
+    new = "Vault [ a `]` b ]( //evil.example/x ) 0.31.0"
+    assert validate_replacement(old, new, EVIDENCE) is None
+
+
+def test_the_skeleton_allows_fixes_that_keep_it():
+    plain = "Vault runs chart version 0.30.1 in namespace vault."
+    assert validate_replacement(plain, plain.replace("0.30.1", "0.31.0"), EVIDENCE) == (
+        plain.replace("0.30.1", "0.31.0")
+    )
+    linked = "  - Chart 0.30.1, see [docs](https://x.example/n) and `vault`."
+    fixed = linked.replace("0.30.1", "0.31.0")
+    assert validate_replacement(linked, fixed, EVIDENCE) == fixed
+    # A version inside a link's text keeps the skeleton but still gets no fix: the
+    # link is no longer the old one verbatim (U1) and neither is its [...] span.
+    in_text = "See [vault 0.30.1](https://x.example/n)."
+    assert validate_replacement(in_text, in_text.replace("0.30.1", "0.31.0"), EVIDENCE) is None
 
 
 def _swap(path: str) -> str:
