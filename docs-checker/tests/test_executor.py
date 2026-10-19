@@ -749,3 +749,24 @@ def test_request_json_numbers_come_back_as_ints():
     assert isinstance(request_data(message)["memory"]["run"], int)
     assert request_data(a2a_message("check all")) is None
     assert json.dumps(request_data(message))  # plain JSON
+
+
+async def test_text_that_starts_like_check_but_is_not_the_strict_form_goes_to_intake(docs_repo):
+    """The kagent UI's "check the base-apps/redis/docs.md please": the intake model reads
+    it, instead of the strict form refusing "the ... please" as a path."""
+    repo, commit = docs_repo
+    models = docs_models(intake=intake_model(all_docs=False, paths=[REDIS_DOC]))
+    message = a2a_message(f"check the {REDIS_DOC} please")
+    queue = await send(docs_executor(repo, commit, models=models), message)
+    assert queue.states()[-1] == a2a_pb2.TaskState.TASK_STATE_COMPLETED
+    assert extracted_docs(models) == [REDIS_DOC]
+    assert len(models.get("intake").calls) == 1
+
+
+async def test_a_data_part_is_still_held_to_its_form(docs_repo):
+    repo, commit = docs_repo
+    models = docs_models(intake=intake_model(all_docs=True))
+    message = a2a_message(f"check the {REDIS_DOC} please", {"scope": ["../secrets.md"]})
+    queue = await send(docs_executor(repo, commit, models=models), message)
+    assert failed_reason(queue).startswith("docs-checker failed: the request could not be read")
+    assert models.get("intake").calls == []

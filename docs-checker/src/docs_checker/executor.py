@@ -3,8 +3,8 @@
 The executor speaks A2A v1 protobuf types (a2a-sdk 1.x, ``lf.a2a.v1``).
 
 In: the request is the message's data part ``{"scope", "ref", "mode", "memory"}``
-when it has one, else its text (``request.parse_request``); text that is not a
-``check ...`` request goes to the graph's intake model. A request that cannot be
+when it has one, else its text (``request.parse_request``); text that is not a strict
+``check ...`` request goes to the graph's intake model. A data part that cannot be
 read fails the task before any call. The run budget follows the scope
 (``graph.budget_limit``), and ``memory`` is loaded into the run's store (honoured
 in scheduled mode only). A HITL reply resumes the paused task instead.
@@ -343,12 +343,16 @@ class DocsCheckerExecutor(AgentExecutor):
         """A new request: the graph's input, with the run's budget and memory set."""
         settings = self._settings
         text = context.get_user_input()
+        data = request_data(context.message)
+        structured = data is not None and (not isinstance(data, dict) or "scope" in data)
         try:
-            request = parse_request(
-                text, request_data(context.message), max_paths=settings.max_docs
-            )
+            request = parse_request(text, data, max_paths=settings.max_docs)
         except ValueError as error:
-            raise UnreadableRequest(str(error)) from error
+            if structured:  # a data part is held to its form
+                raise UnreadableRequest(str(error)) from error
+            # Text that starts like "check ..." but is not the strict form ("check the
+            # vault docs please"): the graph's intake model reads it.
+            request = None
         if request is None:
             # Free text: the intake call runs on one doc's budget, and intake sets the
             # budget of the scope it reads (interactive, so no memory).

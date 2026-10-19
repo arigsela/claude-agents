@@ -93,6 +93,10 @@ class Settings:
     run_budget_all_usd: float = 1.00
     run_budget_doc_usd: float = 0.10
     max_calls_per_doc: int = 12
+    # Where this process listens, as "host:port"; empty means the runtime port on every
+    # interface and the probe port. docs_checker.front runs the server on loopback.
+    listen_a2a: str = ""
+    listen_ready: str = ""
     concurrency: int = 4
     http_timeout_s: float = 60.0
     tool_timeout_s: float = 30.0
@@ -262,6 +266,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         # Absent selects the listener default; the BYO compiler always sends 80.
         a2a_port=int(runtime.get("port") or DEFAULT_A2A_PORT),
         ready_port=READY_PORT,
+        listen_a2a=env.get("DOCS_CHECKER_LISTEN_A2A", ""),
+        listen_ready=env.get("DOCS_CHECKER_LISTEN_READY", ""),
         kagent_api_url=runtime.get("control_plane_url") or "",
         template_model=model.get("model") or "",
         prompt_caching=prompt_caching,

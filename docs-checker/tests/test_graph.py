@@ -1335,3 +1335,19 @@ async def test_parallel_asks_resume_the_right_branch(fixture_repo):
     (vault,) = findings_of(done, VAULT_DOC)
     assert runbook_stale.replacement == VAULT_FIXED and runbook_stale.fix_withheld is None
     assert vault.replacement == "" and "rejected" in vault.fix_withheld
+
+
+async def test_text_that_starts_like_check_goes_through_intake(fixture_repo):
+    repo, commit = fixture_repo
+    h = Harness(repo, commit, intake=intake_model(all_docs=False, paths=[REDIS_DOC]))
+    result = await h.run(text=f"check the {REDIS_DOC} please")
+    assert sorted(result["outcomes"]) == [REDIS_DOC]
+    assert [e.node for e in h.ledger.entries][:2] == ["intake", "extract"]
+
+
+async def test_a_path_the_intake_model_returns_is_validated_like_the_strict_form(fixture_repo):
+    repo, commit = fixture_repo
+    h = Harness(repo, commit, intake=intake_model(all_docs=False, paths=["../secrets.md"]))
+    result = await h.run(text="check the ../secrets.md file please")
+    assert result["outcome"] == "refused"
+    assert "not a normalized repo-relative path" in result["report"]

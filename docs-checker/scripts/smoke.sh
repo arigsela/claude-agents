@@ -199,13 +199,15 @@ dk logs "$sidecar" 2>&1 | grep '^ok: '
 agent_logs="$(dk logs "$agent" 2>&1)" || fail "docker logs of the agent failed"
 # A Substrate sandbox keeps only stdout, and its /data (mounted above) is root-owned.
 agent_stdout="$(dk logs "$agent" 2>/dev/null)" || fail "docker logs of the agent failed"
-for said in "docs-checker: starting" "startup +" "checkpoints stay in memory for this process"; do
+for said in "docs-checker front: starting" "golden boot: False" "the server is ready after" \
+  "docs-checker: starting" "startup +" "checkpoints stay in memory for this process"; do
   case "$agent_stdout" in
     *"$said"*) ;;
     *) fail "the agent's stdout lacks '${said}' (a sandbox would show nothing)" ;;
   esac
 done
 echo "ok: the agent logs its startup on stdout, and serves with a root-owned /data"
+echo "ok: a session boot (atespace kagent): the front answered /readyz at once and held the task until the server was up"
 replay="$(printf '%s\n' "$agent_logs" |
   sed -n 's/.*\(model replay is active: every response comes from [^;]*\).*/\1/p')"
 replay="${replay%%$'\n'*}"

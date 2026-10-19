@@ -38,3 +38,7 @@ def main() -> None:
         raise SystemExit(1) from None
     print(f"docs-checker: imports done in {time.monotonic() - started:.1f}s", flush=True)
     server.main()
+
+
+if __name__ == "__main__":
+    main()

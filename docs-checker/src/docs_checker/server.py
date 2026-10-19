@@ -350,6 +350,15 @@ async def _open_checkpoints(stack: AsyncExitStack, settings: Settings) -> tuple[
     return opened
 
 
+def listen_ready(settings: Settings) -> tuple[str | None, int]:
+    """Where /readyz listens: ``settings.listen_ready`` ("host:port", set by
+    ``docs_checker.front``), else the probe port on every interface."""
+    if not settings.listen_ready:
+        return None, settings.ready_port
+    host, _, port = settings.listen_ready.rpartition(":")
+    return host or None, int(port)
+
+
 async def serve(settings: Settings | None = None) -> None:
     started = time.monotonic()
 
@@ -364,10 +373,12 @@ async def serve(settings: Settings | None = None) -> None:
     async with open_executor(settings) as executor:
         phase("executor ready")
         handler, controller = build_request_handler(settings, executor, card)
+        ready_host, ready_port = listen_ready(settings)
         running = await start(
             handler,
-            a2a_address=f"[::]:{settings.a2a_port}",
-            ready_port=settings.ready_port,
+            a2a_address=settings.listen_a2a or f"[::]:{settings.a2a_port}",
+            ready_port=ready_port,
+            ready_host=ready_host,
             controller=controller,
         )
         phase("serving")

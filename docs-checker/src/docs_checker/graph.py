@@ -275,6 +275,11 @@ async def intake(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         text = state.get("text") or ""
         try:
             request = parse_request(text, None, max_paths=deps.settings.max_docs)
+        except ValueError:
+            # It starts like the strict form but is not it ("check the vault docs.md
+            # please"): the intake model reads it, and its paths are validated the same way.
+            request = None
+        try:
             if request is None:
                 classified = await classify_intake(text, deps)
                 if classified == "off_topic":
