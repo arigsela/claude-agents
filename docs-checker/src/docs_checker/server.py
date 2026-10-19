@@ -44,6 +44,7 @@ from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.executor import DocsCheckerExecutor
 from docs_checker.gate import RecordingGate
+from docs_checker.llm import request_id_hook
 from docs_checker.models import AnthropicModels
 
 logger = logging.getLogger(__name__)
@@ -253,7 +254,13 @@ def build_executor(
     return DocsCheckerExecutor(
         graph=graph,
         settings=settings,
-        models=models or AnthropicModels(settings.node_models),
+        models=models
+        or AnthropicModels(
+            settings.node_models,
+            settings.levers,
+            http_timeout_s=settings.http_timeout_s,
+            on_response=request_id_hook,
+        ),
         tools=tools or default_tools,
         gate=gate or RecordingGate(),
     )

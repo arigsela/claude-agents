@@ -111,17 +111,19 @@ def test_local_defaults():
     assert not settings.under_kagent
     assert (settings.agent_name, settings.namespace) == ("docs-checker", "kagent")
     assert settings.a2a_port == 80
-    assert settings.recursion_limit == 12  # never LangGraph's 10007 default
-    assert settings.node_models["router"].model == "claude-haiku-5-5"
-    assert settings.node_models["planner"].model == "claude-sonnet-5-5"
+    assert settings.recursion_limit == 80  # never LangGraph's 10007 default
+    assert settings.node_models["intake"].model == "claude-haiku-5-5"
+    assert settings.node_models["judge_escalate"].model == "claude-sonnet-5-5"
+    assert settings.data_dir == "/data/docs-checker"
+    assert settings.checkpoint_db == "/data/docs-checker/checkpoints.sqlite"
 
 
 def test_node_models_are_overridable_by_literal_env():
     settings = load_settings(
-        {"DOCS_CHECKER_PLANNER_MODEL": "claude-opus-5-5", "DOCS_CHECKER_PLANNER_EFFORT": "high"}
+        {"DOCS_CHECKER_JUDGE_MODEL": "claude-sonnet-5-5", "DOCS_CHECKER_JUDGE_EFFORT": "high"}
     )
-    assert (settings.node_models["planner"].model, settings.node_models["planner"].effort) == (
-        "claude-opus-5-5",
+    assert (settings.node_models["judge"].model, settings.node_models["judge"].effort) == (
+        "claude-sonnet-5-5",
         "high",
     )
 

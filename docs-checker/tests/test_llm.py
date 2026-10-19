@@ -95,7 +95,10 @@ def test_the_sdk_does_not_retry_underneath():
     from docs_checker.config import load_settings
     from docs_checker.models import AnthropicModels
 
-    model = AnthropicModels(load_settings({}).node_models).get("router")
+    settings = load_settings({})
+    model = AnthropicModels(
+        settings.node_models, settings.levers, http_timeout_s=settings.http_timeout_s
+    ).get("intake")
     assert model.max_retries == 0
 
 

@@ -27,6 +27,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from docs_checker.levers import Levers, parse_levers
+
 # The A2A gRPC port the gateway dials (fixed by the BYO contract) and the
 # readiness port Substrate probes. Neither is configurable upstream.
 DEFAULT_A2A_PORT = 80
@@ -35,13 +37,20 @@ READY_PORT = 8081
 _ENV_REF = re.compile(r"__KAGENT_ENV\[([A-Z0-9_]+)\]__")
 
 # Nodes that call a model. Per-node model and effort are lever 6.
-NODES = ("router", "planner", "specialist", "responder")
+NODES = ("intake", "extract", "judge", "judge_escalate", "fix", "report")
 
+HAIKU = "claude-haiku-5-5"
+SONNET = "claude-sonnet-5-5"
+
+# node -> (model with right_size on, effort, max_tokens). With right_size off every
+# node defaults to Sonnet. A DOCS_CHECKER_<NODE>_MODEL value still wins.
 _DEFAULT_NODE_MODELS = {
-    "router": ("claude-haiku-5-5", "low", 1024),
-    "planner": ("claude-sonnet-5-5", "medium", 4096),
-    "specialist": ("claude-sonnet-5-5", "medium", 8192),
-    "responder": ("claude-haiku-5-5", "low", 4096),
+    "intake": (HAIKU, "low", 1024),
+    "extract": (HAIKU, "low", 4096),
+    "judge": (HAIKU, "low", 2048),
+    "judge_escalate": (SONNET, "medium", 2048),
+    "fix": (HAIKU, "low", 2048),
+    "report": (HAIKU, "low", 2048),
 }
 
 
@@ -78,6 +87,26 @@ class Settings:
     rate_card_version: str
     # The one repository the repo tools may read (owner/name).
     repo: str = "arigsela/kubernetes"
+    levers: Levers = field(default_factory=Levers.all_on)
+    # Run budget: $1.00 for a whole-repo run, $0.10 for a single doc.
+    run_budget_all_usd: float = 1.00
+    run_budget_doc_usd: float = 0.10
+    max_calls_per_doc: int = 12
+    concurrency: int = 4
+    http_timeout_s: float = 60.0
+    tool_timeout_s: float = 30.0
+    run_timeout_s: float = 900.0
+    # Discovery and search bounds.
+    max_docs: int = 80
+    max_dir_files: int = 50
+    max_file_bytes: int = 262144
+    max_line_chars: int = 2000
+    max_claims_per_doc: int = 25
+    max_searches: int = 20
+    search_interval_s: float = 6.0
+    # kagent alpha14 snapshots persist only /data between turns.
+    data_dir: str = "/data/docs-checker"
+    checkpoint_db: str = "/data/docs-checker/checkpoints.sqlite"
 
     @property
     def under_kagent(self) -> bool:
@@ -154,10 +183,12 @@ def parse_mcp_servers(agent: dict, env: Mapping[str, str]) -> tuple[McpServer, .
     return tuple(servers)
 
 
-def _node_models(env: Mapping[str, str]) -> dict[str, NodeModel]:
+def _node_models(env: Mapping[str, str], levers: Levers) -> dict[str, NodeModel]:
     result = {}
     for node, (model, effort, max_tokens) in _DEFAULT_NODE_MODELS.items():
         key = node.upper()
+        if not levers.right_size:
+            model = SONNET
         result[node] = NodeModel(
             model=env.get(f"DOCS_CHECKER_{key}_MODEL", model),
             effort=env.get(f"DOCS_CHECKER_{key}_EFFORT", effort),
@@ -183,11 +214,17 @@ def _repo(value: str) -> str:
     return f"{owner}/{name}"
 
 
+def _num(env: Mapping[str, str], name: str, default: float) -> float:
+    return float(env.get(f"DOCS_CHECKER_{name}", default))
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
     runtime, agent = _adk_config(env)
     model = agent.get("model") or {}
     prompt_caching, cache_ttl = _prompt_cache(model)
+    levers = parse_levers(env.get("DOCS_CHECKER_LEVERS", "all"))
+    data_dir = env.get("DOCS_CHECKER_DATA_DIR", "/data/docs-checker")
 
     return Settings(
         agent_name=runtime.get("name") or "docs-checker",
@@ -200,10 +237,27 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         prompt_caching=prompt_caching,
         cache_ttl=cache_ttl,
         mcp_servers=parse_mcp_servers(agent, env),
-        node_models=_node_models(env),
-        # LangGraph 1.2's default recursion limit is 10007; a small explicit limit
-        # is the circuit breaker (lever 5).
-        recursion_limit=int(env.get("DOCS_CHECKER_RECURSION_LIMIT", "12")),
+        node_models=_node_models(env, levers),
+        # LangGraph 1.2's default recursion limit is 10007; an explicit limit is
+        # the circuit breaker.
+        recursion_limit=int(env.get("DOCS_CHECKER_RECURSION_LIMIT", "80")),
         rate_card_version=_rate_card(env.get("DOCS_CHECKER_RATE_CARD", "anthropic-2026-10-18")),
         repo=_repo(env.get("DOCS_CHECKER_REPO", "arigsela/kubernetes")),
+        levers=levers,
+        run_budget_all_usd=_num(env, "RUN_BUDGET_ALL_USD", 1.00),
+        run_budget_doc_usd=_num(env, "RUN_BUDGET_DOC_USD", 0.10),
+        max_calls_per_doc=int(_num(env, "MAX_CALLS_PER_DOC", 12)),
+        concurrency=int(_num(env, "CONCURRENCY", 4)),
+        http_timeout_s=_num(env, "HTTP_TIMEOUT_S", 60.0),
+        tool_timeout_s=_num(env, "TOOL_TIMEOUT_S", 30.0),
+        run_timeout_s=_num(env, "RUN_TIMEOUT_S", 900.0),
+        max_docs=int(_num(env, "MAX_DOCS", 80)),
+        max_dir_files=int(_num(env, "MAX_DIR_FILES", 50)),
+        max_file_bytes=int(_num(env, "MAX_FILE_BYTES", 262144)),
+        max_line_chars=int(_num(env, "MAX_LINE_CHARS", 2000)),
+        max_claims_per_doc=int(_num(env, "MAX_CLAIMS_PER_DOC", 25)),
+        max_searches=int(_num(env, "MAX_SEARCHES", 20)),
+        search_interval_s=_num(env, "SEARCH_INTERVAL_S", 6.0),
+        data_dir=data_dir,
+        checkpoint_db=env.get("DOCS_CHECKER_CHECKPOINT_DB") or f"{data_dir}/checkpoints.sqlite",
     )

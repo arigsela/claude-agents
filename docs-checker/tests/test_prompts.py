@@ -16,7 +16,10 @@ from tests.fakes import FAKE_BINDINGS, fake_tools_by_server
 
 
 def payload(node: str, messages, tools=None):
-    model = AnthropicModels(load_settings({}).node_models).get(node)
+    settings = load_settings({})
+    model = AnthropicModels(
+        settings.node_models, settings.levers, http_timeout_s=settings.http_timeout_s
+    ).get(node)
     if tools:
         model = model.bind_tools(tools)
         return model.bound._get_request_payload(messages, **model.kwargs)
@@ -26,8 +29,8 @@ def payload(node: str, messages, tools=None):
 def test_the_system_prompt_is_a_cached_frozen_prefix():
     system = prompts.AGENT_DESCRIPTION
     question = [HumanMessage("check base-apps/vault/docs.md")]
-    first = payload("router", [prompts.system_message(system, cache=True), *question])
-    second = payload("router", [prompts.system_message(system, cache=True), *question])
+    first = payload("intake", [prompts.system_message(system, cache=True), *question])
+    second = payload("intake", [prompts.system_message(system, cache=True), *question])
 
     assert first["system"] == second["system"]  # byte-identical across runs
     assert first["system"][-1]["cache_control"] == {"type": "ephemeral"}
@@ -38,7 +41,7 @@ def test_the_system_prompt_is_a_cached_frozen_prefix():
 def test_specialist_tools_are_sent_sorted_and_scoped():
     belt = ToolBelt(fake_tools_by_server(), RecordingGate(), bindings=FAKE_BINDINGS)
     sent = payload(
-        "specialist",
+        "judge_escalate",
         [prompts.system_message(prompts.AGENT_DESCRIPTION, cache=True), HumanMessage("q")],
         tools=belt.tools_for("docs"),
     )
