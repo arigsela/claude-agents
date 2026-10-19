@@ -17,7 +17,10 @@ Out, for a completed task, every part redacted on its way out:
   as far as a report, ``docs-checker/slack`` and ``docs-checker/report``;
 - each tool call as a data part tagged ``kagent.dev/a2a/part-type: function_call``
   followed by its ``function_response`` (the eval gate's ``expect_tools`` and
-  ``forbid_tools`` read these);
+  ``forbid_tools`` read these), at most ``MAX_TOOL_EVENT_PARTS`` pairs in doc order
+  (a doc keeps up to 50 events; a whole-repo run would otherwise publish thousands,
+  M10), then ``docs-checker/tool-events`` with every doc's count and how many pairs
+  were published;
 - the run's ledger summary as data ``docs-checker/cost-run``, and token usage under
   the artifact metadata key ``kagent.dev/a2a/usage`` (the audit export reads
   ``totalTokenCount`` there).
@@ -75,6 +78,9 @@ FINDINGS_KEY = "docs-checker/findings"
 MEMORY_KEY = "docs-checker/memory"
 SLACK_KEY = "docs-checker/slack"
 REPORT_KEY = "docs-checker/report"
+TOOL_EVENTS_KEY = "docs-checker/tool-events"
+# Tool-event part pairs per completed artifact, in doc order (M10).
+MAX_TOOL_EVENT_PARTS = 200
 
 # The report's note when a resume lost the paused run's ledger (C#25).
 RESTART_NOTE = "cost after restart is a lower bound"
@@ -195,9 +201,14 @@ def completed_parts(
     if report_data is not None:
         parts.append(_data_part({SLACK_KEY: redact(slack_text(report_data))}))
         parts.append(_data_part({REPORT_KEY: redact_obj(report_data.model_dump(mode="json"))}))
+    per_doc = {doc: len(outcomes[doc].tool_events) for doc in sorted(outcomes)}
+    published = 0
     for doc in sorted(outcomes):
-        for event in outcomes[doc].tool_events:
+        for event in outcomes[doc].tool_events[: MAX_TOOL_EVENT_PARTS - published]:
             parts.extend(_tool_parts(event))
+            published += 1
+    counts = {"total": sum(per_doc.values()), "published": published, "per_doc": per_doc}
+    parts.append(_data_part({TOOL_EVENTS_KEY: counts}))
     parts.append(_data_part({LEDGER_KEY: summary.to_dict()}))
     return parts
 

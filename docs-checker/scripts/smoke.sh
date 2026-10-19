@@ -194,12 +194,15 @@ code="$(dk inspect -f '{{.State.ExitCode}}' "$sidecar")"
 [ "$code" = 0 ] || fail "the sidecar's checks failed (exit ${code})"
 dk logs "$sidecar" 2>&1 | grep '^ok: '
 
-replay="$(dk logs "$agent" 2>&1 |
-  sed -n 's/.*\(model replay is active: every response comes from [^;]*\).*/\1/p')" || true
+# The agent's logs, read once; a failed read is a failure, not an empty log.
+agent_logs="$(dk logs "$agent" 2>&1)" || fail "docker logs of the agent failed"
+replay="$(printf '%s\n' "$agent_logs" |
+  sed -n 's/.*\(model replay is active: every response comes from [^;]*\).*/\1/p')"
 replay="${replay%%$'\n'*}"
 [ -n "$replay" ] || fail "the agent did not log that model replay is active"
 echo "ok: the agent logged: ${replay}"
-replaced="$(dk logs "$agent" 2>&1 | grep -c 'already exists. Ignoring task replacement')" || true
+# grep -c prints 0 and exits 1 on no match: only that exit is masked.
+replaced="$(printf '%s\n' "$agent_logs" | grep -c 'already exists. Ignoring task replacement' || :)"
 [ "$replaced" = 0 ] || fail "the agent started the task twice (${replaced} task replacement errors)"
 echo "ok: the agent started the task once (no task replacement errors)"
 echo "smoke ok"

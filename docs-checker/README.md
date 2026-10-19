@@ -61,9 +61,13 @@ The executor (`executor.py`) runs the audit graph (`graph.py`): one A2A task is 
 and one cost ledger (`ledger.py`). A request is the message's data part
 `{"scope", "ref", "mode", "memory"}` or its text (`check all`, `check <path>[, <path>...]`,
 optionally `at <ref>`); the run budget follows the scope, and a turn longer than
-`run_timeout_s` fails as `timeout`. A completed task carries the report as text and the
+`run_timeout_s` fails as `timeout`. Before that, at three quarters of `run_timeout_s`, the
+graph starts no more docs or model calls, so a long run completes with the docs it checked
+and the rest `skipped-budget` with a time reason; it also starts no doc the remaining budget
+cannot pay a first call for. A completed task carries the report as text and the
 findings, the full memory snapshot, the Slack digest, the `Report`, one
-`function_call`/`function_response` pair per tool call and the ledger as data parts. The
+`function_call`/`function_response` pair per tool call (at most 200 pairs, in doc order,
+plus a `docs-checker/tool-events` count) and the ledger as data parts. The
 executor keeps a paused task's ledger and replay memo (`paused.py`) in the checkpoint db under
 `/data`, so a resume, even after a restart, reports its whole cost and does not pay for a model
 reply or run a tool twice; a resume that lost them says its cost is a lower bound.
@@ -77,6 +81,12 @@ what a model sees, and searches are capped and paced per run. The repository is 
 commit per run (`repo.py`): `resolve_commit` turns the ref into a sha at intake and every read
 names that sha; `evals/localrepo.py` serves the same tools, in the server's shapes, from a local
 clone for evals. Model calls go through the one retry owner (`llm.py`).
+
+Findings: a `stale` finding carries the corrected line when the fix gate allows it (a withheld
+fix still reports the finding, ruling F1). A `missing` finding (a front-matter source absent at
+the run's commit) is reported on the source's own line with a hint, "repoint or remove it",
+not a proposed replacement: a v1 deviation from the design's §4, which asks for a proposed fix
+(repoint or remove), because the gate has no rule yet for a fix that deletes a line.
 
 The A2A input and output tests (`tests/test_executor.py`, `tests/test_restart.py`) drive the
 audit graph; the pure-plumbing tests run against `tests/fake_graph.py`, a minimal graph with a
@@ -95,7 +105,7 @@ all, so the knobs below are optional:
 |---|---|---|
 | `DOCS_CHECKER_<NODE>_MODEL` | see `config.py` | Model per node |
 | `DOCS_CHECKER_<NODE>_EFFORT` | see `config.py` | `output_config.effort` per node |
-| `DOCS_CHECKER_RECURSION_LIMIT` | `12` | Graph circuit breaker (LangGraph's own default is 10007) |
+| `DOCS_CHECKER_RECURSION_LIMIT` | `80` | Graph circuit breaker (LangGraph's own default is 10007) |
 | `DOCS_CHECKER_RATE_CARD` | `anthropic-2026-10-18` | Rate card the ledger prices with |
 | `DOCS_CHECKER_REPO` | `arigsela/kubernetes` | The one repository the tools may read |
 | `DOCS_CHECKER_REPLAY_DIR` | unset | Test seam: every model response from the cassettes in this directory (replay only: nothing recorded or sent, a request with no recording fails its call; logged at startup). The smoke test uses it; never set it in a Harness |

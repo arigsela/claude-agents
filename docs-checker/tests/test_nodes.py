@@ -526,6 +526,13 @@ async def test_intake_off_topic_and_unreadable_answers_are_refused():
         assert len(model.calls) == 1
 
 
+async def test_an_inconsistent_intake_answer_is_off_topic():
+    # "audit" with neither all_docs nor a path names nothing to check: refused as
+    # off-topic rather than surfacing as a ValueError from parse_request (T10).
+    model = ScriptedModel([intake_reply("audit", all_docs=False, paths=())])
+    assert await classify_intake("check the docs", make_ctx(intake=model)) == "off_topic"
+
+
 async def test_intake_paths_are_validated_like_any_request():
     model = ScriptedModel([intake_reply(paths=["templates/x.md"])])
     with pytest.raises(ValueError, match="out of scope"):

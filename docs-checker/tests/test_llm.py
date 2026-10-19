@@ -224,15 +224,13 @@ async def test_the_replay_header_marks_the_call_replayed():
     assert ledger.budget.spent_usd == pytest.approx(HAIKU_COST)
 
 
-async def test_a_retried_error_keeps_its_request_id_and_its_reservation():
+async def test_a_retried_error_keeps_its_request_id_and_settles_to_nothing():
     chat, requests = chat_over(
         [
             httpx2.Response(529, headers={"request-id": "req_529"}, json=OVERLOADED),
             httpx2.Response(200, headers={"request-id": "req_200"}, json=message_body("ok")),
         ]
     )
-    messages = [HumanMessage("Is chart vault at 0.30.1?")]
-    each = reservation_for(HAIKU, prompt_chars(messages), 256, CARD)
     ledger = CostLedger("r", emit=False)
     await call(chat, ledger)
     assert len(requests) == 2
@@ -240,8 +238,10 @@ async def test_a_retried_error_keeps_its_request_id_and_its_reservation():
         ("error", "req_529"),
         ("ok", "req_200"),
     ]
-    # The failed attempt's usage is unknown, so its whole reservation stays spent.
-    assert ledger.budget.spent_usd == pytest.approx(each + HAIKU_COST)
+    # A 529 is a response: nothing was billed, so the failed attempt settles to $0 (M4)
+    # and the ledger entry's usage stays unknown.
+    assert ledger.entries[0].cost_usd is None
+    assert ledger.budget.spent_usd == pytest.approx(HAIKU_COST)
     assert ledger.budget.reserved_usd == 0.0
 
 
@@ -317,15 +317,34 @@ async def test_budget_exceeded_stops_before_the_call():
     assert model.calls == [] and ledger.entries == []
 
 
+class APIConnectionError(Exception):
+    """Named like the SDK's: no status code, no response, billing unknown."""
+
+
 async def test_a_retry_needs_its_own_reservation():
     messages = [HumanMessage("Is chart vault at 0.30.1?")]
     each = reservation_for(HAIKU, prompt_chars(messages), 256, CARD)
-    model = ScriptedModel([TransientError("overloaded"), reply("ok")])
+    model = ScriptedModel([APIConnectionError("reset"), reply("ok")])
     ledger = CostLedger("r", emit=False, budget=Budget(1.5 * each))
     with pytest.raises(BudgetExceeded):
         await call(model, ledger)
-    assert len(model.calls) == 1  # the failed attempt's reservation is kept as spent
+    assert len(model.calls) == 1  # a connection error: billing unknown, reservation kept
     assert ledger.budget.spent_usd == pytest.approx(each)
+
+
+async def test_an_error_with_an_http_status_settles_to_nothing_but_a_connection_error_not():
+    # M4: a 529/429 is a response the API did not bill, so its reservation is released;
+    # an error with no status may have reached the API, so the reservation stays spent.
+    messages = [HumanMessage("Is chart vault at 0.30.1?")]
+    each = reservation_for(HAIKU, prompt_chars(messages), 256, CARD)
+    ok_cost = (100 * 0.10 + 50 * 0.50) / 1_000_000  # the fake reply: 100 in, 50 out, Haiku
+    ledger = CostLedger("r", emit=False)
+    await call(ScriptedModel([TransientError("overloaded"), reply("ok")]), ledger)
+    assert ledger.budget.spent_usd == pytest.approx(ok_cost)
+    ledger = CostLedger("r", emit=False)
+    await call(ScriptedModel([APIConnectionError("reset"), reply("ok")]), ledger)
+    assert ledger.budget.spent_usd == pytest.approx(each + ok_cost)
+    assert ledger.budget.reserved_usd == 0.0
 
 
 async def test_a_call_without_usage_keeps_its_reservation_as_spent():

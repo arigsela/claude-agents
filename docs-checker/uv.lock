@@ -450,6 +450,7 @@ source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk", extra = ["grpc"] },
     { name = "aiosqlite" },
+    { name = "anthropic" },
     { name = "grpcio" },
     { name = "grpcio-health-checking" },
     { name = "httpx" },
@@ -470,6 +471,7 @@ dev = [
     { name = "fastapi" },
     { name = "kagent-core" },
     { name = "kagent-proto" },
+    { name = "protovalidate" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -484,6 +486,7 @@ kagent = [
 requires-dist = [
     { name = "a2a-sdk", extras = ["grpc"], specifier = ">=1.2.2,<2" },
     { name = "aiosqlite", specifier = ">=0.21" },
+    { name = "anthropic", specifier = ">=1.15.0,<2" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=25.0" },
     { name = "docs-checker", extras = ["kagent"], marker = "extra == 'dev'" },
     { name = "fastapi", marker = "extra == 'kagent'", specifier = ">=0.115.2" },
@@ -499,6 +502,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-sqlite", specifier = "==3.1.2" },
     { name = "linkify-it-py", specifier = "==2.2.0" },
     { name = "markdown-it-py", specifier = "==4.2.0" },
+    { name = "protovalidate", marker = "extra == 'dev'", specifier = ">=1.2.0" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0" },

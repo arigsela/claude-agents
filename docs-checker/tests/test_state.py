@@ -104,6 +104,5 @@ def test_hashes_are_unambiguous_with_separators_in_fields():
     k = lambda **kw: claim(**kw).semantic_key("v", "e")
     assert k(keys=["a,b"]) != k(keys=["a", "b"])
     assert k(values=["a,b"]) != k(values=["a", "b"])
-    assert k(text="a|b", kind="name") != k(text="a", kind="b|name") if False else True
     assert claim(doc="a|b", text="c").id != claim(doc="a", text="b|c").id
     assert c.semantic_key("v|1", "e") != c.semantic_key("v", "1|e")

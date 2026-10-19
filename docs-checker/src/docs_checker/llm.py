@@ -15,9 +15,13 @@ Every attempt also goes through the run budget and the request-id recorder:
   before any call is made. Callers pass ``overhead_chars`` for prompt parts the
   messages don't show (bound tool schemas, the output format). After the attempt
   it settles to the priced cost, or keeps the whole reservation when the cost is
-  unknown (an error, no usage), and logs a warning when the actual exceeded the
-  reservation. An attempt cancelled in flight is ledgered with unknown usage and
-  stays reserved: whether it was billed is unknown, so the run is not complete.
+  unknown (a reply with no usage, a connection or timeout error: the request may
+  have reached the API), and logs a warning when the actual exceeded the
+  reservation. An error that carries an HTTP status is a response the API did not
+  bill (a 529, a 429, a 400), so that attempt settles to $0 while its ledger entry
+  keeps its usage unknown (M4). An attempt cancelled in flight is ledgered with
+  unknown usage and stays reserved: whether it was billed is unknown, so the run
+  is not complete.
 - **Structured output (C#2).** ``with_structured_output(..., include_raw=True)``
   returns ``{"raw", "parsed", "parsing_error"}``. Usage is read from ``raw`` and
   the dict is returned unchanged; a parse failure is a result, not a retry.
@@ -185,7 +189,10 @@ async def call_model(
                     request_id=recorder.get("request_id"),
                     replayed=bool(recorder.get("replayed")),
                 )
-                ledger.budget.settle(reservation, None)  # usage unknown: stays spent
+                # A response with a status was not billed: release the reservation.
+                # No status (a connection or timeout error): billing unknown, it stays spent.
+                answered = isinstance(getattr(error, "status_code", None), int)
+                ledger.budget.settle(reservation, 0.0 if answered else None)
                 if attempt == budget.max_attempts or not is_retryable(error):
                     raise
                 continue

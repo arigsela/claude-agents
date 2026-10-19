@@ -13,6 +13,8 @@ dependencies = [
     "langgraph>=1.2.16,<2",
     "langchain-core>=1.6.12,<2",
     "langchain-anthropic>=1.7.6,<2",
+    # Imported directly (nodes.py: transform_schema), not only through langchain-anthropic.
+    "anthropic>=1.15.0,<2",
     "langchain-mcp-adapters>=0.3.2,<0.4",
     # The production checkpointer (AsyncSqliteSaver on the actor's /data disk), so a
     # paused run survives the snapshot between turns (ruling P5/A1).
@@ -59,6 +61,8 @@ dev = [
     "pytest-asyncio>=1.0",
     "black>=25.0",
     "ruff>=0.8",
+    # tests/test_config.py validates the ADKConfig against its proto constraints.
+    "protovalidate>=1.2.0",
 ]
 
 [project.scripts]

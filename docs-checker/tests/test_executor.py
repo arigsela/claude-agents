@@ -26,10 +26,12 @@ from docs_checker.evals.localrepo import local_repo_tools
 from docs_checker.executor import (
     FINDINGS_KEY,
     LEDGER_KEY,
+    MAX_TOOL_EVENT_PARTS,
     MEMORY_KEY,
     PART_TYPE_KEY,
     REPORT_KEY,
     SLACK_KEY,
+    TOOL_EVENTS_KEY,
     USAGE_KEY,
     completed_parts,
 )
@@ -144,6 +146,36 @@ def test_published_parts_are_redacted():
     blob = str(published)
     assert "AKIAABCDEFGHIJKLMNOP" not in blob and "hunter2hunter2" not in blob
     assert "[REDACTED]" in published[0]["text"]
+
+
+def test_tool_event_parts_are_capped_per_artifact_with_a_count():
+    # M10: 50 pairs per doc is fine for one doc; for a whole-repo run the artifact
+    # carries at most MAX_TOOL_EVENT_PARTS pairs in doc order, and a count part says
+    # what each doc had and how many pairs were published.
+    summary = CostLedger("r", "c", emit=False).summary("verified")
+    event = {
+        "name": "get_file_contents", "server": "s", "args": {"path": "x"}, "decision": "allow",
+        "action": "read", "result_chars": 1, "status": "ok", "ok": True, "evidence": [],
+    }  # fmt: skip
+    outcomes = {
+        f"d{i}.md": DocOutcome(
+            doc=f"d{i}.md", commit="c" * 40, status="checked", tool_events=[event] * 50
+        )
+        for i in range(5)
+    }
+    parts = completed_parts("r", report_data=None, outcomes=outcomes, memory={}, summary=summary)
+    published = [MessageToDict(p) for p in parts]
+    tagged = [p for p in published if (p.get("metadata") or {}).get(PART_TYPE_KEY)]
+    assert len(tagged) == 2 * MAX_TOOL_EVENT_PARTS == 400
+    assert [p["metadata"][PART_TYPE_KEY] for p in tagged[:2]] == [
+        "function_call",
+        "function_response",
+    ]
+    counts = [p["data"][TOOL_EVENTS_KEY] for p in published if TOOL_EVENTS_KEY in p.get("data", {})]
+    assert counts == [
+        {"total": 250, "published": 200, "per_doc": {f"d{i}.md": 50 for i in range(5)}}
+    ]
+    assert published[-1]["data"] == {LEDGER_KEY: summary.to_dict()}  # the ledger stays last
 
 
 class _Interrupt:
@@ -552,7 +584,10 @@ async def test_completed_task_parts(docs_repo):
 
     plain = [d for meta, d in data_parts(artifact) if PART_TYPE_KEY not in meta]
     keys = [next(iter(d)) for d in plain]
-    assert keys == [FINDINGS_KEY, MEMORY_KEY, SLACK_KEY, REPORT_KEY, LEDGER_KEY]
+    assert keys == [FINDINGS_KEY, MEMORY_KEY, SLACK_KEY, REPORT_KEY, TOOL_EVENTS_KEY, LEDGER_KEY]
+    events = keyed(artifact, TOOL_EVENTS_KEY)
+    assert events["published"] == events["total"] > 0
+    assert set(events["per_doc"]) == {VAULT_DOC, REDIS_DOC, RUNBOOK}
 
     findings = keyed(artifact, FINDINGS_KEY)
     assert sorted((f["doc"], f["verdict"]) for f in findings) == [

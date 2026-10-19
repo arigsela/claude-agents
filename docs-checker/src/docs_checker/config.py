@@ -152,7 +152,10 @@ def _prompt_cache(model: dict) -> tuple[bool, str]:
     """Prompt caching and its TTL from the compiled Anthropic provider block.
 
     With a provider block, an absent ``prompt_caching`` is false (ProtoJSON omits
-    it). Without one (a BYO template may bind no ModelConfig), caching stays on.
+    it). Without one, caching stays on with the 5m TTL: that is local mode only
+    (the tests, the eval harness and the smoke test run with no provider block), so
+    the cache lever can be measured offline; in-cluster the BYO compiler always
+    writes the block of the ModelConfig the template binds.
     """
     if "anthropic" not in model:
         return True, "5m"

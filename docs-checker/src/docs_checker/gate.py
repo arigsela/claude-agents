@@ -167,7 +167,6 @@ def render_intent(card_description: str, question: str) -> str:
 _ACTION_TEMPLATES = {
     "get_file_contents": "Read the file {path} from the {owner}/{repo} repository.",
     "search_code": "Search code for '{query}'.",
-    "get-catalog-entity": "Look up the catalog entity {kind}:{namespace}/{name}.",
 }
 
 

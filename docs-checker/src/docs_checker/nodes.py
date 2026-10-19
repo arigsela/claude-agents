@@ -218,6 +218,8 @@ async def classify_intake(text: str, ctx: NodeContext) -> RunRequest | Literal["
     answer = await _ask(ctx, "intake", IntakeAnswer, prompts.INTAKE, user)
     if answer is None or answer.intent == "off_topic":
         return "off_topic"
+    if not answer.all_docs and not answer.paths:
+        return "off_topic"  # an "audit" of nothing: inconsistent, not a request (T10)
     data: dict[str, Any] = {"scope": "all" if answer.all_docs else answer.paths}
     if answer.ref:
         data["ref"] = answer.ref
