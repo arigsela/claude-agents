@@ -13,7 +13,11 @@ cassette directory, is the ordered list of attempts made for that key: status,
 - ``replay`` mode: a request past its recorded attempts raises ``CassetteMiss``
   (and is listed in ``misses``); the inner transport is never called.
 - ``record-missing`` mode: such a request goes to the inner transport, and its
-  response is appended to the cassette.
+  response is appended to the cassette, with two exceptions. A cassette whose last
+  attempt is not a 2xx (retries that ran out) is discarded at its first use in the
+  run and recorded afresh, so a failure is never replayed for good; and a
+  non-retryable 4xx (400, 401, 403: a bad request, a wrong key, no credit) is passed
+  on but never stored. A 529 whose retry succeeded stays, in order.
 - A replayed response carries ``x-docs-checker-replayed: 1``; ``llm.request_id_hook``
   copies it into the ledger, which then prices the call as workload, not cash.
 - A cassette never holds the request (no prompt), the API key or any other header,
@@ -36,7 +40,7 @@ from typing import Any, Literal
 
 import httpx2
 
-from docs_checker.llm import REPLAYED_HEADER
+from docs_checker.llm import REPLAYED_HEADER, RETRYABLE_STATUS
 from docs_checker.redact import redact, redact_obj
 
 Mode = Literal["replay", "record-missing"]
@@ -91,6 +95,16 @@ def _attempt(response: httpx2.Response) -> dict[str, Any]:
     return attempt
 
 
+def _succeeded(attempt: dict[str, Any]) -> bool:
+    status = attempt.get("status")
+    return isinstance(status, int) and 200 <= status < 300
+
+
+def _kept(status: int) -> bool:
+    """A response worth recording: not a 4xx that a retry would get again."""
+    return not (400 <= status < 500) or status in RETRYABLE_STATUS
+
+
 def _response(attempt: dict[str, Any], request: httpx2.Request, *, replayed: bool):
     headers = {
         name: attempt[field]
@@ -129,8 +143,10 @@ class ReplayTransport(httpx2.AsyncBaseTransport):
         self.overloaded = overloaded
         self.misses: list[CassetteMiss] = []
         self.missed = asyncio.Event()  # set on the first miss, so a run can stop early
+        self.sent = 0  # requests handed to the inner transport (sent, maybe billed)
         self.live = 0  # responses that came from the inner transport
         self._seen: dict[str, int] = {}
+        self._checked: set[str] = set()  # keys whose cassette this run has looked at
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _path(self, key: str) -> Path:
@@ -169,6 +185,11 @@ class ReplayTransport(httpx2.AsyncBaseTransport):
                 return _response({**attempt, "body": OVERLOADED_BODY}, request, replayed=True)
             index = seen - self.overloaded
             attempts = self._load(key)
+            if self.mode == "record-missing" and key not in self._checked:
+                self._checked.add(key)
+                if attempts and not _succeeded(attempts[-1]):
+                    self._path(key).unlink()  # a failure is recorded afresh, not replayed
+                    attempts = []
             if index < len(attempts):
                 self._seen[key] = seen + 1
                 return _response(attempts[index], request, replayed=True)
@@ -177,15 +198,18 @@ class ReplayTransport(httpx2.AsyncBaseTransport):
                 self.misses.append(miss)
                 self.missed.set()
                 raise miss
+            self.sent += 1
             live = await self.inner.handle_async_request(request)
             try:
                 await live.aread()
             finally:
                 await live.aclose()
+            self.live += 1
             attempt = _attempt(live)
+            if not _kept(live.status_code):  # passed on, never stored; the cursor stays
+                return _response(attempt, request, replayed=False)
             self._save(key, [*attempts, attempt])
             self._seen[key] = seen + 1
-            self.live += 1
             return _response(attempt, request, replayed=False)
 
     async def aclose(self) -> None:

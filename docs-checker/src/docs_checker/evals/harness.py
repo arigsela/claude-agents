@@ -210,6 +210,12 @@ async def _until_miss(run: Any, transport: ReplayTransport, timeout_s: float) ->
     return task.result()
 
 
+def replay_transport(cfg: HarnessConfig) -> ReplayTransport:
+    """One run's transport: the API behind it only in record-missing mode."""
+    inner = cfg.live if cfg.mode == "record-missing" and cfg.live is not None else _Offline()
+    return ReplayTransport(inner, cfg.cassettes, cfg.mode, overloaded=cfg.overloaded)
+
+
 async def run_instance(
     cfg: HarnessConfig,
     instance: Instance,
@@ -218,12 +224,12 @@ async def run_instance(
     *,
     memory: dict | None = None,
     budget_usd: float | None = None,
+    transport: ReplayTransport | None = None,
 ) -> InstanceRun:
     """One run of the graph on ``instance``, scored against its labels."""
     spec = levers_spec(levers)
     settings = load_settings({"DOCS_CHECKER_LEVERS": spec})
-    inner = cfg.live if cfg.mode == "record-missing" and cfg.live is not None else _Offline()
-    transport = ReplayTransport(inner, cfg.cassettes, cfg.mode, overloaded=cfg.overloaded)
+    transport = transport or replay_transport(cfg)
     models = AnthropicModels(
         settings.node_models,
         levers,
@@ -480,12 +486,15 @@ async def run_arm(
     memory_in: Path | None = None,
     memory_out: Path | None = None,
 ) -> list[InstanceRun]:
-    """Run ``instances`` one after another under the harness lock. A priced run
-    reserves its estimate first (refused past the cap) and may spend up to the cap's
-    headroom; it settles to its cash after, and a crash leaves the reservation."""
+    """Run ``instances`` one after another under the harness lock. A priced run first
+    reserves all it may spend (its run budget, or the cap's headroom when smaller,
+    which then is its budget; refused when the headroom is below its estimate) and
+    settles to its cash after. A crash leaves the whole reservation, unless the run
+    sent no request at all: then it settles to $0."""
     spec = levers_spec(levers)
     memories = _read_memory(memory_in)
-    guard = SpendGuard(cfg.evals_dir / ".spend.json")
+    guard = SpendGuard()  # per user, not per checkout or evals dir (ruling E2)
+    guard.ensure_writable()  # before any call: an unaccountable run never starts
     runs: list[InstanceRun] = []
     used_memory = False
     with guard.lock():
@@ -494,14 +503,34 @@ async def run_arm(
             used_memory = used_memory or memory is not None
             budget = cfg.run_budget_usd
             reservation = None
+            transport = replay_transport(cfg)
             if cfg.mode == "record-missing":
                 estimate, _ = guard.estimate(instance.id, spec)
-                run_id = f"{arm}:{instance.id}:{uuid.uuid4().hex[:8]}"
-                reservation = guard.reserve(run_id, estimate, instance=instance.id, levers=spec)
-                budget = min(budget, guard.headroom_usd + estimate)
-            run = await run_instance(
-                cfg, instance, levers, labels, memory=memory, budget_usd=budget
-            )
+                reservation = guard.reserve_run(
+                    f"{arm}:{instance.id}:{uuid.uuid4().hex[:8]}",
+                    estimate_usd=estimate,
+                    budget_usd=budget,
+                    instance=instance.id,
+                    levers=spec,
+                )
+                budget = reservation.amount_usd
+            try:
+                run = await run_instance(
+                    cfg,
+                    instance,
+                    levers,
+                    labels,
+                    memory=memory,
+                    budget_usd=budget,
+                    transport=transport,
+                )
+            except BaseException:
+                if reservation is not None and transport.sent == 0:
+                    # nothing reached the API, so nothing can have been billed
+                    guard.settle(
+                        reservation, cash_usd=0.0, mode=cfg.mode, memory_in=memory is not None
+                    )
+                raise
             workload = run.summary.workload_cost_usd
             if reservation is not None:
                 guard.settle(

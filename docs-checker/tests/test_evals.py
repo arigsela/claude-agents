@@ -7,6 +7,7 @@ agent-docs server.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -15,9 +16,17 @@ import pytest
 
 from docs_checker.evals.__main__ import main
 from docs_checker.evals.harness import HarnessConfig, Instance, run_arm, run_instance
+from docs_checker.evals.harness import levers_spec as levers_of
 from docs_checker.evals.replay import CassetteMiss, ReplayTransport
 from docs_checker.evals.score import LabelledLine, score
-from docs_checker.evals.spend import HarnessBusy, SpendCapExceeded, SpendGuard
+from docs_checker.evals.spend import (
+    LEDGER_ENV,
+    HarnessBusy,
+    SpendCapExceeded,
+    SpendGuard,
+    SpendLedgerUnwritable,
+    ledger_path,
+)
 from docs_checker.levers import Levers
 from docs_checker.llm import REPLAYED_HEADER
 from docs_checker.state import Claim, Finding
@@ -34,6 +43,14 @@ REQUEST = {
 
 def refuse(request: httpx2.Request) -> httpx2.Response:
     raise AssertionError(f"a replay run reached the network: {request.url}")
+
+
+@pytest.fixture(autouse=True)
+def ledger(tmp_path, monkeypatch) -> Path:
+    """Every test gets its own spend ledger: none may touch the real per-user one."""
+    path = tmp_path / "ledger" / "spend.json"
+    monkeypatch.setenv(LEDGER_ENV, str(path))
+    return path
 
 
 # --- replay ------------------------------------------------------------------------------
@@ -116,6 +133,75 @@ async def test_cassette_never_contains_key_or_request(tmp_path):
     assert attempt["request_id"] == "req_1"
     # the recording run sees exactly what a replay will: the redacted body
     assert leaked not in response.text and "[REDACTED]" in response.text
+
+
+def answering(*responses: httpx2.Response) -> tuple[httpx2.MockTransport, list[int]]:
+    """A live API that answers with ``responses`` in order and counts its calls."""
+    queue, calls = list(responses), []
+
+    def live(request: httpx2.Request) -> httpx2.Response:
+        calls.append(1)
+        return queue.pop(0)
+
+    return httpx2.MockTransport(live), calls
+
+
+def overloaded() -> httpx2.Response:
+    return httpx2.Response(529, json=OVERLOADED)
+
+
+def ok(text: str = "ok") -> httpx2.Response:
+    return httpx2.Response(200, json=message_body(text))
+
+
+async def post_all(transport: ReplayTransport, count: int) -> list[httpx2.Response]:
+    async with httpx2.AsyncClient(transport=transport) as client:
+        return [await client.post(URL, json=REQUEST) for _ in range(count)]
+
+
+async def test_record_missing_rerecords_a_cassette_that_ended_in_failure(tmp_path):
+    # Retries ran out: the cassette ends in 529s.
+    live, _ = answering(overloaded(), overloaded(), overloaded())
+    await post_all(ReplayTransport(live, tmp_path, "record-missing"), 3)
+    (cassette,) = tmp_path.glob("*.json")
+    assert [a["status"] for a in json.loads(cassette.read_text())["attempts"]] == [529] * 3
+
+    # The next priced run records it again instead of replaying the failure forever.
+    live, calls = answering(ok("fresh"))
+    (response,) = await post_all(ReplayTransport(live, tmp_path, "record-missing"), 1)
+    assert (response.status_code, len(calls)) == (200, 1)
+    assert [a["status"] for a in json.loads(cassette.read_text())["attempts"]] == [200]
+
+    # A 529 whose retry succeeded is kept, in order, and served without a call.
+    cassette.unlink()
+    live, _ = answering(overloaded(), ok("after retry"))
+    await post_all(ReplayTransport(live, tmp_path, "record-missing"), 2)
+    live, calls = answering()
+    responses = await post_all(ReplayTransport(live, tmp_path, "record-missing"), 2)
+    assert [r.status_code for r in responses] == [529, 200] and calls == []
+    # replay mode serves whatever was recorded (it never re-records)
+    (cassette,) = tmp_path.glob("*.json")
+    cassette.write_text(json.dumps({"version": 1, "attempts": [{"status": 529, "body": {}}]}))
+    (replayed,) = await post_all(
+        ReplayTransport(httpx2.MockTransport(refuse), tmp_path, "replay"), 1
+    )
+    assert replayed.status_code == 529
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+async def test_non_retryable_client_errors_are_never_recorded(tmp_path, status):
+    error = {"type": "error", "error": {"type": "invalid_request_error", "message": "no"}}
+    live, calls = answering(httpx2.Response(status, json=error), ok())
+    first, second = await post_all(ReplayTransport(live, tmp_path, "record-missing"), 2)
+    assert first.status_code == status and REPLAYED_HEADER not in first.headers
+    assert second.status_code == 200 and len(calls) == 2  # the retry went live again
+    (cassette,) = tmp_path.glob("*.json")
+    assert [a["status"] for a in json.loads(cassette.read_text())["attempts"]] == [200]
+
+    live, _ = answering(httpx2.Response(status, json=error))
+    other = tmp_path / "other"
+    await post_all(ReplayTransport(live, other, "record-missing"), 1)
+    assert not list(other.glob("*.json"))  # a wrong key or no credit leaves nothing behind
 
 
 # --- spend -------------------------------------------------------------------------------
@@ -261,21 +347,31 @@ def node_of(body: dict) -> str:
 
 
 class Api:
-    """The Anthropic API as a MockTransport: answers each node, counts what it served."""
+    """The Anthropic API as a MockTransport: answers each node, counts what it served.
+    ``usage`` sets a node's (input, output) tokens; a node in ``hang`` never answers."""
 
-    def __init__(self):
+    def __init__(self, usage: dict | None = None, hang: tuple[str, ...] = ()):
         self.nodes: list[str] = []
         self.credentials: set[tuple[str, str | None, str | None]] = set()
+        self.usage = usage or {}
+        self.hang = hang
+        self.hanging = asyncio.Event()
 
-    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
         node = node_of(json.loads(request.content))
         self.nodes.append(node)
         headers = request.headers
         self.credentials.add(
             (request.url.host, headers.get("x-api-key"), headers.get("authorization"))
         )
-        headers = {"request-id": f"req_{len(self.nodes)}"}
-        return httpx2.Response(200, headers=headers, json=message_body(json.dumps(ANSWERS[node])))
+        if node in self.hang:
+            self.hanging.set()
+            await asyncio.Event().wait()
+        tokens = dict(
+            zip(("input_tokens", "output_tokens"), self.usage.get(node, ()), strict=False)
+        )
+        body = message_body(json.dumps(ANSWERS[node]), **tokens)
+        return httpx2.Response(200, headers={"request-id": f"req_{len(self.nodes)}"}, json=body)
 
 
 @pytest.fixture
@@ -284,11 +380,13 @@ def eval_repo(tmp_path) -> tuple[Path, Instance]:
     return repo, Instance(id="vault-stale", doc=DOC, commit=commit, split="dev", purpose="t")
 
 
-def config(tmp_path: Path, repo: Path, mode: str, api: Api | None = None) -> HarnessConfig:
+def config(
+    tmp_path: Path, repo: Path, mode: str, api: Api | None = None, **kwargs
+) -> HarnessConfig:
     live = httpx2.MockTransport(api or refuse)
     key = EVAL_KEY if mode == "record-missing" else None
     return HarnessConfig(
-        evals_dir=tmp_path / "evals", clone=repo, mode=mode, api_key=key, live=live
+        evals_dir=tmp_path / "evals", clone=repo, mode=mode, api_key=key, live=live, **kwargs
     )
 
 
@@ -366,9 +464,117 @@ async def test_second_run_with_memory_makes_no_extract_or_judge_calls(tmp_path, 
     table = (evals / "results.md").read_text()
     assert "short_circuit warm" in table and "vault-stale" in table
     # the priced run settled its reservation to its cash cost; the replay paid nothing
-    spend = SpendGuard(evals / ".spend.json")
+    spend = SpendGuard()
     assert spend.reserved_usd == 0.0
     assert spend.settled_usd == pytest.approx(first.summary.cash_cost_usd)
+
+
+# --- what a priced run may spend ------------------------------------------------------------
+
+
+def only_run(guard: SpendGuard) -> dict:
+    (run,) = [r for r in guard._read()["runs"] if r["mode"] != "replay"]
+    return run
+
+
+async def test_a_crashed_priced_run_keeps_a_reservation_for_its_whole_budget(tmp_path, eval_repo):
+    repo, instance = eval_repo
+    api = Api(hang=("judge",))  # extract is answered (and billed), then the judge hangs
+    cfg = config(tmp_path, repo, "record-missing", api)
+    arm = asyncio.ensure_future(run_arm(cfg, [instance], Levers.all_on(), LABELS, arm="crash"))
+    await api.hanging.wait()
+    arm.cancel()  # Ctrl-C, a timeout, a kill: the run never settles
+    with pytest.raises(asyncio.CancelledError):
+        await arm
+
+    guard = SpendGuard()
+    (held,) = guard.open_reservations().values()
+    # not the $0.05 estimate: everything the run was allowed to spend stays counted
+    assert held["amount_usd"] == cfg.run_budget_usd == 2.0
+    assert held["estimate_usd"] == 0.05
+    assert guard.headroom_usd == pytest.approx(18.0)
+
+
+async def test_a_run_past_its_estimate_stops_at_its_run_budget(tmp_path, eval_repo):
+    repo, instance = eval_repo
+    levers = Levers.without("right_size")  # Sonnet everywhere: dear calls
+    guard = SpendGuard()
+    with guard.lock():  # history says this run costs a tenth of a cent
+        guard.record(instance=instance.id, levers=levers_of(levers), workload_usd=0.001)
+    api = Api(usage={"extract": (500, 4000)})  # $0.041: forty times the estimate
+    cfg = config(tmp_path, repo, "record-missing", api, run_budget_usd=0.06)
+    (run,) = await run_arm(cfg, [instance], levers, LABELS, arm="dear")
+
+    assert api.nodes == ["extract"]  # the judge's reservation no longer fit the budget
+    assert run.status == "skipped-budget"
+    assert run.cash_usd == pytest.approx(0.041)
+    settled = only_run(SpendGuard())
+    assert (settled["estimate_usd"], settled["reserved_usd"]) == (0.001, 0.06)
+    assert settled["cash_usd"] == pytest.approx(0.041)
+
+    # a run is refused only when the cap's headroom is below its estimate
+    full = SpendGuard(cap_usd=0.0415)
+    with full.lock(), pytest.raises(SpendCapExceeded):
+        full.reserve_run("next", estimate_usd=0.001, budget_usd=2.0, instance="x", levers="all")
+    with full.lock():
+        held = full.reserve_run(
+            "next", estimate_usd=0.0001, budget_usd=2.0, instance="x", levers="all"
+        )
+    assert held.amount_usd == pytest.approx(0.0005)  # the headroom, not the run budget
+
+
+async def test_a_run_that_fails_before_any_request_settles_to_zero(tmp_path, eval_repo):
+    repo, instance = eval_repo
+    gone = instance.model_copy(update={"commit": "f" * 40})  # not in the clone
+    with pytest.raises(ValueError, match="names no commit"):
+        await run_arm(
+            config(tmp_path, repo, "record-missing", Api()),
+            [gone],
+            Levers.all_on(),
+            LABELS,
+            arm="x",
+        )
+    guard = SpendGuard()
+    assert guard.open_reservations() == {}
+    assert only_run(guard)["cash_usd"] == 0.0 and guard.settled_usd == 0.0
+
+
+# --- the spend ledger is per user ------------------------------------------------------------
+
+
+async def test_the_spend_ledger_is_per_user_not_per_checkout(
+    tmp_path, eval_repo, monkeypatch, ledger
+):
+    repo, instance = eval_repo
+    # two checkouts (evals dirs) share one ledger: a fresh one does not start at $0
+    first = config(tmp_path / "one", repo, "record-missing", Api())
+    second = config(tmp_path / "two", repo, "record-missing", Api())
+    await run_arm(first, [instance], Levers.all_on(), LABELS, arm="a")
+    paid = SpendGuard().settled_usd
+    assert paid > 0 and ledger.exists()
+    await run_arm(second, [instance], Levers.without("cache_prefix"), LABELS, arm="b")
+    assert SpendGuard().settled_usd > paid
+    assert not list((tmp_path / "one" / "evals").glob(".spend*"))
+
+    # the default is a fixed per-user path; the env override is for tests
+    monkeypatch.delenv(LEDGER_ENV)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert ledger_path() == tmp_path / "home" / ".cache" / "docs-checker" / "spend.json"
+
+    # a ledger that cannot be written stops a priced run before anything is spent
+    blocker = tmp_path / "a-file"
+    blocker.write_text("")
+    monkeypatch.setenv(LEDGER_ENV, str(blocker / "spend.json"))
+    api = Api()
+    with pytest.raises(SpendLedgerUnwritable):
+        await run_arm(
+            config(tmp_path, repo, "record-missing", api),
+            [instance],
+            Levers.all_on(),
+            LABELS,
+            arm="c",
+        )
+    assert api.nodes == []
 
 
 # --- the command line --------------------------------------------------------------------
@@ -391,7 +597,7 @@ def test_dry_run_prints_a_spend_table_without_a_call(tmp_path, capsys, monkeypat
         Instance(id="two", doc=DOC, commit="b" * 40, split="holdout"),
     ]
     write_eval_set(evals, instances)
-    guard = SpendGuard(evals / ".spend.json")
+    guard = SpendGuard()
     with guard.lock():
         guard.record(instance="one", levers="none", workload_usd=0.42, mode="replay")
 
@@ -406,7 +612,9 @@ def test_dry_run_prints_a_spend_table_without_a_call(tmp_path, capsys, monkeypat
     assert not (evals / "results.jsonl").exists()
 
 
-def test_record_missing_refuses_to_start_without_the_eval_key(tmp_path, capsys, monkeypatch):
+def test_record_missing_refuses_to_start_without_the_eval_key(
+    tmp_path, capsys, monkeypatch, ledger
+):
     monkeypatch.delenv("DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY", raising=False)
     evals = tmp_path / "evals"
     write_eval_set(evals, [Instance(id="one", doc=DOC, commit="a" * 40)])
@@ -414,4 +622,18 @@ def test_record_missing_refuses_to_start_without_the_eval_key(tmp_path, capsys, 
     code = main([*args, "--evals-dir", str(evals), "--clone", str(tmp_path)])
     assert code == 2
     assert "DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY" in capsys.readouterr().err
-    assert not (evals / ".spend.json").exists()
+    assert not ledger.exists()
+
+
+def test_record_missing_refuses_an_unwritable_ledger(tmp_path, capsys, monkeypatch, eval_repo):
+    repo, instance = eval_repo
+    monkeypatch.setenv("DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY", EVAL_KEY)
+    blocker = tmp_path / "a-file"
+    blocker.write_text("")
+    monkeypatch.setenv(LEDGER_ENV, str(blocker / "spend.json"))
+    evals = tmp_path / "evals"
+    write_eval_set(evals, [instance])
+    args = ["run", "--instances", "lever", "--levers", "all", "--mode", "record-missing"]
+    code = main([*args, "--evals-dir", str(evals), "--clone", str(repo)])
+    assert code == 2
+    assert "spend ledger" in capsys.readouterr().err

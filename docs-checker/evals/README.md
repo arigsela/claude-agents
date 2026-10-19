@@ -12,8 +12,11 @@ goes through a $20 spend guard (spec §8).
 | `cassettes/` | Recorded model responses, one file per request key | yes |
 | `results.jsonl` | One record per run and per arm, appended | yes |
 | `results.md` | The same records as a table, between its markers; prose outside them is kept | yes |
-| `.spend.json`, `.spend.lock` | The spend ledger and the one-harness lock | no |
 | `cassettes-raw/` | Scratch | no |
+
+The spend ledger and the one-harness lock are not here: they live at one per-user path,
+`~/.cache/docs-checker/spend.json` (and `spend.lock`), whatever checkout or `--evals-dir`
+a harness runs from (`DOCS_CHECKER_SPEND_LEDGER` moves them; it exists for tests).
 
 ## Running
 
@@ -39,7 +42,7 @@ DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY=... \
 .venv/bin/python -m docs_checker.evals run --instances lever --levers all \
   --arm "short_circuit warm" --memory-in /tmp/memory.json
 
-# The spend ledger; settle a reservation a crashed run left, at the console's figure.
+# The per-user spend ledger; settle a reservation a crashed run left, at the console's figure.
 .venv/bin/python -m docs_checker.evals spend
 .venv/bin/python -m docs_checker.evals spend --settle '<run id>' --cash 0.12
 ```
@@ -52,7 +55,8 @@ DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY=... \
   recordings (marked replayed, never recorded), for the retry lever's row at no cost.
 - `--run-budget-usd`: each instance's run budget (default $2.00, so a baseline run is never
   cut short); a priced run also stops at the cap's headroom.
-- Exit code 2 means refused: no key, past the cap, another harness running, or a replay miss.
+- Exit code 2 means refused: no key, past the cap, another harness running, an unwritable
+  spend ledger, or a replay miss.
 
 Each run is the production graph (`build_graph`, the rules fix gate, the real tool belt)
 on the local fake of the agent-docs server, in scheduled mode, with the instance's doc as
@@ -63,10 +67,17 @@ the scope. Nothing goes through gRPC.
 - The key comes from `DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY` only (a separate Anthropic
   workspace, spend limit $25), passed to the client explicitly, never `ANTHROPIC_API_KEY`.
   `record-missing` refuses to start without it; `replay` needs none.
-- A priced run reserves its estimate in `.spend.json` before it starts and is refused when
-  settled plus reserved spend plus the estimate would pass $20. After the run the
-  reservation becomes the run's cash cost: the priced calls that reached the API, plus the
-  reservations of live calls whose cost is unknown. A crash leaves the reservation in place.
+- The $20 cap is counted in the per-user ledger (`~/.cache/docs-checker/spend.json`), so a
+  fresh clone, a worktree or another `--evals-dir` does not start again at $0. A priced
+  run refuses to start when that ledger cannot be written.
+- Before it starts, a priced run reserves all it may spend: its run budget, or what is left
+  under the cap when that is smaller (and that is then its budget). It is refused only when
+  what is left is below its estimate. After the run the reservation becomes the run's cash
+  cost: the priced calls that reached the API, plus the reservations of live calls whose
+  cost is unknown. A crash (Ctrl-C, a timeout, a kill) leaves the whole reservation counted
+  until it is settled by hand, unless the run sent no request at all: then it settles to $0.
+- The cap is the harness's own count. The eval workspace's $25 Anthropic spend limit
+  remains the hard backstop.
 - Estimates: the largest workload cost of earlier runs of the same instance and levers
   (replays count, memory runs do not), else $0.60 per doc, or $0.05 with every lever on.
 - Workload cost prices every call, replayed ones included: it is what the lever table
@@ -77,7 +88,10 @@ the scope. Nothing goes through gRPC.
 A request's key is `sha256(method | path and query | canonical JSON body)`. Its cassette
 is the ordered list of attempts made for it (status, `request-id`, `retry-after`,
 `content-type`, JSON body), replayed in that order within a run, so a recorded 529 and its
-retry's 200 come back in order. A cassette never holds the request, the API key or any
+retry's 200 come back in order. A priced run never trusts a recorded failure: a cassette
+whose last attempt is not a 2xx (retries that ran out) is recorded again the first time a
+priced run uses it, and a non-retryable 4xx (400, 401, 403: a bad request, a wrong key, no
+credit) is passed on but never written. A cassette never holds the request, the API key or any
 other header, and its body is redacted before it is written. Prompts carry no per-run data
 (the fence token is derived from the commit), so a re-run hits the same keys; a changed
 prompt, model or lever that reaches the request is a miss.

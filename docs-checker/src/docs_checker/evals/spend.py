@@ -1,19 +1,25 @@
 """The eval budget: $20 of cash, across every eval run ever made (spec §8).
 
-``SpendGuard`` keeps its ledger in ``evals/.spend.json`` (git-ignored):
+``SpendGuard`` keeps its ledger at one fixed per-user path,
+``~/.cache/docs-checker/spend.json`` (ruling E2), whatever checkout or ``--evals-dir``
+a harness runs from, so a fresh clone or worktree does not start again at $0. The
+env value ``DOCS_CHECKER_SPEND_LEDGER`` moves it; it exists for tests. The eval
+workspace's own Anthropic spend limit ($25) stays the hard backstop.
 
-- ``reserve`` holds a run's estimate before the run starts and refuses one that
-  would take settled spend plus open reservations past the cap (C#1);
+- ``reserve_run`` holds what a run *can* spend before it starts: its run budget, or
+  the cap's headroom when that is smaller, which then is the run's budget. A run is
+  refused only when the headroom is below its estimate (C#1);
 - ``settle`` swaps the reservation for the run's actual **cash** cost (what reached
   the API; a replayed call costs nothing);
-- a run that crashes never settles, so its reservation stays and keeps counting:
-  whether it spent its estimate is unknown until a person checks the Anthropic
-  console and settles it by hand (``python -m docs_checker.evals spend --settle``);
+- a run that crashes never settles, so its whole reservation stays and keeps
+  counting: what it spent is unknown until a person checks the Anthropic console
+  and settles it by hand (``python -m docs_checker.evals spend --settle``). The
+  harness settles a crashed run to $0 itself only when it sent no request;
 - ``record`` notes a run that cost no cash (replay), so its workload cost can
   estimate the next priced run of the same instance and levers.
 
 Only one harness runs at a time: ``lock`` takes an exclusive ``flock`` on
-``.spend.lock`` next to the ledger (the OS drops it if the process dies), and
+``spend.lock`` next to the ledger (the OS drops it if the process dies), and
 every change to the ledger needs it.
 """
 
@@ -31,6 +37,8 @@ from pathlib import Path
 from typing import Any
 
 CAP_USD = 20.0
+LEDGER_ENV = "DOCS_CHECKER_SPEND_LEDGER"
+DEFAULT_LEDGER = "~/.cache/docs-checker/spend.json"
 # Estimates before any ledger numbers (controller ruling): per doc, levers all off
 # (and any mix, to be safe) or all on.
 DEFAULT_BASELINE_USD = 0.60
@@ -47,6 +55,16 @@ class HarnessBusy(Exception):
     """Another harness holds the lock."""
 
 
+class SpendLedgerUnwritable(Exception):
+    """The spend ledger cannot be written, so a run could not be accounted. Nothing ran."""
+
+
+def ledger_path() -> Path:
+    """The per-user spend ledger: ``DOCS_CHECKER_SPEND_LEDGER`` (tests), else
+    ``~/.cache/docs-checker/spend.json``."""
+    return Path(os.environ.get(LEDGER_ENV) or DEFAULT_LEDGER).expanduser()
+
+
 @dataclass(frozen=True)
 class SpendReservation:
     id: str
@@ -57,9 +75,16 @@ def _empty() -> dict[str, Any]:
     return {"version": _VERSION, "open": {}, "runs": []}
 
 
+def _committed(data: dict[str, Any]) -> float:
+    """Settled cash plus open reservations, unrounded (the cap check and the headroom
+    must agree to the last digit, or a reservation of exactly the headroom is refused)."""
+    settled = sum(r["cash_usd"] for r in data["runs"])
+    return settled + sum(r["amount_usd"] for r in data["open"].values())
+
+
 class SpendGuard:
-    def __init__(self, path: Path | str, cap_usd: float = CAP_USD):
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None, cap_usd: float = CAP_USD):
+        self.path = Path(path) if path is not None else ledger_path()
         self.cap_usd = cap_usd
         self.lock_path = self.path.with_name(self.path.name.removesuffix(".json") + ".lock")
         self._locked = False
@@ -83,6 +108,19 @@ class SpendGuard:
             json.dump(data, out, indent=1, sort_keys=True)
             out.write("\n")
         os.replace(tmp, self.path)
+
+    def ensure_writable(self) -> None:
+        """Raise ``SpendLedgerUnwritable`` unless the ledger and its lock can be written."""
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise SpendLedgerUnwritable(f"the spend ledger {self.path}: {error}") from error
+        targets = [self.path.parent, *(p for p in (self.path, self.lock_path) if p.exists())]
+        unwritable = [str(p) for p in targets if not os.access(p, os.W_OK)]
+        if unwritable:
+            raise SpendLedgerUnwritable(
+                f"the spend ledger {self.path} is not writable: {', '.join(unwritable)}"
+            )
 
     @contextmanager
     def lock(self) -> Iterator[SpendGuard]:
@@ -115,15 +153,40 @@ class SpendGuard:
 
     @property
     def headroom_usd(self) -> float:
-        return max(self.cap_usd - self.settled_usd - self.reserved_usd, 0.0)
+        return max(self.cap_usd - _committed(self._read()), 0.0)
 
     def open_reservations(self) -> dict[str, dict[str, Any]]:
         return dict(self._read()["open"])
 
     # --- runs -----------------------------------------------------------------------------
 
+    def reserve_run(
+        self, run_id: str, *, estimate_usd: float, budget_usd: float, instance: str, levers: str
+    ) -> SpendReservation:
+        """Reserve all a run may spend: ``budget_usd``, or the cap's headroom when that is
+        smaller (the reservation's amount is then the run's budget). Refused when the
+        headroom is below ``estimate_usd`` or nothing is left."""
+        if not self._locked:
+            raise RuntimeError("reserve only under the harness lock")
+        headroom = self.headroom_usd
+        if headroom + _EPSILON_USD < estimate_usd or headroom <= _EPSILON_USD:
+            raise SpendCapExceeded(
+                f"run {run_id} estimates ${estimate_usd:.4f} but only ${headroom:.4f} of the "
+                f"${self.cap_usd:.2f} eval cap is left"
+            )
+        amount = min(budget_usd, headroom)
+        return self.reserve(
+            run_id, amount, instance=instance, levers=levers, estimate_usd=estimate_usd
+        )
+
     def reserve(
-        self, run_id: str, amount_usd: float, *, instance: str, levers: str
+        self,
+        run_id: str,
+        amount_usd: float,
+        *,
+        instance: str,
+        levers: str,
+        estimate_usd: float | None = None,
     ) -> SpendReservation:
         if not self._locked:
             raise RuntimeError("reserve only under the harness lock")
@@ -132,9 +195,7 @@ class SpendGuard:
         data = self._read()
         if run_id in data["open"]:
             raise ValueError(f"run {run_id} already holds a reservation")
-        committed = sum(r["cash_usd"] for r in data["runs"]) + sum(
-            r["amount_usd"] for r in data["open"].values()
-        )
+        committed = _committed(data)
         if committed + amount_usd > self.cap_usd + _EPSILON_USD:
             raise SpendCapExceeded(
                 f"run {run_id} estimates ${amount_usd:.4f} on top of ${committed:.4f} "
@@ -142,6 +203,7 @@ class SpendGuard:
             )
         data["open"][run_id] = {
             "amount_usd": amount_usd,
+            "estimate_usd": amount_usd if estimate_usd is None else estimate_usd,
             "instance": instance,
             "levers": levers,
             "ts": time.time(),
@@ -172,7 +234,8 @@ class SpendGuard:
                 "levers": held["levers"],
                 "mode": mode,
                 "memory_in": memory_in,
-                "estimate_usd": held["amount_usd"],
+                "estimate_usd": held.get("estimate_usd", held["amount_usd"]),
+                "reserved_usd": held["amount_usd"],
                 "cash_usd": round(cash_usd, 8),
                 "workload_usd": None if workload_usd is None else round(workload_usd, 8),
                 "ts": time.time(),
@@ -199,6 +262,7 @@ class SpendGuard:
                 "mode": mode,
                 "memory_in": memory_in,
                 "estimate_usd": 0.0,
+                "reserved_usd": 0.0,
                 "cash_usd": 0.0,
                 "workload_usd": round(workload_usd, 8),
                 "ts": time.time(),

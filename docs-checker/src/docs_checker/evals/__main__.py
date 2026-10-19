@@ -8,11 +8,12 @@
 ``--mode`` defaults to ``replay`` (free: a miss stops the run). ``record-missing``
 needs ``DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY`` and runs under the $20 spend guard.
 ``--dry-run`` prints each instance's estimated cash for a priced run and makes no
-call. ``spend`` prints the spend ledger; ``--settle`` closes a reservation a crashed
-run left, at the cash the Anthropic console shows for it.
+call. ``spend`` prints the per-user spend ledger (``~/.cache/docs-checker/spend.json``,
+whatever ``--evals-dir`` says); ``--settle`` closes a reservation a crashed run left, at
+the cash the Anthropic console shows for it.
 
 Exit codes: 0 done, 1 an error, 2 refused (no key, past the cap, another harness
-running, or a replay miss).
+running, an unwritable spend ledger, or a replay miss).
 """
 
 from __future__ import annotations
@@ -35,7 +36,12 @@ from docs_checker.evals.harness import (
     spend_table,
 )
 from docs_checker.evals.replay import MODES, CassetteMiss
-from docs_checker.evals.spend import HarnessBusy, SpendCapExceeded, SpendGuard
+from docs_checker.evals.spend import (
+    HarnessBusy,
+    SpendCapExceeded,
+    SpendGuard,
+    SpendLedgerUnwritable,
+)
 from docs_checker.levers import parse_levers
 
 DEFAULT_CLONE = Path(os.environ.get("DOCS_CHECKER_EVAL_CLONE", "~/git/kubernetes")).expanduser()
@@ -57,7 +63,6 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--run-budget-usd", type=float, default=RUN_BUDGET_USD)
     run.add_argument("--overloaded", type=int, default=0, help="synthetic 529s per request")
     spend = commands.add_parser("spend", help="show or settle the eval spend ledger")
-    spend.add_argument("--evals-dir", type=Path, default=EVALS_DIR)
     spend.add_argument("--settle", metavar="RUN_ID")
     spend.add_argument("--cash", type=float)
     return parser
@@ -68,7 +73,7 @@ def _run(args: argparse.Namespace) -> int:
     instances = eval_set.select(args.instances)
     levers = parse_levers(args.levers)
     spec = levers_spec(levers)
-    guard = SpendGuard(args.evals_dir / ".spend.json")
+    guard = SpendGuard()
     if args.dry_run:
         table, _ = spend_table(guard, instances, spec)
         print(table)
@@ -116,7 +121,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _spend(args: argparse.Namespace) -> int:
-    guard = SpendGuard(args.evals_dir / ".spend.json")
+    guard = SpendGuard()
     if args.settle:
         if args.cash is None:
             print("--settle needs --cash", file=sys.stderr)
@@ -136,7 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return _run(args) if args.command == "run" else _spend(args)
-    except (SpendCapExceeded, HarnessBusy, CassetteMiss) as error:
+    except (SpendCapExceeded, HarnessBusy, CassetteMiss, SpendLedgerUnwritable) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
     except (FileNotFoundError, ValueError) as error:
