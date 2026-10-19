@@ -155,7 +155,7 @@ async def test_cancel_during_an_awaited_model_call_stops_the_run_and_publishes_n
     assert a2a_pb2.TaskState.TASK_STATE_COMPLETED not in states
     assert a2a_pb2.TaskState.TASK_STATE_FAILED not in states
     assert len(calls) == 1 and tool_log == []  # no model or tool call after the cancel
-    assert executor._active == set() and executor._running == {}
+    assert executor._running == {} and executor._cancelled == set()
 
 
 async def test_cancel_of_an_idle_task_still_reports_canceled():
@@ -190,3 +190,33 @@ async def test_the_recursion_limit_fails_the_task_instead_of_running_on():
 
     assert _states(queue)[-1] == a2a_pb2.TaskState.TASK_STATE_FAILED
     assert "recursion limit hit" in queue.events[-1].status.message.parts[0].text
+
+
+async def test_cancel_during_tool_discovery_stops_the_task_and_publishes_nothing_after():
+    import asyncio
+
+    from a2a.types import a2a_pb2
+
+    discovering = asyncio.Event()
+
+    async def tools():
+        discovering.set()
+        await asyncio.Event().wait()  # discovery never finishes: only cancellation ends it
+
+    executor = build_executor(
+        fake_settings(), graph=build_test_graph(), models=FakeModels(), tools=tools
+    )
+    context, queue = _context("discovery"), _Queue()
+
+    run = asyncio.create_task(executor.execute(context, queue))
+    await asyncio.wait_for(discovering.wait(), 2)
+    await executor.cancel(context, queue)
+    done, _ = await asyncio.wait({run}, timeout=2)
+    assert run in done  # execute returned by itself, not by a timeout's cancel
+    run.result()
+
+    states = _states(queue)
+    assert states[-1] == a2a_pb2.TaskState.TASK_STATE_CANCELED
+    assert a2a_pb2.TaskState.TASK_STATE_COMPLETED not in states
+    assert a2a_pb2.TaskState.TASK_STATE_FAILED not in states
+    assert executor._running == {} and executor._cancelled == set()

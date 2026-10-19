@@ -186,9 +186,9 @@ class DocsCheckerExecutor(AgentExecutor):
         self._paused_ledgers: OrderedDict[str, CostLedger] = OrderedDict()
         # Per paused task: the memo its resume replays (see RunDeps.replay).
         self._paused_replays: OrderedDict[str, dict[str, Any]] = OrderedDict()
-        # Cancellation: the graph run of each executing task, and the tasks a
-        # cancel() reached while they were executing (they must publish nothing).
-        self._active: set[str] = set()
+        # Cancellation: each executing task's whole operation (tool discovery, the
+        # resume lookup and the graph run), and the tasks a cancel() reached while
+        # they were executing (they must publish nothing).
         self._running: dict[str, asyncio.Future] = {}
         self._cancelled: set[str] = set()
 
@@ -221,6 +221,22 @@ class DocsCheckerExecutor(AgentExecutor):
         return Command(resume=resume_map(payload, pending))
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        task_id = context.task_id
+        # Registered before the first await, so cancel() stops every step of the
+        # task, not only the graph run.
+        operation = asyncio.ensure_future(self._execute(context, event_queue))
+        self._running[task_id] = operation
+        try:
+            await operation
+        except asyncio.CancelledError:
+            if not self._was_cancelled(task_id):
+                raise
+            # cancel() stopped the operation and already published CANCELED.
+        finally:
+            self._running.pop(task_id, None)
+            self._cancelled.discard(task_id)
+
+    async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id, context_id = context.task_id, context.context_id
         if context.current_task is None:
             await event_queue.enqueue_event(
@@ -241,12 +257,12 @@ class DocsCheckerExecutor(AgentExecutor):
         # summary covers every call, including those made before the pause.
         ledger = self._paused_ledgers.pop(task_id, None) or self._new_ledger(task_id, context_id)
         replay = self._paused_replays.pop(task_id, None) or {}
-        self._active.add(task_id)
         try:
             await self._run(context, event_queue, ledger, replay)
-        finally:
-            self._active.discard(task_id)
-            self._cancelled.discard(task_id)
+        except asyncio.CancelledError:
+            if self._was_cancelled(task_id):
+                logger.info("task %s cancelled; %d model calls ran", task_id, len(ledger.entries))
+            raise
 
     def _was_cancelled(self, task_id: str) -> bool:
         return task_id in self._cancelled
@@ -259,20 +275,7 @@ class DocsCheckerExecutor(AgentExecutor):
             graph_input = await self._graph_input(context, config)
             if self._was_cancelled(task_id):
                 return
-            invocation = asyncio.ensure_future(
-                self._graph.ainvoke(graph_input, config, context=deps)
-            )
-            self._running[task_id] = invocation
-            try:
-                result = await invocation
-            finally:
-                self._running.pop(task_id, None)
-        except asyncio.CancelledError:
-            if self._was_cancelled(task_id):
-                # cancel() stopped the run and already published CANCELED.
-                logger.info("task %s cancelled; %d model calls ran", task_id, len(ledger.entries))
-                return
-            raise
+            result = await self._graph.ainvoke(graph_input, config, context=deps)
         except GraphRecursionError as error:
             await self._fail(
                 event_queue, task_id, context_id, ledger, f"recursion limit hit: {error}"
@@ -363,16 +366,16 @@ class DocsCheckerExecutor(AgentExecutor):
         await event_queue.enqueue_event(event)
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        """Stop the task's graph run (model and tool calls included), then report
-        CANCELED; execute() publishes nothing after this."""
+        """Stop the task's whole operation (tool discovery, model and tool calls
+        included), then report CANCELED; execute() publishes nothing after this."""
         task_id = context.task_id
         self._paused_ledgers.pop(task_id, None)
         self._paused_replays.pop(task_id, None)
-        if task_id in self._active:
+        operation = self._running.get(task_id)
+        if operation is not None:
             self._cancelled.add(task_id)
-            invocation = self._running.get(task_id)
-            if invocation is not None and not invocation.done():
-                invocation.cancel()
+            if not operation.done():
+                operation.cancel()
         await event_queue.enqueue_event(
             _status(context.task_id, context.context_id, a2a_pb2.TaskState.TASK_STATE_CANCELED)
         )

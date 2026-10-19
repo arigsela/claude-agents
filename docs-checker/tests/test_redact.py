@@ -195,3 +195,62 @@ def test_an_env_credential_written_as_a_block_is_redacted_line_by_line():
 def test_short_credentials_are_still_credentials(text, hidden):
     out = redact(text)
     assert f": {hidden}" not in out and f'"{hidden}"' not in out
+
+
+# Secrets at any depth and in any YAML style. The keys are neutral on purpose:
+# only the Secret structure may hide these values.
+NESTED_SECRETS = [
+    "apiVersion: v1\nkind: Secret\ndata: {config: c2VjcmV0, user: YWRtaW4=}\n",
+    "kind: Secret\nstringData: {username: hunter2, note: 'quoted value'}\n",
+    "kind: Secret\nstringData: {\n  username: hunter2,\n  note: ok-value\n}\n",
+    (
+        "apiVersion: v1\nkind: List\nitems:\n- apiVersion: v1\n  kind: Secret\n"
+        "  data:\n    config: c2VjcmV0\n- apiVersion: v1\n  kind: Secret\n"
+        "  stringData: {user: hunter2}\n"
+    ),
+    (
+        "extraObjects:\n  - apiVersion: v1\n    metadata:\n      name: x\n"
+        "    stringData:\n      note: |\n        line one hunter2\n        line two\n"
+        "      user: admin-user\n    kind: Secret\n  - kind: ConfigMap\n    data:\n"
+        "      mode: fast\n"
+    ),
+]
+
+
+@pytest.mark.parametrize("text", NESTED_SECRETS)
+def test_secret_data_is_redacted_in_flow_style_nested_and_indented(text):
+    out = redact(text)
+    for hidden in ("c2VjcmV0", "YWRtaW4=", "hunter2", "quoted value", "ok-value", "line two"):
+        assert hidden not in out
+    assert "admin-user" not in out
+    assert out.count("\n") == text.count("\n")  # line references stay true
+
+
+def test_a_nested_secrets_keys_and_its_sibling_configmap_are_kept():
+    out = redact(NESTED_SECRETS[4])
+    assert "note:" in out and "user:" in out and "name: x" in out
+    assert "mode: fast" in out  # the ConfigMap item in the same list is not a Secret
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "kind: ConfigMap\ndata: {config: public-value, mode: fast}\n",
+        "kind: List\nitems:\n- kind: ConfigMap\n  data:\n    config: public-value\n",
+        "objects:\n  - kind: ConfigMap\n    data: {config: public-value}\n",
+    ],
+)
+def test_a_configmap_in_the_same_shapes_is_untouched(text):
+    assert redact(text) == text
+
+
+def test_a_nested_secret_in_text_that_is_not_yaml_is_still_redacted():
+    # A Helm template does not parse as YAML; the line-based pass still finds the
+    # Secret at any indentation and masks its data, block or flow.
+    text = (
+        "{{- if .Values.enabled }}\nitems:\n  - kind: Secret\n    data:\n      config: c2VjcmV0\n"
+        "    stringData: {user: hunter2}\n{{- end }}\n"
+    )
+    out = redact(text)
+    assert "c2VjcmV0" not in out and "hunter2" not in out
+    assert out.count("\n") == text.count("\n")

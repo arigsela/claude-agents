@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
+
+import yaml
 
 REDACTED = "[REDACTED]"
 
@@ -107,7 +109,14 @@ _ENV_NAME = re.compile(r"^\s*(?:-\s+)?name:\s*[\"']?(?P<name>[A-Za-z0-9_.\-]+)[\
 _ENV_VALUE = re.compile(r"^(?P<pre>\s*(?:-\s+)?value:\s*)(?P<value>\S.*?)\s*$")
 _DOC_SEP = re.compile(r"^---\s*$")
 _KIND_SECRET = re.compile(r"^kind:\s*[\"']?Secret[\"']?\s*(?:#.*)?$")
-_DATA_SECTION = re.compile(r"^(?P<indent>\s*)(?:data|stringData):\s*(?:#.*)?$")
+# Any indentation, as a list item or not (the fallback for text that is not YAML).
+_KIND_SECRET_ANYWHERE = re.compile(r"^\s*(?:-\s+)?kind:\s*[\"']?Secret[\"']?\s*(?:#.*)?$")
+# ``indent`` is the key's column, a list item's "- " included.
+_DATA_SECTION = re.compile(r"^(?P<indent>\s*(?:-\s+)?)(?:data|stringData):\s*(?:#.*)?$")
+_DATA_FLOW = re.compile(r"^(?P<pre>\s*(?:-\s+)?(?:data|stringData):\s*\{)(?P<rest>.*)$")
+_FLOW_PAIR = re.compile(
+    r"(?P<pre>[^,:{}]+?:[ \t]*)(?P<value>\"[^\"]*\"|'[^']*'|[^,}]+?)(?=[ \t]*(?:,|$))"
+)
 _CHILD = re.compile(r"^(?P<pre>\s+[\"']?[^\s:#][^:]*?[\"']?\s*:\s*)(?P<value>\S.*?)\s*$")
 _JSON_ENV = re.compile(
     r"(?i)(?P<pre>\"name\"\s*:\s*\"(?P<name>[A-Za-z0-9_.\-]+)\"\s*,\s*\"value\"\s*:\s*\")"
@@ -142,12 +151,12 @@ def _mask_block(lines: list[str], start: int, parent_indent: int) -> int:
     return i
 
 
-def _secret_documents(lines: list[str]) -> set[int]:
-    """Indexes of the lines that belong to a ``kind: Secret`` YAML document."""
+def _secret_documents(lines: list[str], kind: re.Pattern[str]) -> set[int]:
+    """Indexes of the lines that belong to a YAML document with a ``kind`` line."""
     secret, doc = set(), []
     for i, line in enumerate(lines + ["---"]):
         if _DOC_SEP.match(line):
-            if any(_KIND_SECRET.match(lines[j]) for j in doc):
+            if any(kind.match(lines[j]) for j in doc):
                 secret.update(doc)
             doc = []
         else:
@@ -155,12 +164,33 @@ def _secret_documents(lines: list[str]) -> set[int]:
     return secret
 
 
-def _structured(text: str) -> str:
+def _mask_flow_pair(match: re.Match[str]) -> str:
+    return _mask_value(match.group("pre"), match.group("value"))
+
+
+def _structured(text: str, *, nested_secrets: bool) -> str:
+    """The line-based passes. ``nested_secrets`` finds a Secret at any indentation
+    and masks every data section of its document: the fallback for text that does
+    not parse as YAML (a Helm template), where ``_redact_yaml_secrets`` could not
+    find the exact mappings."""
     lines = text.split("\n")
-    secret = _secret_documents(lines)
+    secret = _secret_documents(lines, _KIND_SECRET_ANYWHERE if nested_secrets else _KIND_SECRET)
     i = 0
     while i < len(lines):
         line = lines[i]
+        # A Secret's data: {k: v, ...}, on one line or until the closing brace.
+        flow = _DATA_FLOW.match(line)
+        if flow and i in secret:
+            prefix, rest = flow.group("pre"), flow.group("rest")
+            while True:
+                body, close, tail = rest.partition("}")
+                lines[i] = prefix + _FLOW_PAIR.sub(_mask_flow_pair, body) + close + tail
+                if close or i + 1 >= len(lines):
+                    break
+                i += 1
+                prefix, rest = "", lines[i]
+            i += 1
+            continue
         # Every value under a Secret's data/stringData is a credential.
         section = _DATA_SECTION.match(line)
         if section and i in secret:
@@ -233,6 +263,72 @@ def _redact_json(text: str) -> str | None:
     return json.dumps(masked, indent=indent, ensure_ascii=False)
 
 
+_MAYBE_SECRET = re.compile(r"kind[\"']?\s*:\s*[\"']?Secret\b")
+_LINE_BREAKS = re.compile(r"\r\n|\r|\n")
+
+
+def _is_scalar(node: yaml.Node, value: str) -> bool:
+    return isinstance(node, yaml.ScalarNode) and node.value == value
+
+
+def _secret_data_nodes(node: yaml.Node, seen: set[int]) -> Iterator[yaml.Node]:
+    """The data/stringData value of every Secret mapping under ``node``, at any depth
+    (a List's items, a Helm values list, a flow mapping)."""
+    if id(node) in seen:  # an alias: shared (or recursive) nodes are walked once
+        return
+    seen.add(id(node))
+    if isinstance(node, yaml.MappingNode):
+        if any(_is_scalar(k, "kind") and _is_scalar(v, "Secret") for k, v in node.value):
+            for key, value in node.value:
+                if _is_scalar(key, "data") or _is_scalar(key, "stringData"):
+                    yield value
+        for _, value in node.value:
+            yield from _secret_data_nodes(value, seen)
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from _secret_data_nodes(item, seen)
+
+
+def _value_scalars(node: yaml.Node, seen: set[int]) -> Iterator[yaml.ScalarNode]:
+    """Every scalar value under ``node`` (mapping keys are kept)."""
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    if isinstance(node, yaml.ScalarNode):
+        yield node
+    elif isinstance(node, yaml.MappingNode):
+        for _, value in node.value:
+            yield from _value_scalars(value, seen)
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from _value_scalars(item, seen)
+
+
+def _redact_yaml_secrets(text: str) -> str | None:
+    """Mask every value under a Secret's data/stringData, wherever the Secret sits
+    and whatever the YAML style; None when ``text`` does not parse as YAML.
+
+    The values are found by parsing and masked where they stand in the original
+    text (by their source spans), so the formatting and line count are kept.
+    """
+    if not _MAYBE_SECRET.search(text):
+        return text
+    try:
+        documents = [d for d in yaml.compose_all(text, Loader=yaml.SafeLoader) if d is not None]
+    except (yaml.YAMLError, RecursionError):
+        return None
+    spans, walked, masked = set(), set(), set()
+    for document in documents:
+        for data in _secret_data_nodes(document, walked):
+            for scalar in _value_scalars(data, masked):
+                if not _keep(scalar.value):
+                    spans.add((scalar.start_mark.index, scalar.end_mark.index))
+    for start, end in sorted(spans, reverse=True):
+        breaks = "".join(_LINE_BREAKS.findall(text[start:end]))  # a block keeps its lines
+        text = text[:start] + REDACTED + breaks + text[end:]
+    return text
+
+
 def redact(text: str) -> str:
     """Return ``text`` with anything that looks like a credential replaced.
 
@@ -245,9 +341,12 @@ def redact(text: str) -> str:
     as_json = _redact_json(text)
     if as_json is not None:
         return as_json
+    secrets_masked = _redact_yaml_secrets(text)
+    if secrets_masked is not None:
+        text = secrets_masked
     for pattern in _TOKEN_PATTERNS:
         text = pattern.sub(_keep_lines, text)
-    text = _structured(text)
+    text = _structured(text, nested_secrets=secrets_masked is None)
     text = _JSON_ENV.sub(_mask_json_env, text)
     for pattern in (_QUOTED, _COLON_PLAIN, _EQUALS_PLAIN):
         text = pattern.sub(_mask, text)

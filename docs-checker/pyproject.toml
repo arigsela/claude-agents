@@ -23,6 +23,8 @@ dependencies = [
     "grpcio-health-checking>=1.74.0,<1.75",
     "pydantic>=2.12",
     "httpx>=0.28.1",
+    # redact.py finds Kubernetes Secrets at any depth by parsing YAML.
+    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]
