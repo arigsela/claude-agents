@@ -1,0 +1,147 @@
+from docs_checker.evidence import (
+    decide_in_code,
+    insufficient,
+    is_evidence_source,
+    whole_files,
+    windows_for,
+)
+from docs_checker.state import Claim, Window
+
+
+def claim(values=("0.30.1",), keys=("version",), kind="version", **kw) -> Claim:
+    return Claim(
+        doc="base-apps/x/README.md", line_start=1, line_end=1, text="t",
+        kind=kind, keys=list(keys), values=list(values), **kw,
+    )  # fmt: skip
+
+
+def lines(n, at):
+    return "\n".join(at.get(i, f"filler {i}") for i in range(1, n + 1))
+
+
+def test_is_evidence_source_excludes_docs_by_segment():
+    for bad in ["a.md", "x/README.md", "docs/a.yaml", "base-apps/x/docs/a.yaml",
+                "SPEC.md", "templates/a.yaml", "templates/sub/a.yaml"]:  # fmt: skip
+        assert not is_evidence_source(bad), bad
+    for good in ["base-apps/x/values.yaml", "base-apps/x.yaml", "templates-old/a.yaml",
+                 "mydocs/a.yaml", "base-apps/x/docsy/a.yaml", "base-apps/x/mdfile"]:  # fmt: skip
+        assert is_evidence_source(good), good
+
+
+def test_window_radius_and_merge():
+    text = lines(30, {10: "version: 0.30.1", 12: "again 0.30.1", 25: "pin 0.30.1"})
+    ws = windows_for(claim(), {"base-apps/x/v.yaml": text})
+    assert [(w.start, w.end) for w in ws] == [(7, 15), (22, 28)]
+    assert ws[0].text == "\n".join(text.split("\n")[6:15])
+    ws1 = windows_for(claim(), {"base-apps/x/v.yaml": text}, radius=1)
+    assert [(w.start, w.end) for w in ws1] == [(9, 13), (24, 26)]
+
+
+def test_window_clamped_to_file():
+    ws = windows_for(claim(), {"base-apps/x/v.yaml": "0.30.1\nb"})
+    assert (ws[0].start, ws[0].end) == (1, 2)
+
+
+def test_a_value_found_200_times_yields_at_most_five_windows():
+    text = "\n".join("v: 0.30.1" if i % 20 == 0 else "x" for i in range(1, 4001))
+    ws = windows_for(claim(), {"base-apps/x/v.yaml": text})
+    assert len(ws) == 5
+    assert len(windows_for(claim(), {"base-apps/x/v.yaml": text}, max_windows=2)) == 2
+
+
+def test_key_and_value_on_one_line_ranks_first():
+    a = lines(20, {2: "tag: 0.30.1"})
+    b = lines(20, {2: "version: 0.30.1"})
+    ws = windows_for(claim(), {"base-apps/x/a.yaml": a, "base-apps/x/b.yaml": b})
+    assert ws[0].source == "base-apps/x/b.yaml"
+    assert ws[1].source == "base-apps/x/a.yaml"
+
+
+def test_doc_files_never_supply_evidence():
+    srcs = {
+        "base-apps/x/README.md": "version: 0.30.1",
+        "base-apps/x/docs/a.yaml": "version: 0.30.1",
+        "docs/b.yaml": "version: 0.30.1",
+        "SPEC.md": "version: 0.30.1",
+        "templates/t.yaml": "version: 0.30.1",
+    }
+    assert windows_for(claim(), srcs) == []
+    assert whole_files(srcs) == []
+    assert windows_for(claim(), {**srcs, "templates-old/t.yaml": "version: 0.30.1"})
+    forged = [Window(source="README.md", start=1, end=1, text="version: 0.30.1")]
+    assert decide_in_code(claim(), forged, set()) is None
+
+
+def test_comment_lines_are_not_hits():
+    srcs = {"base-apps/x/v.yaml": "  # version: 0.30.1\nother"}
+    assert windows_for(claim(), srcs) == []
+    w = [Window(source="base-apps/x/v.yaml", start=1, end=1, text="# version: 0.30.1")]
+    assert decide_in_code(claim(), w, set()) is None
+
+
+def test_values_match_whole_tokens():
+    def hit(value, line):
+        return bool(windows_for(claim(values=(value,)), {"base-apps/x/v.yaml": line}))
+
+    assert not hit("1.2", "version: 1.23")
+    assert not hit("1.2", "version: 0.1.2")
+    assert not hit("vault", "name: vault-tls")
+    assert not hit("vault", "name: my-vault")
+    assert not hit("0.30.1", "version: 0.30.10")
+    assert hit("1.2", "version: 1.2")
+    assert hit("1.2", "version: 1.2.")
+    assert hit("0.30.1", 'image: "app:0.30.1"')
+    assert hit("Vault", "name: Vault")
+    assert not hit("Vault", "name: vault")  # values are case-sensitive
+
+
+def test_supported_needs_key_and_value_on_one_line():
+    def w(text):
+        return [Window(source="base-apps/x/v.yaml", start=1, end=3, text=text)]
+
+    d = decide_in_code(claim(), w("a: 1\nVersion: 0.30.1\nb: 2"), set())
+    assert d is not None
+    assert (d.verdict, d.judged_by, d.window_index) == ("supported", "code", 0)
+    assert decide_in_code(claim(), w("version: 1\ntag: 0.30.1"), set()) is None
+    assert decide_in_code(claim(), w("tag: 0.30.1"), set()) is None
+    two = claim(values=("0.30.1", "prod"))
+    assert decide_in_code(two, w("version: 0.30.1\nenv: prod"), set()) is None
+    assert decide_in_code(two, w("version: 0.30.1 prod"), set()) is not None
+    assert decide_in_code(claim(keys=()), w("version: 0.30.1"), set()) is None
+    assert decide_in_code(claim(), w("version: 0.30.10"), set()) is None
+
+
+def test_supported_reports_the_matching_window():
+    ws = [
+        Window(source="base-apps/x/a.yaml", start=1, end=1, text="tag: 0.30.1"),
+        Window(source="base-apps/x/b.yaml", start=1, end=1, text="version: 0.30.1"),
+    ]
+    d = decide_in_code(claim(), ws, set())
+    assert d is not None and d.window_index == 1
+
+
+def test_missing_needs_confirmed_absence():
+    c = claim(values=("base-apps/x/gone.yaml",), keys=(), kind="path")
+    d = decide_in_code(c, [], {"base-apps/x/gone.yaml"})
+    assert d is not None
+    assert (d.verdict, d.judged_by, d.window_index) == ("missing", "code", None)
+    assert decide_in_code(c, [], set()) is None
+    assert decide_in_code(c, [], {"other"}) is None
+    v = claim(values=("base-apps/x/gone.yaml",), kind="name")
+    assert decide_in_code(v, [], {"base-apps/x/gone.yaml"}) is None
+
+
+def test_empty_values_never_decide():
+    c = claim().model_copy(update={"values": []})  # bypasses the model's min_length
+    w = [Window(source="base-apps/x/v.yaml", start=1, end=1, text="version: anything")]
+    assert decide_in_code(c, w, set()) is None
+    assert decide_in_code(c.model_copy(update={"kind": "path"}), w, {""}) is None
+    assert windows_for(c, {"base-apps/x/v.yaml": "version: anything"}) == []
+
+
+def test_whole_files_and_insufficient():
+    ws = whole_files({"a.yaml": "x\ny", "b.md": "z"})
+    assert ws == [Window(source="a.yaml", start=1, end=2, text="x\ny")]
+    assert insufficient([], claim())
+    assert insufficient([Window(source="a.yaml", start=1, end=1, text="nope")], claim())
+    assert not insufficient([Window(source="a.yaml", start=1, end=1, text="x 0.30.1")], claim())
