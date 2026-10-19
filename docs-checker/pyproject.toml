@@ -25,6 +25,10 @@ dependencies = [
     "httpx>=0.28.1",
     # redact.py finds Kubernetes Secrets at any depth by parsing YAML.
     "pyyaml>=6.0.2",
+    # The fix gate renders a doc before and after a fix (CommonMark plus GitHub-style
+    # linkify) and refuses a fix that adds a URL. Pinned: the render is a security check.
+    "markdown-it-py==4.2.0",
+    "linkify-it-py==2.2.0",
 ]
 
 [project.optional-dependencies]

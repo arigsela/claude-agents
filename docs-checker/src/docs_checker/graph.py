@@ -6,9 +6,10 @@ placeholder that refuses every request (``server.placeholder_graph``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from docs_checker.gate import FixGate
 from docs_checker.ledger import CostLedger
 from docs_checker.models import ModelSet
 from docs_checker.tools import ToolBelt
@@ -26,6 +27,10 @@ class RunDeps:
     # re-run replays that work instead of paying for it (or running a tool)
     # again. None turns it off (each re-run is fresh).
     replay: dict[str, Any] | None = None
+    # The last check on every proposed fix (``FixGate.check``) before it reaches the
+    # report or a person. The executor passes the one production builds
+    # (``gate.build_fix_gate``); left out, it is still the rules gate, never none.
+    fix_gate: FixGate = field(default_factory=FixGate)
 
 
 def run_config(task_id: str, recursion_limit: int) -> dict:

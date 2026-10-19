@@ -32,7 +32,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
 from docs_checker.config import Settings
-from docs_checker.gate import ToolGate
+from docs_checker.gate import FixGate, ToolGate
 from docs_checker.graph import RunDeps, run_config
 from docs_checker.ledger import RATE_CARDS, CostLedger, RunSummary
 from docs_checker.models import ModelSet
@@ -160,7 +160,10 @@ def _headers(context: RequestContext) -> dict:
 class DocsCheckerExecutor(AgentExecutor):
     """Runs the injected graph, which takes ``{"question": <user text>}`` with a
     ``RunDeps`` runtime context, and returns ``answer``, ``events`` (ToolEvents) and
-    ``outcome``, or pauses with ``interrupt()``."""
+    ``outcome``, or pauses with ``interrupt()``.
+
+    ``gate`` checks every tool call (through the tool belt); ``fix_gate`` every
+    proposed fix (the graph reaches it as ``RunDeps.fix_gate``)."""
 
     def __init__(
         self,
@@ -170,12 +173,14 @@ class DocsCheckerExecutor(AgentExecutor):
         models: ModelSet,
         tools: ToolsProvider,
         gate: ToolGate,
+        fix_gate: FixGate,
     ):
         self._graph = graph
         self._settings = settings
         self._models = models
         self._tools = tools
         self._gate = gate
+        self._fix_gate = fix_gate
         # Each server's binding stays its own: a tool name bound on one server
         # must not authorize a same-named tool on another (no union).
         self._bindings: dict[str, tuple[str, ...]] = {}
@@ -210,7 +215,13 @@ class DocsCheckerExecutor(AgentExecutor):
             settings=self._settings,
             run_state=replay,
         )
-        return RunDeps(models=self._models, belt=belt, ledger=ledger, replay=replay)
+        return RunDeps(
+            models=self._models,
+            belt=belt,
+            ledger=ledger,
+            replay=replay,
+            fix_gate=self._fix_gate,
+        )
 
     async def _graph_input(self, context: RequestContext, config: dict) -> Any:
         kagent_a2a = _hitl()

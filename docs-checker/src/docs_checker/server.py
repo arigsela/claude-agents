@@ -43,7 +43,7 @@ from langgraph.graph import END, START, StateGraph
 from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.executor import DocsCheckerExecutor
-from docs_checker.gate import RecordingGate
+from docs_checker.gate import FixGate, RecordingGate, build_fix_gate
 from docs_checker.llm import request_id_hook
 from docs_checker.models import AnthropicModels
 
@@ -239,8 +239,16 @@ def placeholder_graph() -> Any:
 
 
 def build_executor(
-    settings: Settings, *, graph: Any, models=None, tools=None, gate=None
+    settings: Settings,
+    *,
+    graph: Any,
+    models=None,
+    tools=None,
+    gate=None,
+    fix_gate: FixGate | None = None,
 ) -> DocsCheckerExecutor:
+    """The executor production serves; tests inject fakes. Every proposed fix goes
+    through ``fix_gate``, which defaults to the one production runs (C#10)."""
     cached: dict[str, list[Any]] | None = None
 
     async def default_tools() -> dict[str, list[Any]]:
@@ -263,6 +271,7 @@ def build_executor(
         ),
         tools=tools or default_tools,
         gate=gate or RecordingGate(),
+        fix_gate=build_fix_gate(settings) if fix_gate is None else fix_gate,
     )
 
 

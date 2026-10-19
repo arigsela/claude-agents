@@ -304,12 +304,25 @@ def _skeleton(text: str) -> tuple[list[str], list[tuple[bool, str, bool, bool, b
     return _MARKUP_RUN.findall(text), [_line_shape(line) for line in text.split("\n")]
 
 
-def _whole(token: str, text: str) -> bool:
+def occurs_whole(token: str, text: str) -> bool:
     """``token`` occurs in ``text`` as a whole token, not inside a longer word, number,
     dotted name or path (``1.2`` is not in ``1.2.3``, ``example.com`` not in
     ``a.example.com``, ``values.yaml`` not in ``vault/values.yaml``)."""
     pattern = r"(?<![\w./@-])" + re.escape(token) + r"(?![\w/@-])(?!\.\w)"
     return re.search(pattern, text) is not None
+
+
+def replacement_tokens(text: str) -> list[str]:
+    """The tokens rule 8 checks: ``text`` split at spaces, tabs and newlines only, with
+    quotes, backticks, parens and ``*`` stripped from each token's start and those plus
+    sentence punctuation from its end; empty ones dropped."""
+    tokens = (raw.lstrip(_LEAD).rstrip(_TRAIL) for raw in _SEPARATORS.split(text))
+    return [token for token in tokens if token]
+
+
+def is_word(token: str) -> bool:
+    """ASCII letters only: a plain word, which rule 8 lets change freely."""
+    return _WORD.fullmatch(token) is not None
 
 
 def _known(token: str, sources: tuple[str, ...]) -> bool:
@@ -319,7 +332,7 @@ def _known(token: str, sources: tuple[str, ...]) -> bool:
         spellings.add(token[1:])
     elif token[:1].isdigit():
         spellings.add("v" + token)
-    return any(_whole(s, text) for s in spellings for text in sources)
+    return any(occurs_whole(s, text) for s in spellings for text in sources)
 
 
 def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
@@ -356,7 +369,7 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
        backticks, parens and ``*`` stripped from the start and those plus sentence
        punctuation (``.,;:!?``) from the end, so a leading ``../``, ``./`` or ``/``
        stays. A token of ASCII letters only (a plain word) may change. Any other
-       must occur whole (see ``_whole``) in ``old`` or in the evidence's code (comment
+       must occur whole (see ``occurs_whole``) in ``old`` or in the evidence's code (comment
        lines and trailing ``# ...`` removed: comments are never evidence), or else
        every part of it split at ``:`` and ``@`` must (an image built from a
        repository and a tag). A leading ``v`` on a version is ignored either way.
@@ -385,9 +398,8 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     if any(m.group() not in old for m in _DISGUISE.finditer(new)):
         return None
     sources = (old, code_only(evidence_text))
-    for raw in _SEPARATORS.split(new):
-        token = raw.lstrip(_LEAD).rstrip(_TRAIL)
-        if not token or _WORD.fullmatch(token) or _known(token, sources):
+    for token in replacement_tokens(new):
+        if is_word(token) or _known(token, sources):
             continue
         parts = [p for p in _PARTS.split(token) if p]
         if len(parts) > 1 and all(_known(p, sources) for p in parts):
