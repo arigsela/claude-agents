@@ -29,6 +29,22 @@ port starts from `docs/bedrock-agentcore-handover.md`.
   - tune the per-doc cap;
   - K2 acceptance: key rotation, and the credential file unreadable from a sandbox.
 
+## Commit SHAs were rewritten (2026-10-19)
+
+Before the first push, the branch's history was rewritten to drop an employer name from two
+docs and one commit message. Nothing else changed, but every commit SHA did. References
+outside this branch use the old SHAs; here are the ones they cite:
+
+| Old SHA | New SHA | Cited by |
+|---|---|---|
+| `e15e834` | `bf7e550` | image tag `docs-checker:e15e834c98ef` (first deploy, no longer pinned) |
+| `51f7c16` | `5be26a1` | image tag `docs-checker:51f7c166faeb`; kubernetes #890 and SPEC T131 |
+| `68f145a` | `a82307f` | image tag `docs-checker:68f145af438b` (deployed); kubernetes #895 and SPEC T131 |
+
+The image digests are what admission checks, and they are unchanged. Every other old SHA
+in this file maps one-to-one, in order: `git log --reverse --format=%h origin/main..HEAD`
+lists the new ones.
+
 ## Where things stand
 
 - **The agent works offline.** `cd docs-checker && .venv/bin/pytest -q` gives 975 passed,

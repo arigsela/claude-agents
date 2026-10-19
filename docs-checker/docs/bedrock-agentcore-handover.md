@@ -46,7 +46,7 @@ network and no key).
 | Evidence | `scope.py` (which docs), `frontmatter.py` (`sources:`), `evidence.py`, `repo.py` | Partly: see §4 |
 | Memory | `memory.py` (caller-held snapshot: the caller sends it in and gets the updated one back; no DB), `dismissals.py` | Yes; only where the caller stores it changes |
 | Models | `models.py` (`ChatAnthropic`, lazy), `config.py` (per-node model and effort) | Needs a Bedrock client |
-| Tools | `tools.py`: the MCP tool belt over a read-only GitHub MCP server (`get_file_contents`, `search_code`, `list_commits`, `get_commit`), pinned to one repo | Yes if work is on GitHub; else new tools |
+| Tools | `tools.py`: the MCP tool belt over a read-only GitHub MCP server (`get_file_contents`, `search_code`, `list_commits`, `get_commit`), pinned to one repo | Yes if the work repos are on GitHub; else new tools |
 | Runtime | `server.py` (A2A **gRPC** + `/readyz` on 8081), `executor.py` (kagent TaskStore, HITL pauses), `paused.py`, `entry.py` | **No: rewrite this layer** (§3) |
 | Evals | `evals/` (replay cassettes, $20 per-user spend ledger, maximum-matching scorer, curated set, drift demo) | Yes; needs work eval sets |
 
