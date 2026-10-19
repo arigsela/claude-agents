@@ -1,0 +1,21 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "a ref that does not exist: go-github's 'GET <url>: 404 Not Found []'",
+  "tool": "list_commits",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "no-such-branch-docs-checker",
+    "perPage": 1
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to list commits: no-such-branch-docs-checker: GET https://api.github.com/repos/arigsela/kubernetes/commits?page=1&per_page=1&sha=no-such-branch-docs-checker: 404 Not Found []"
+      }
+    ],
+    "isError": true
+  }
+}

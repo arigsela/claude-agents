@@ -1,0 +1,19 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "the shape of a search with hits (another public repo of the same owner, because arigsela/kubernetes is not indexed)",
+  "tool": "search_code",
+  "arguments": {
+    "query": "vault user:arigsela",
+    "perPage": 2
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"total_count\": 5, \"incomplete_results\": false, \"items\": [{\"name\": \"postgres_database_info.md\", \"path\": \"docs/architecture/postgres_database_info.md\", \"sha\": \"dc5df88f7652970fa673627c4c0aea01b55b1613\", \"repository\": \"arigsela/chores-tracker\", \"text_matches\": [{\"object_url\": \"https://api.github.com/repositories/953293094/contents/docs/architecture/postgres_database_info.md?ref=765b7024781661b73128f7ca7ae20cdbd2a19521\", \"object_type\": \"FileContent\", \"property\": \"content\", \"fragment\": \"Credentials\\nCredentials are stored in Kubernetes secrets, managed by External Secrets Operator pulling from HashiCorp Vault.\\n\", \"matches\": [{\"text\": \"Vault\", \"indices\": [118, 123]}]}, {\"object_url\": \"https://api.github.com/repositories/953293094/contents/docs/architecture/postgres_database_info.md?ref=765b7024781661b73128f7ca7ae20cdbd2a19521\", \"object_type\": \"FileContent\", \"property\": \"content\", \"fragment\": \"kubectl get secret postgresql-credentials -n postgresql -o jsonpath='{.data.password}' | base64 -d\\nVault Path\\nCredentials are sourced from Vault at path k8s-secrets/postgresql with keys:\", \"matches\": [{\"text\": \"Vault\", \"indices\": [99, 104]}, {\"text\": \"Vault\", \"indices\": [139, 144]}]}]}, {\"name\": \"devops-engineer.md\", \"path\": \".claude/agents/devops-engineer.md\", \"sha\": \"c8d800af58de42236b3e387a56092c4fcc6c6ad0\", \"repository\": \"arigsela/chores-tracker\", \"text_matches\": [{\"object_url\": \"https://api.github.com/repositories/953293094/contents/.claude/agents/devops-engineer.md?ref=765b7024781661b73128f7ca7ae20cdbd2a19521\", \"object_type\": \"FileContent\", \"property\": \"content\", \"fragment\": \"stringData:\\n  mysql-host: \\\"mysql.production.svc.cluster.local\\\"\\n  mysql-password: \\\"[REDACTED]\\\"\\n  jwt-secret: \\\"[REDACTED]\\\"\\n```\\n\\n### 2. Image Scanning\", \"matches\": [{\"text\": \"vault\", \"indices\": [104, 109]}, {\"text\": \"vault\", \"indices\": [148, 153]}]}]}]}"
+      }
+    ],
+    "isError": false
+  }
+}

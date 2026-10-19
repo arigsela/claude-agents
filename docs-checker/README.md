@@ -58,9 +58,12 @@ and one cost ledger (`ledger.py`). It keeps a paused task's ledger and replay me
 resumed task reports its whole cost and does not pay for a model reply or run a tool twice.
 It turns parallel pauses into one HITL request, cancels a running task, and redacts what it
 logs and publishes (`redact.py`). Every tool call goes through the tool belt (`tools.py`):
-the read-only allowlist, per-server bindings, repository scoping, then the drift gate
-(`gate.py`); a paused call runs only when the reply approves that call's id with a boolean
-`True`. Model calls go through the one retry owner (`llm.py`).
+the read-only allowlist, per-server bindings, per-node scoping, repository scoping, then the
+drift gate (`gate.py`); a paused call runs only when the reply approves that call's id with a
+boolean `True`. Results come back whole and typed (`ok`, `absent`, `denied`, `transient`,
+`error`, read from the server's captured shapes in `tests/fixtures/mcp/`), `model_text` caps
+what a model sees, and searches are capped and paced per run. Model calls go through the one
+retry owner (`llm.py`).
 
 The plumbing tests run against `tests/fake_graph.py`, a minimal graph with a memoized model
 step, tool calls through the belt, and two parallel `Send` branches.

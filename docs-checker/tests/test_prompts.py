@@ -38,12 +38,12 @@ def test_the_system_prompt_is_a_cached_frozen_prefix():
     assert first["output_config"]["effort"] == "low"  # lever 6: effort per node
 
 
-def test_specialist_tools_are_sent_sorted_and_scoped():
+def test_node_tools_are_sent_sorted_and_scoped():
     belt = ToolBelt(fake_tools_by_server(), RecordingGate(), bindings=FAKE_BINDINGS)
     sent = payload(
         "judge_escalate",
         [prompts.system_message(prompts.AGENT_DESCRIPTION, cache=True), HumanMessage("q")],
-        tools=belt.tools_for("docs"),
+        tools=belt.schemas_for("scope"),
     )
-    assert [t["name"] for t in sent["tools"]] == ["get_file_contents", "search_code"]
+    assert [t["name"] for t in sent["tools"]] == ["get_commit", "get_file_contents", "list_commits"]
     assert sent["model"] == "claude-sonnet-5-5"

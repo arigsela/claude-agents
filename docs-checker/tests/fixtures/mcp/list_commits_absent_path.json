@@ -1,0 +1,22 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "no commit touched the path: an empty list, not an error",
+  "tool": "list_commits",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "fc7552ef84cdff34b462aeae8e4f27da980a9290",
+    "path": "base-apps/vault/does-not-exist.yaml",
+    "perPage": 1
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[]"
+      }
+    ],
+    "isError": false
+  }
+}

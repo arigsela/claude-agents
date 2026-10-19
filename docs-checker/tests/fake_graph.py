@@ -10,8 +10,9 @@
   already has, so no model call is paid twice and no tool runs twice.
 - Each line of the question is one branch: a two-line question runs two
   parallel ``Send`` branches that can both pause, which the executor reports as
-  one HITL request. A line ``catalog: ...`` gets the catalog tools; any other
-  line (or ``docs: ...``) gets the docs tools.
+  one HITL request. A line ``<node>: ...`` (a node of ``NODE_TOOLS``, e.g.
+  ``locate: ...``) runs as that node, with its tools; any other line runs as
+  ``load``.
 - ``finish`` answers ``TEST_ANSWER``. The outcome is "verified" when every tool
   call ran and returned, else "unverified".
 """
@@ -31,9 +32,10 @@ from langgraph.types import Send
 
 from docs_checker.gate import render_intent
 from docs_checker.graph import RunDeps
+from docs_checker.levers import Levers
 from docs_checker.llm import call_model
 from docs_checker.prompts import AGENT_DESCRIPTION, system_message
-from docs_checker.tools import SPECIALIST_TOOLS, ToolEvent
+from docs_checker.tools import NODE_TOOLS, ToolEvent, model_text
 
 TEST_ANSWER = "The test graph finished every branch."
 MODEL_NODE = "worker"  # tests script it as FakeModels(worker=...)
@@ -50,7 +52,7 @@ class FakeState(TypedDict, total=False):
 
 class Branch(TypedDict):
     question: str
-    specialist: str
+    node: str
     task: str
 
 
@@ -58,22 +60,22 @@ def fan_out(state: FakeState) -> list[Send]:
     sends = []
     for line in (state.get("question") or "").splitlines():
         scope, sep, rest = line.partition(":")
-        if sep and scope.strip() in SPECIALIST_TOOLS:
-            specialist, task = scope.strip(), rest.strip()
+        if sep and scope.strip() in NODE_TOOLS:
+            node, task = scope.strip(), rest.strip()
         else:
-            specialist, task = "docs", line.strip()
+            node, task = "load", line.strip()
         if task:
-            branch = Branch(question=state["question"], specialist=specialist, task=task)
+            branch = Branch(question=state["question"], node=node, task=task)
             sends.append(Send("worker", branch))
     return sends
 
 
 async def worker(state: Branch, runtime: Runtime[RunDeps]) -> dict:
     deps = runtime.context
-    specialist = state["specialist"]
-    model = deps.models.get(MODEL_NODE).bind_tools(deps.belt.tools_for(specialist))
+    node = state["node"]
+    model = deps.models.get(MODEL_NODE).bind_tools(deps.belt.schemas_for(node))
     intent = render_intent(AGENT_DESCRIPTION, state["question"])
-    ask = json.dumps({"specialist": specialist, "task": state["task"]})
+    ask = json.dumps({"node": node, "task": state["task"]})
     messages: list[Any] = [system_message("Plumbing test worker.", cache=True), HumanMessage(ask)]
     branch_key = hashlib.sha256(ask.encode()).hexdigest()[:16]
     events: list[ToolEvent] = []
@@ -95,15 +97,15 @@ async def worker(state: Branch, runtime: Runtime[RunDeps]) -> dict:
         if not reply.tool_calls:
             break
         for call in reply.tool_calls:
-            text, event = await deps.belt.call(
+            result, event = await deps.belt.call(
                 call["name"],
                 call.get("args") or {},
-                specialist=specialist,
+                node=node,
                 intent=intent,
-                workflow=specialist,
                 memo=deps.replay,
             )
             events.append(event)
+            text = model_text(result, Levers.all_on())
             messages.append(ToolMessage(content=text, tool_call_id=call["id"]))
     return {"events": events}
 

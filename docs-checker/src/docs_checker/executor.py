@@ -202,7 +202,7 @@ class DocsCheckerExecutor(AgentExecutor):
 
     async def _deps(self, ledger: CostLedger, replay: dict[str, Any]) -> RunDeps:
         belt = ToolBelt(
-            await self._tools(), self._gate, bindings=self._bindings, repo=self._settings.repo
+            await self._tools(), self._gate, bindings=self._bindings, settings=self._settings
         )
         return RunDeps(models=self._models, belt=belt, ledger=ledger, replay=replay)
 

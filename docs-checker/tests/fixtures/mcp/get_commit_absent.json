@@ -1,0 +1,21 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "a sha that names no commit: a 422 the server words as 'No commit found for SHA'",
+  "tool": "get_commit",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "0000000000000000000000000000000000000001",
+    "detail": "none"
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to get commit: 0000000000000000000000000000000000000001: No commit found for SHA: 0000000000000000000000000000000000000001"
+      }
+    ],
+    "isError": true
+  }
+}

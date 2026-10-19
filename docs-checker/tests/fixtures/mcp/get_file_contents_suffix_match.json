@@ -1,0 +1,21 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "a path that does not exist but ends another path: NOT an error result, the tree fallback lists the paths it ends",
+  "tool": "get_file_contents",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "fc7552ef84cdff34b462aeae8e4f27da980a9290",
+    "path": "vault/docs.md"
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Resolved potential matches in the repository tree (resolved refs: {\"Ref\":\"\",\"SHA\":\"fc7552ef84cdff34b462aeae8e4f27da980a9290\"}, matching files: [\"base-apps/vault/docs.md\"])."
+      }
+    ],
+    "isError": false
+  }
+}

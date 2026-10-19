@@ -1,0 +1,21 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "a sha that names no object: a 422 from the tree fallback (not a not-found)",
+  "tool": "get_file_contents",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "0000000000000000000000000000000000000001",
+    "path": "README.md"
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to get git tree: Invalid object requested. SHA must identify a commit or a tree."
+      }
+    ],
+    "isError": true
+  }
+}

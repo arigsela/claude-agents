@@ -1,0 +1,19 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "arigsela/kubernetes is not in GitHub's code-search index: every repo-scoped query returns no items with incomplete_results true (not proof of absence)",
+  "tool": "search_code",
+  "arguments": {
+    "query": "vault repo:arigsela/kubernetes",
+    "perPage": 2
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"total_count\":0,\"incomplete_results\":true,\"items\":[]}"
+      }
+    ],
+    "isError": false
+  }
+}

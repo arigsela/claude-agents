@@ -155,10 +155,8 @@ async def test_an_approval_for_another_id_does_not_run_the_call(setup):
     assert ledger_of(done)["outcome"] == "unverified"
 
 
-READ_CATALOG = tool_call(
-    "get-catalog-entity", {"kind": "component", "namespace": "default", "name": "vault"}
-)
-TWO_BRANCHES = "docs: Which chart version does vault run?\ncatalog: Who owns vault?"
+SEARCH_VAULT = tool_call("search_code", {"query": "vault chart"}, call_id="toolu_s")
+TWO_BRANCHES = "load: Which chart version does vault run?\nlocate: Where is the vault chart set?"
 
 
 @pytest.fixture
@@ -169,8 +167,8 @@ async def parallel():
     # the first reply from the task's memo).
     worker = KeyedModel(
         {
-            "docs": [reply(tool_calls=[READ_VAULT]), reply("done")],
-            "catalog": [reply(tool_calls=[READ_CATALOG]), reply("done")],
+            "load": [reply(tool_calls=[READ_VAULT]), reply("done")],
+            "locate": [reply(tool_calls=[SEARCH_VAULT]), reply("done")],
         }
     )
 
@@ -199,15 +197,15 @@ async def test_parallel_asks_become_one_request_listing_every_call(parallel):
         assert paused.status.state == a2a_pb2.TaskState.TASK_STATE_INPUT_REQUIRED
         request = MessageToDict(paused.status.message.metadata)[HITL]
         names = sorted(t["name"] for t in request["tools"])
-        assert names == ["get-catalog-entity", "get_file_contents"]
+        assert names == ["get_file_contents", "search_code"]
 
         approvals = [{"id": t["id"], "approved": True} for t in request["tools"]]
         done = await decide(stub, paused, approvals)
 
     assert done.status.state == a2a_pb2.TaskState.TASK_STATE_COMPLETED
     assert sorted(tool_log) == [
-        ("get-catalog-entity", "vault"),
         ("get_file_contents", "base-apps/vault/values.yaml"),
+        ("search_code", "vault chart repo:arigsela/kubernetes"),
     ]
     assert ledger_of(done)["outcome"] == "verified"
 
@@ -218,12 +216,12 @@ async def test_approving_one_of_two_parallel_calls_runs_only_that_one(parallel):
         stub = a2a_pb2_grpc.A2AServiceStub(channel)
         paused = await ask(stub, TWO_BRANCHES)
         request = MessageToDict(paused.status.message.metadata)[HITL]
-        docs = next(t for t in request["tools"] if t["name"] == "get_file_contents")
-        catalog = next(t for t in request["tools"] if t["name"] == "get-catalog-entity")
+        read = next(t for t in request["tools"] if t["name"] == "get_file_contents")
+        search = next(t for t in request["tools"] if t["name"] == "search_code")
         done = await decide(
             stub,
             paused,
-            [{"id": docs["id"], "approved": True}, {"id": catalog["id"], "approved": False}],
+            [{"id": read["id"], "approved": True}, {"id": search["id"], "approved": False}],
         )
 
     assert done.status.state == a2a_pb2.TaskState.TASK_STATE_COMPLETED
@@ -273,7 +271,7 @@ async def test_an_approval_never_carries_over_to_a_different_call_after_resume()
 
 
 class AskForReadsGate:
-    """Allows searches, asks before reading a file."""
+    """Allows listing commits, asks before reading a file."""
 
     async def check(self, call):
         if call.tool == "get_file_contents":
@@ -282,13 +280,13 @@ class AskForReadsGate:
 
 
 async def test_a_resume_replays_earlier_work_instead_of_repeating_it():
-    # Search (allowed, runs), then read (asks, pauses). On resume the node re-runs
-    # from its start: the first two model replies and the search come from the
-    # task's memo, so only the approved read and the final reply are new.
+    # List commits (allowed, runs), then read (asks, pauses). On resume the node
+    # re-runs from its start: the first two model replies and the listing come from
+    # the task's memo, so only the approved read and the final reply are new.
     tool_log: list = []
-    search = tool_call("search_code", {"query": "vault chart"}, call_id="toolu_s")
+    history = tool_call("list_commits", {"path": "base-apps/vault/values.yaml"}, call_id="toolu_l")
     worker = ScriptedModel(
-        [reply(tool_calls=[search]), reply(tool_calls=[READ_VAULT]), reply("done")]
+        [reply(tool_calls=[history]), reply(tool_calls=[READ_VAULT]), reply("done")]
     )
     deps = deps_for(worker, AskForReadsGate(), tool_log, replay={})
     graph = build_test_graph()
@@ -296,14 +294,14 @@ async def test_a_resume_replays_earlier_work_instead_of_repeating_it():
 
     paused = await graph.ainvoke({"question": QUESTION}, config, context=deps)
     request = paused["__interrupt__"][0].value["action_requests"][0]
-    assert tool_log == [("search_code", "vault chart repo:arigsela/kubernetes")]
+    assert tool_log == [("list_commits", "base-apps/vault/values.yaml")]
 
     result = await graph.ainvoke(Command(resume=approve(request)), config, context=deps)
 
     assert tool_log == [
-        ("search_code", "vault chart repo:arigsela/kubernetes"),
+        ("list_commits", "base-apps/vault/values.yaml"),
         ("get_file_contents", "base-apps/vault/values.yaml"),
-    ]  # the search ran once
+    ]  # the listing ran once
     assert len(worker.calls) == 3  # not 3 + 2 replayed
     assert [e.node for e in deps.ledger.entries].count("worker") == 3
     assert result["outcome"] == "verified"

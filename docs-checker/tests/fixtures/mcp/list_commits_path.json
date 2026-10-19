@@ -1,0 +1,22 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "the latest commit that touched a path, up to a commit",
+  "tool": "list_commits",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "fc7552ef84cdff34b462aeae8e4f27da980a9290",
+    "path": "base-apps/vault/docs.md",
+    "perPage": 1
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"sha\":\"5b4d814e6a041840d0973cf2e2426aac678ec1f7\",\"html_url\":\"https://github.com/arigsela/kubernetes/commit/5b4d814e6a041840d0973cf2e2426aac678ec1f7\",\"commit\":{\"message\":\"feat(okf): move the knowledge docs to OKF v0.2\\n\\nOKF moved to GoogleCloudPlatform/open-knowledge-format and is now v0.2,\\nwhich reserves `status` and `sources` and adds trust and lifecycle fields.\\n\\n- Export (`gen-okf.py --export`) is now strictly v0.2-conformant: index\\n  files become §8 listings (their prose moves to overview.md), and each\\n  concept gets `generated` from git, `verified` and `stale_after` from\\n  `last_reviewed`, and `sources` as {id, resource, last_modified}. The\\n  v0.1 `timestamp` is gone.\\n- `verified.by` is human only when the commit that bumped `last_reviewed`\\n  has a Reviewed-by trailer or no Claude co-author; otherwise the agent.\\n- `status` values renamed current/wip -\\u003e stable/draft in all docs,\\n  templates and the TechDocs mirror.\\n- Validator accepts mapping-form sources and checks per-claim footnotes\\n  ([^id]) against sources ids.\\n- homelab-knowledge prompt explains the mapping form and footnotes.\\n- Spec links point at the new repo; okf_version bumped to 0.2.\\n\\nCo-Authored-By: Claude Opus 5.5 \\u003cnoreply@anthropic.com\\u003e\\nClaude-Session: https://claude.ai/code/session_01Ury6VGbzkxG5zeyDbg1QQC\",\"author\":{\"name\":\"Ari sela\",\"email\":\"arisela@asela-personal-mac.local\",\"date\":\"2026-10-01T13:08:30Z\"},\"committer\":{\"name\":\"Ari Sela\",\"email\":\"arigsela@gmail.com\",\"date\":\"2026-10-01T13:55:51Z\"}},\"committer\":{\"login\":\"arigsela\",\"id\":2475907,\"profile_url\":\"https://github.com/arigsela\",\"avatar_url\":\"https://avatars.githubusercontent.com/u/2475907?v=4\"}}]"
+      }
+    ],
+    "isError": false
+  }
+}

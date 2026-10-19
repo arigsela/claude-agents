@@ -1,0 +1,21 @@
+{
+  "source": "kagent/agent-docs-mcp: github-mcp-server v1.14.0 (--read-only --toolsets repos) behind an rmcp 0.6.4 gateway, captured 2026-10-18 through a port-forward",
+  "synthetic": false,
+  "note": "resolve a branch name to its commit (Task 6 resolve_commit)",
+  "tool": "get_commit",
+  "arguments": {
+    "owner": "arigsela",
+    "repo": "kubernetes",
+    "sha": "main",
+    "detail": "none"
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"sha\":\"fc7552ef84cdff34b462aeae8e4f27da980a9290\",\"html_url\":\"https://github.com/arigsela/kubernetes/commit/fc7552ef84cdff34b462aeae8e4f27da980a9290\",\"commit\":{\"message\":\"chore(kagent): drop the one-sync orphan prune policy used for the kmcp hand-over; fill SPEC PR numbers (§T.126, §T.127)\\n\\nCo-Authored-By: Claude Haiku 5.5 \\u003cnoreply@anthropic.com\\u003e\\nClaude-Session: https://claude.ai/code/session_01JLr5qpFNvpExAv9VQRc7CD\",\"author\":{\"name\":\"Ari sela\",\"email\":\"arigsela@gmail.com\",\"date\":\"2026-10-19T00:43:59Z\"},\"committer\":{\"name\":\"Ari Sela\",\"email\":\"arigsela@gmail.com\",\"date\":\"2026-10-19T00:51:25Z\"}},\"author\":{\"login\":\"arigsela\",\"id\":2475907,\"profile_url\":\"https://github.com/arigsela\",\"avatar_url\":\"https://avatars.githubusercontent.com/u/2475907?v=4\"},\"committer\":{\"login\":\"arigsela\",\"id\":2475907,\"profile_url\":\"https://github.com/arigsela\",\"avatar_url\":\"https://avatars.githubusercontent.com/u/2475907?v=4\"}}"
+      }
+    ],
+    "isError": false
+  }
+}
