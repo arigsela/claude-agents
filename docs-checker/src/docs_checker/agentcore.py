@@ -85,7 +85,12 @@ async def open_task_store(stack: AsyncExitStack, settings: Settings) -> Any:
         path = Path(settings.data_dir) / "tasks.sqlite"
         path.parent.mkdir(parents=True, exist_ok=True)
         query = "?nolock=1&uri=true" if settings.sqlite_nolock else ""
-        engine = create_async_engine(f"sqlite+aiosqlite:///file:{path}{query}")
+        # nolock tells SQLite that no other connection exists, so the engine holds
+        # exactly one and concurrent saves queue for it: a pool of several overwrote
+        # each other's pages ("database or disk is full" on session storage).
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///file:{path}{query}", pool_size=1, max_overflow=0
+        )
         stack.push_async_callback(engine.dispose)
         if settings.sqlite_nolock:
 

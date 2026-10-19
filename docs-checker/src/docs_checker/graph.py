@@ -274,8 +274,20 @@ class RunState(TypedDict, total=False):
 # --- intake ----------------------------------------------------------------------------
 
 
-def _refused(reason: str) -> dict:
-    return {"outcome": "refused", "report": f"Request refused: {reason}\n\n{REFUSAL}\n"}
+def refusal_text(profile: Any = None) -> str:
+    """``REFUSAL``, worded for the profile's repo when one is set."""
+    if profile is None:
+        return REFUSAL
+    return (
+        f"docs-checker only checks the documentation in {profile.repo} against the "
+        "configuration files it describes (read-only). Ask it to check all docs or named "
+        "doc files."
+    )
+
+
+def _refused(reason: str, profile: Any = None) -> dict:
+    text = refusal_text(profile)
+    return {"outcome": "refused", "report": f"Request refused: {reason}\n\n{text}\n"}
 
 
 async def intake(state: RunState, runtime: Runtime[RunDeps]) -> dict:
@@ -293,13 +305,13 @@ async def intake(state: RunState, runtime: Runtime[RunDeps]) -> dict:
             if request is None:
                 classified = await classify_intake(text, deps)
                 if classified == "off_topic":
-                    return _refused("the request is not a docs check")
+                    return _refused("the request is not a docs check", deps.settings.profile)
                 request = classified
                 # The executor sized the budget for this intake call alone; the scope
                 # is known now (C#1).
                 deps.ledger.budget.limit_usd = budget_limit(request, deps.settings)
         except ValueError as error:
-            return _refused(f"the request could not be read ({error})")
+            return _refused(f"the request could not be read ({error})", deps.settings.profile)
     try:
         commit = await resolve_commit(deps.belt, request.ref, memo=deps.replay)
     except RefError as error:

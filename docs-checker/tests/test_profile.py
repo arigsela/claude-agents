@@ -114,3 +114,11 @@ def test_settings_load_the_profile():
     )
     assert "docs/USAGE.md" in settings.profile.docs
     assert load_settings({}).profile is None
+
+
+def test_refusal_names_the_profile_repo():
+    from docs_checker.graph import REFUSAL, refusal_text
+
+    assert refusal_text(None) == REFUSAL  # byte-identical without a profile
+    text = refusal_text(profile())
+    assert REPO in text and "arigsela/kubernetes" not in text and "manifests" not in text

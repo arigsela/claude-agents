@@ -178,3 +178,34 @@ def test_hitl_uri_is_kagents():
     from kagent.core.a2a import HITL_EXTENSION_URI as KAGENT_URI
 
     assert HITL_EXTENSION_URI == KAGENT_URI
+
+
+async def test_nolock_task_store_survives_concurrent_saves(tmp_path):
+    """nolock tells SQLite no other connection exists, so the task store must hold one
+    connection only; a pool of several overwrote each other's pages (live on AgentCore:
+    "database or disk is full"; locally: "database disk image is malformed")."""
+    import asyncio
+    from contextlib import AsyncExitStack
+
+    from a2a.server.context import ServerCallContext
+
+    from docs_checker.agentcore import open_task_store
+
+    settings = agentcore_settings(tmp_path)
+    async with AsyncExitStack() as stack:
+        store = await open_task_store(stack, settings)
+        context = ServerCallContext()
+
+        async def one(i: int) -> None:
+            task = a2a_pb2.Task(
+                id=f"t{i % 30}",
+                context_id="c",
+                status=a2a_pb2.TaskStatus(state=a2a_pb2.TaskState.TASK_STATE_WORKING),
+            )
+            task.history.append(message("x" * 4000))
+            await store.save(task, context)
+            await store.get(f"t{(i * 7) % 30}", context)
+
+        results = await asyncio.gather(*(one(i) for i in range(300)), return_exceptions=True)
+        assert [r for r in results if isinstance(r, Exception)] == []
+        assert (await store.get("t0", context)).history[0].parts[0].text == "x" * 4000
