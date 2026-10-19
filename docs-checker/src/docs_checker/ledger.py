@@ -16,10 +16,19 @@ Two traps this module exists to avoid:
 - A call that returned no usage (an error, a stream that died) is *unknown*,
   not zero. Its cost is ``None`` and it lowers known-usage coverage instead of
   silently lowering the bill.
+
+Each ledger also owns the run's ``Budget``, enforced by reservation before every
+attempt (``llm.call_model`` reserves and settles). A run reports two costs:
+*workload* (every call at list price, replayed ones included: what the work
+costs) and *cash* (only calls that reached the API: what was paid). An entry is
+replayed when its message's ``response_metadata`` carries
+``REPLAYED_METADATA_KEY``; ``llm.call_model`` sets it from the eval replay
+transport's response header.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -32,6 +41,13 @@ from docs_checker.redact import redact, redact_obj
 logger = logging.getLogger("docs_checker.ledger")
 
 Outcome = Literal["verified", "unverified", "refused", "failed", "escalated"]
+
+# response_metadata key that marks a message as served by the eval replay
+# transport rather than the API: it counts in workload cost, not cash cost.
+REPLAYED_METADATA_KEY = "docs_checker_replayed"
+
+# Float sums drift (0.1 + 0.2 > 0.3): an exact fit must not be refused.
+_EPSILON_USD = 1e-9
 
 
 @dataclass(frozen=True)
@@ -161,6 +177,87 @@ def cost_usd(usage: Usage, rates: Rates) -> float:
     ) / 1_000_000
 
 
+def reservation_for(model: str, prompt_chars: int, max_tokens: int, rate_card: RateCard) -> float:
+    """A conservative bound on one attempt's cost: the prompt as ``ceil(chars / 3)``
+    tokens at the uncached input rate, plus ``max_tokens`` at the output rate.
+
+    A model the rate card cannot price has no bound, so the run budget could not
+    hold it: that is an error, not a free call.
+    """
+    prompt_tokens = -(-prompt_chars // 3)
+    rates = rate_card.rates_for(model, prompt_tokens)
+    if rates is None:
+        raise ValueError(f"rate card {rate_card.version} has no price for {model}")
+    return (prompt_tokens * rates.input + max_tokens * rates.output) / 1_000_000
+
+
+class BudgetExceeded(Exception):
+    """A reservation would take the run past its budget. Raised before the call."""
+
+
+@dataclass(frozen=True, eq=False)  # compared by identity: each one settles once
+class Reservation:
+    amount_usd: float
+
+
+class Budget:
+    """The run budget, enforced by reservation before every attempt (C#1).
+
+    ``reserve`` holds a conservative bound before an attempt; ``settle`` swaps it
+    for the actual cost. Concurrent branches share one Budget, and the check and
+    the hold happen under one lock, so branches starting together cannot reserve
+    more than the limit between them. An attempt whose cost is unknown keeps its
+    whole reservation as spent. A reservation never settled (its attempt was
+    cancelled in flight) stays in ``reserved_usd``: whether it was billed is unknown.
+    ``limit_usd=None`` never refuses but still counts.
+    """
+
+    def __init__(self, limit_usd: float | None = None):
+        self.limit_usd = limit_usd
+        self._lock = asyncio.Lock()
+        self._open: set[Reservation] = set()
+        self._spent = 0.0
+
+    @property
+    def spent_usd(self) -> float:
+        return self._spent
+
+    @property
+    def reserved_usd(self) -> float:
+        return sum(r.amount_usd for r in self._open)
+
+    @property
+    def remaining_usd(self) -> float | None:
+        if self.limit_usd is None:
+            return None
+        return max(self.limit_usd - self._spent - self.reserved_usd, 0.0)
+
+    async def reserve(self, amount_usd: float) -> Reservation:
+        if amount_usd < 0:
+            raise ValueError(f"cannot reserve a negative amount: {amount_usd}")
+        async with self._lock:
+            committed = self._spent + self.reserved_usd
+            if (
+                self.limit_usd is not None
+                and committed + amount_usd > self.limit_usd + _EPSILON_USD
+            ):
+                raise BudgetExceeded(
+                    f"reserving ${amount_usd:.6f} on top of ${committed:.6f} "
+                    f"exceeds the ${self.limit_usd:.6f} run budget"
+                )
+            reservation = Reservation(amount_usd)
+            self._open.add(reservation)
+            return reservation
+
+    def settle(self, reservation: Reservation, actual_usd: float | None) -> None:
+        """Replace the reservation with the actual cost, or keep it all when the
+        actual is unknown. Synchronous (no await), so it is atomic on the loop."""
+        if reservation not in self._open:
+            raise ValueError("reservation is not open (already settled, or another budget's)")
+        self._open.remove(reservation)
+        self._spent += reservation.amount_usd if actual_usd is None else actual_usd
+
+
 @dataclass(frozen=True)
 class LedgerEntry:
     run_id: str
@@ -176,6 +273,7 @@ class LedgerEntry:
     error: str | None = None
     stop_reason: str | None = None
     latency_ms: int = 0
+    replayed: bool = False  # served by the eval replay transport, not the API
     ts: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -198,6 +296,12 @@ class RunSummary:
     cost_usd_known: float
     # Cost of the calls whose usage is known. With unknown calls present the true
     # run cost is higher; ``complete`` says whether this number is the whole bill.
+    # The two costs below are lower bounds in the same way (C#28):
+    workload_cost_usd: float  # every priced call, replayed ones included (= cost_usd_known)
+    cash_cost_usd: float  # only the priced calls that went to the API
+    # Reservations still open when the summary was taken: attempts cancelled in
+    # flight, which may or may not have been billed.
+    reserved_unsettled_usd: float
     complete: bool
     cache_hit_rate: float | None
     by_node: dict[str, float]
@@ -224,12 +328,14 @@ class CostLedger:
         rate_card: RateCard | None = None,
         default_ttl: str = "5m",
         emit: bool = True,
+        budget: Budget | None = None,
     ):
         self.run_id = run_id
         self.context_id = context_id
         self.rate_card = rate_card or RATE_CARDS["anthropic-2026-10-18"]
         self.default_ttl = default_ttl
         self.emit = emit
+        self.budget = budget if budget is not None else Budget(None)
         self.entries: list[LedgerEntry] = []
 
     def record_message(
@@ -255,17 +361,28 @@ class CostLedger:
                 status="ok",
                 stop_reason=metadata.get("stop_reason"),
                 latency_ms=latency_ms,
+                replayed=bool(metadata.get(REPLAYED_METADATA_KEY)),
             )
         )
 
     def record_error(
-        self, *, node: str, model: str, attempt: int, error: BaseException, latency_ms: int = 0
+        self,
+        *,
+        node: str,
+        model: str,
+        attempt: int,
+        error: BaseException,
+        latency_ms: int = 0,
+        request_id: str | None = None,
+        replayed: bool = False,
     ) -> LedgerEntry:
+        """``request_id`` and ``replayed`` come from the response the error followed,
+        when the caller saw one; the error's own request id wins."""
         return self._append(
             LedgerEntry(
                 run_id=self.run_id,
                 context_id=self.context_id,
-                request_id=getattr(error, "request_id", None),
+                request_id=getattr(error, "request_id", None) or request_id,
                 node=node,
                 model=model,
                 attempt=attempt,
@@ -277,6 +394,7 @@ class CostLedger:
                 # before the text is stored or logged.
                 error=redact(f"{type(error).__name__}: {error}")[:300],
                 latency_ms=latency_ms,
+                replayed=replayed,
             )
         )
 
@@ -295,12 +413,16 @@ class CostLedger:
         read = sum(e.usage.cache_read for e in known)
         prompt = uncached + write + read
         by_node: dict[str, float] = {}
+        cash = 0.0
         priced_all = True
         for entry in self.entries:
             if entry.cost_usd is None:
                 priced_all = False
                 continue
             by_node[entry.node] = by_node.get(entry.node, 0.0) + entry.cost_usd
+            if not entry.replayed:
+                cash += entry.cost_usd
+        workload = round(sum(by_node.values()), 8)
         return RunSummary(
             run_id=self.run_id,
             context_id=self.context_id,
@@ -311,7 +433,10 @@ class CostLedger:
             cache_write=write,
             cache_read=read,
             output=sum(e.usage.output for e in known),
-            cost_usd_known=round(sum(by_node.values()), 8),
+            cost_usd_known=workload,
+            workload_cost_usd=workload,
+            cash_cost_usd=round(cash, 8),
+            reserved_unsettled_usd=round(self.budget.reserved_usd, 8),
             complete=priced_all,
             cache_hit_rate=(read / prompt) if prompt else None,
             by_node={k: round(v, 8) for k, v in sorted(by_node.items())},

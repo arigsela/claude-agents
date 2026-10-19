@@ -38,6 +38,7 @@ from docs_checker.tools import SPECIALIST_TOOLS, ToolEvent
 TEST_ANSWER = "The test graph finished every branch."
 MODEL_NODE = "worker"  # tests script it as FakeModels(worker=...)
 MAX_STEPS = 8
+MAX_TOKENS = 1024  # bounds each reservation; the run budget is unlimited here
 
 
 class FakeState(TypedDict, total=False):
@@ -86,6 +87,7 @@ async def worker(state: Branch, runtime: Runtime[RunDeps]) -> dict:
                 node=MODEL_NODE,
                 model_name=deps.models.name(MODEL_NODE),
                 ledger=deps.ledger,
+                max_tokens=MAX_TOKENS,
             )
             if deps.replay is not None:
                 deps.replay[memo_key] = reply

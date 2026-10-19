@@ -6,6 +6,8 @@ from langchain_core.messages import AIMessage
 
 from docs_checker.ledger import (
     RATE_CARDS,
+    REPLAYED_METADATA_KEY,
+    Budget,
     CostLedger,
     Usage,
     cost_per_verified_outcome,
@@ -196,3 +198,70 @@ def test_error_text_is_redacted_before_it_is_stored_or_logged(caplog):
         )
     assert "SECRETSECRET" not in entry.error and "[REDACTED]" in entry.error
     assert "SECRETSECRET" not in caplog.text
+
+
+def _priced(replayed: bool = False) -> AIMessage:
+    """One million uncached Sonnet input tokens: $2.00."""
+    return AIMessage(
+        content="x",
+        usage_metadata={"input_tokens": 1_000_000, "output_tokens": 0, "total_tokens": 1_000_000},
+        response_metadata={REPLAYED_METADATA_KEY: True} if replayed else {},
+    )
+
+
+def test_replayed_calls_count_in_workload_not_cash(caplog):
+    ledger = CostLedger("r", emit=True)
+    with caplog.at_level(logging.INFO, logger="docs_checker.ledger"):
+        live = ledger.record_message(
+            node="judge", model="claude-sonnet-5-5", attempt=1, message=_priced()
+        )
+        replayed = ledger.record_message(
+            node="judge", model="claude-sonnet-5-5", attempt=1, message=_priced(replayed=True)
+        )
+    assert (live.replayed, replayed.replayed) == (False, True)
+    assert json.loads(caplog.records[-1].getMessage())["replayed"] is True
+    summary = ledger.summary("verified")
+    assert summary.workload_cost_usd == pytest.approx(4.00)  # what the work costs at list price
+    assert summary.cash_cost_usd == pytest.approx(2.00)  # what actually went to the API
+    assert summary.cost_usd_known == summary.workload_cost_usd
+    assert summary.to_dict()["cash_cost_usd"] == pytest.approx(2.00)
+
+
+def test_cash_cost_is_a_lower_bound_like_the_rest_when_usage_is_unknown():
+    ledger = CostLedger("r", emit=False)
+    ledger.record_message(node="judge", model="claude-sonnet-5-5", attempt=1, message=_priced())
+    ledger.record_error(node="judge", model="claude-sonnet-5-5", attempt=2, error=TimeoutError())
+    summary = ledger.summary("failed")
+    assert (summary.workload_cost_usd, summary.cash_cost_usd) == (
+        pytest.approx(2.00),
+        pytest.approx(2.00),
+    )
+    assert summary.complete is False
+
+
+def test_an_error_entry_keeps_the_request_id_and_replay_flag_it_is_given():
+    ledger = CostLedger("r", emit=False)
+    entry = ledger.record_error(
+        node="judge",
+        model="claude-haiku-5-5",
+        attempt=1,
+        error=TimeoutError("t"),
+        request_id="req_9",
+        replayed=True,
+    )
+    assert (entry.request_id, entry.replayed) == ("req_9", True)
+
+
+def test_a_ledger_has_an_unlimited_budget_unless_given_one():
+    assert CostLedger("r", emit=False).budget.limit_usd is None
+    assert CostLedger("r", emit=False, budget=Budget(0.10)).budget.limit_usd == 0.10
+
+
+async def test_the_summary_reports_reservations_still_open():
+    ledger = CostLedger("r", emit=False, budget=Budget(1.00))
+    settled = await ledger.budget.reserve(0.20)
+    await ledger.budget.reserve(0.05)  # an attempt still in flight when the run ended
+    ledger.budget.settle(settled, 0.01)
+    summary = ledger.summary("failed")
+    assert summary.reserved_unsettled_usd == pytest.approx(0.05)
+    assert summary.to_dict()["reserved_unsettled_usd"] == pytest.approx(0.05)
