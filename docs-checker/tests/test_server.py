@@ -76,7 +76,7 @@ async def running():
         gate=RecordingGate(),
     )
     handler, controller = build_request_handler(settings, executor, build_agent_card(settings))
-    assert controller is None  # no KAGENT_API_URL: in-memory store
+    assert controller is None  # no runtime.control_plane_url: in-memory store
     server = await start(handler, a2a_address="127.0.0.1:0", ready_port=0, ready_host="127.0.0.1")
     yield server
     await server.stop(grace=0)
@@ -163,7 +163,7 @@ async def test_grpc_health_reports_the_a2a_service_serving(running):
 
 
 def test_agent_card_advertises_grpc_on_the_runtime_port():
-    card = build_agent_card(load_settings({"KAGENT_PORT": "80"}))
+    card = build_agent_card(load_settings({}))
     interface = card.supported_interfaces[0]
     assert (interface.url, interface.protocol_binding) == ("http://127.0.0.1:80", "GRPC")
     assert "https://kagent.dev/extensions/hitl/v1" in [e.uri for e in card.capabilities.extensions]

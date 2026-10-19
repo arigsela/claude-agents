@@ -1,16 +1,17 @@
 """The kagent 1.0 BYO runtime contract, served for a LangGraph graph.
 
-What the controller (v1.0.0-alpha11) and Agent Substrate expect of a BYO image:
+What the controller (v1.0.0-alpha14) and Agent Substrate expect of a BYO image:
 
-1. A2A v1 over gRPC (service ``lf.a2a.v1.A2AService``) on ``KAGENT_PORT``, 80.
-   The gateway dials the actor through the Atenet router with gRPC only; a
-   JSON-RPC-only server is never reached.
-2. ``GET /readyz`` answering 200 on 8081, a separate listener. Substrate may
-   snapshot the actor as soon as it succeeds, so the A2A port binds first.
-3. The private TaskStore at ``KAGENT_API_URL`` (gRPC ``TaskStoreService``):
-   tasks are created, versioned and settled there, identified by the projected
-   actor identity under /run/kagent/identity. An in-memory store is not enough
-   in-cluster.
+1. A2A v1 over gRPC (service ``lf.a2a.v1.A2AService``) on the ADKConfig's
+   ``runtime.port``, 80. The gateway dials the actor through the Atenet router
+   with gRPC only; a JSON-RPC-only server is never reached.
+2. ``GET /readyz`` answering 200 on 8081, a separate listener (Substrate's
+   wake-up probe). Substrate may snapshot the actor as soon as it succeeds, so
+   the A2A port binds first.
+3. The private TaskStore at ``runtime.control_plane_url`` (gRPC
+   ``kagent.runtime.v1.TaskStoreService``): tasks are created, versioned and
+   settled there, identified by the projected actor identity under
+   /run/kagent/identity. An in-memory store is not enough in-cluster.
 
 kagent-adk's Python ``KAgentApp`` implements all three for Google ADK agents;
 kagent-langgraph (1.0.0a11 through a14) serves FastAPI JSON-RPC only. This

@@ -1,10 +1,12 @@
 """The third part of the BYO contract: tasks persist through the controller's TaskStore.
 
-A fake ``kagent.api.v1alpha1.TaskStoreService`` (the v1.0.0-alpha11 proto)
-stands in for the controller on :8083. The runtime reads its projected actor
-identity from files, as Substrate provides them under /run/kagent/identity,
-and must create the task, version every update, and settle the final boundary
-so the gateway can publish it and the lifecycle worker can suspend the actor.
+A fake ``kagent.runtime.v1.TaskStoreService`` (the v1.0.0-alpha14 proto, from
+kagent-proto at 673d181e) stands in for the controller on :8083. The runtime
+finds it through the ADKConfig's ``runtime.control_plane_url``, reads its
+projected actor identity from files, as Substrate provides them under
+/run/kagent/identity, and must create the task, version every update, and settle
+the final boundary so the gateway can publish it and the lifecycle worker can
+suspend the actor.
 """
 
 import uuid
@@ -12,7 +14,7 @@ import uuid
 import grpc
 import pytest
 from a2a.types import a2a_pb2, a2a_pb2_grpc
-from kagent.api.v1alpha1 import task_store_pb2, task_store_pb2_grpc
+from kagent.runtime.v1 import task_store_pb2, task_store_pb2_grpc
 
 from docs_checker.gate import RecordingGate
 from docs_checker.server import (
@@ -25,6 +27,18 @@ from tests.fake_graph import build_test_graph
 from tests.fakes import FakeModels, ScriptedModel, fake_settings, fake_tools_by_server, reply
 
 IDENTITY_HEADER = "x-kagent-insecure-runtime-identity"
+TASK_STORE_SERVICE = "kagent.runtime.v1.TaskStoreService"
+
+
+class MethodLog(grpc.aio.ServerInterceptor):
+    """The full method path of every call the controller received."""
+
+    def __init__(self):
+        self.methods: set[str] = set()
+
+    async def intercept_service(self, continuation, handler_call_details):
+        self.methods.add(handler_call_details.method)
+        return await continuation(handler_call_details)
 
 
 class FakeTaskStore(task_store_pb2_grpc.TaskStoreServiceServicer):
@@ -36,6 +50,7 @@ class FakeTaskStore(task_store_pb2_grpc.TaskStoreServiceServicer):
         self.identities: set[str] = set()
         self.sessions: set[str] = set()
         self.settled: list[tuple[str, int]] = []
+        self.wire = MethodLog()
 
     def _seen(self, context, request):
         metadata = dict(context.invocation_metadata())
@@ -79,7 +94,7 @@ class FakeTaskStore(task_store_pb2_grpc.TaskStoreServiceServicer):
 @pytest.fixture
 async def controller():
     store = FakeTaskStore()
-    server = grpc.aio.server()
+    server = grpc.aio.server(interceptors=[store.wire])
     task_store_pb2_grpc.add_TaskStoreServiceServicer_to_server(store, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
@@ -107,7 +122,7 @@ def models():
 async def test_a_task_is_created_versioned_and_settled_through_the_controller(controller, identity):
     store, api_url = controller
     identity_path, session = identity
-    settings = fake_settings({"KAGENT_API_URL": api_url, "KAGENT_NAME": "docs-checker"})
+    settings = fake_settings(runtime={"control_plane_url": api_url, "name": "docs-checker"})
     executor = build_executor(
         settings, graph=build_test_graph(), models=models(), tools=_tools, gate=RecordingGate()
     )
@@ -144,6 +159,13 @@ async def test_a_task_is_created_versioned_and_settled_through_the_controller(co
 
     # The boundary was settled at the final version.
     assert store.settled == [(task.id, version)]
+
+    # On the wire, the alpha14 service (the controller routes by full method name;
+    # alpha11's kagent.api.v1alpha1 is gone).
+    assert store.wire.methods >= {
+        f"/{TASK_STORE_SERVICE}/{method}" for method in ("CreateTask", "UpdateTask", "SettleTask")
+    }
+    assert all(method.startswith(f"/{TASK_STORE_SERVICE}/") for method in store.wire.methods)
 
     # Every call was scoped to the actor's session and carried its identity.
     assert store.sessions == {session}

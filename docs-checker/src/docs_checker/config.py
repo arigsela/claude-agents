@@ -4,10 +4,13 @@ kagent 1.0 does not let a Harness carry secrets (env entries are literal values
 only) and caps an actor at 32 environment variables, most of which kagent
 itself sets. So almost everything comes from two places:
 
-- ``KAGENT_CONFIG_JSON``: the ADK-shaped config compiled from the AgentTemplate
-  (model, instruction, MCP tool bindings with their URLs and tool filters).
-  v1.0.0-alpha11 sends the bare ``AgentConfig``; alpha14 wraps it as
-  ``{"runtime": {...}, "agent": {...}}``. Both shapes parse here.
+- ``KAGENT_CONFIG_JSON``: kagent v1.0.0-alpha14's ``ADKConfig``
+  (proto/kagent/config/v1/adk.proto), written by the BYO compiler in ProtoJSON
+  with proto field names. ``runtime`` holds the process settings (controller URL,
+  agent name, namespace, A2A port); ``agent`` is the AgentTemplate compiled (model,
+  instruction, MCP tool bindings with their URLs and tool filters). alpha14 sets no
+  ``KAGENT_API_URL``/``KAGENT_NAME``/``KAGENT_PORT``, so none are read. ProtoJSON
+  omits zero values: an absent bool is false and an absent string is empty.
 - Code defaults, overridable by a handful of literal ``DOCS_CHECKER_*`` env values.
 
 Secrets never appear: the egress gateway injects ``x-api-key`` for the model
@@ -92,11 +95,33 @@ def _server_name(url: str, index: int) -> str:
     return host.split(".")[0] or f"mcp-{index}"
 
 
-def _agent_config(raw: dict) -> dict:
-    """Return the AgentConfig from either config shape (alpha11 bare, alpha14 wrapped)."""
-    if isinstance(raw.get("agent"), dict):
-        return raw["agent"]
-    return raw
+def _adk_config(env: Mapping[str, str]) -> tuple[dict, dict]:
+    """Return ``(runtime, agent)`` from the alpha14 ``ADKConfig``; both empty locally.
+
+    Any other top-level field means another contract, such as alpha11's bare
+    ``AgentConfig``, whose controller has no ``kagent.runtime.v1`` TaskStore. Fail
+    at startup rather than run locally, with an in-memory store and no tools.
+    """
+    raw = json.loads(env.get("KAGENT_CONFIG_JSON") or "{}")
+    if not isinstance(raw, dict) or not set(raw) <= {"runtime", "agent"}:
+        found = sorted(raw)[:6] if isinstance(raw, dict) else [type(raw).__name__]
+        raise ValueError(
+            "KAGENT_CONFIG_JSON is not a kagent v1.0.0-alpha14 ADKConfig ({runtime, agent}); "
+            f"found: {', '.join(found)}"
+        )
+    return raw.get("runtime") or {}, raw.get("agent") or {}
+
+
+def _prompt_cache(model: dict) -> tuple[bool, str]:
+    """Prompt caching and its TTL from the compiled Anthropic provider block.
+
+    With a provider block, an absent ``prompt_caching`` is false (ProtoJSON omits
+    it). Without one (a BYO template may bind no ModelConfig), caching stays on.
+    """
+    if "anthropic" not in model:
+        return True, "5m"
+    anthropic = model["anthropic"] or {}
+    return bool(anthropic.get("prompt_caching", False)), anthropic.get("cache_ttl") or "5m"
 
 
 def parse_mcp_servers(agent: dict, env: Mapping[str, str]) -> tuple[McpServer, ...]:
@@ -160,20 +185,20 @@ def _repo(value: str) -> str:
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
-    raw = json.loads(env.get("KAGENT_CONFIG_JSON") or "{}")
-    runtime = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else {}
-    agent = _agent_config(raw)
+    runtime, agent = _adk_config(env)
     model = agent.get("model") or {}
+    prompt_caching, cache_ttl = _prompt_cache(model)
 
     return Settings(
-        agent_name=env.get("KAGENT_NAME") or runtime.get("name") or "docs-checker",
-        namespace=env.get("KAGENT_NAMESPACE") or runtime.get("namespace") or "kagent",
-        a2a_port=int(env.get("KAGENT_PORT") or runtime.get("port") or DEFAULT_A2A_PORT),
+        agent_name=runtime.get("name") or "docs-checker",
+        namespace=runtime.get("namespace") or "kagent",
+        # Absent selects the listener default; the BYO compiler always sends 80.
+        a2a_port=int(runtime.get("port") or DEFAULT_A2A_PORT),
         ready_port=READY_PORT,
-        kagent_api_url=env.get("KAGENT_API_URL") or runtime.get("control_plane_url") or "",
+        kagent_api_url=runtime.get("control_plane_url") or "",
         template_model=model.get("model") or "",
-        prompt_caching=bool(model.get("prompt_caching", True)),
-        cache_ttl=model.get("cache_ttl") or "5m",
+        prompt_caching=prompt_caching,
+        cache_ttl=cache_ttl,
         mcp_servers=parse_mcp_servers(agent, env),
         node_models=_node_models(env),
         # LangGraph 1.2's default recursion limit is 10007; a small explicit limit

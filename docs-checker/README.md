@@ -11,18 +11,45 @@ server answers every request with "docs-checker is not wired yet". Design:
 
 ## What it proves
 
-kagent 1.0's BYO contract (v1.0.0-alpha11) can be met by a LangGraph app with published
+kagent 1.0's BYO contract (v1.0.0-alpha14) can be met by a LangGraph app with published
 libraries, even though `kagent-langgraph` does not meet it (it serves FastAPI JSON-RPC only):
 
 | Contract | Where | Test |
 |---|---|---|
-| A2A v1 over gRPC (`lf.a2a.v1.A2AService`) on `KAGENT_PORT` (80) | `server.py` (`start`) | `tests/test_server.py` |
+| A2A v1 over gRPC (`lf.a2a.v1.A2AService`) on `runtime.port` (80) | `server.py` (`start`) | `tests/test_server.py` |
 | `GET /readyz` → 200 on 8081, bound after A2A | `server.py` (`_readyz`) | `tests/test_server.py` |
-| Tasks created, versioned and settled through the controller TaskStore, with the projected actor identity | `server.py` (`build_request_handler`), kagent-core | `tests/test_taskstore_contract.py` |
+| Tasks created, versioned and settled through the controller TaskStore (`kagent.runtime.v1`), with the projected actor identity | `server.py` (`build_request_handler`), kagent-core | `tests/test_taskstore_contract.py` |
+| `KAGENT_CONFIG_JSON` parsed as the alpha14 `ADKConfig` | `config.py` (`load_settings`) | `tests/test_config.py` |
 | HITL `input-required` with a kagent `tool_approval_request`, resumed on the same task | `executor.py`, `tools.py` | `tests/test_hitl.py` |
 
 Not proven here: a real controller, Atenet routing, the golden snapshot and gVisor
 suspend/resume.
+
+## Runtime contract (alpha14)
+
+The image targets kagent v1.0.0-alpha14 (commit `673d181e`); the cluster still runs alpha11
+until its upgrade lands, and the two are not compatible. What changed from alpha11:
+
+- **Env names:** alpha11 set `KAGENT_API_URL`; alpha14 sets no `KAGENT_API_URL`, `KAGENT_NAME`,
+  `KAGENT_NAMESPACE` or `KAGENT_PORT`, so none is read. Of kagent's own variables only
+  `KAGENT_CONFIG_JSON` and the `KAGENT_CREDENTIAL_*` header placeholders are read;
+  `KAGENT_AGENT_CARD_JSON` is not (`server.py` builds its own card).
+- **Config shape:** `KAGENT_CONFIG_JSON` is an `ADKConfig` in ProtoJSON with proto field names,
+  `{"runtime": {control_plane_url, gateway_url, name, namespace, log_level, port}, "agent": {...}}`
+  (alpha11 sent the bare agent config). The model's provider is a oneof, so Anthropic's
+  `prompt_caching`/`cache_ttl` sit under `model.anthropic`, and zero values are omitted. Any other
+  top-level field fails at startup.
+- **readyz:** unchanged; Substrate's wake-up probe is `GET /readyz` on 8081 (30 s timeout).
+- **TaskStore service:** `kagent.api.v1alpha1.TaskStoreService` is now
+  `kagent.runtime.v1.TaskStoreService` (Python `kagent.runtime.v1.task_store_pb2`), with the
+  same five RPCs, at `runtime.control_plane_url`.
+- **Identity files:** unchanged; Substrate projects `name` (`session-<uuid>`), `atespace` and
+  `uid` under `/run/kagent/identity`, re-read on every TaskStore call and sent as
+  `x-kagent-insecure-runtime-identity: <atespace>/<name>/<uid>`.
+- **Workload command:** unchanged; a BYO Harness must set
+  `workload.command: ["/app/.venv/bin/docs-checker"]` and a `workload.image` pinned by digest.
+- **Snapshots:** a commit snapshot now keeps only the durable `/data` directory (alpha11 kept
+  process memory too), so state that must survive a suspend has to live under `/data`.
 
 ## Plumbing
 
@@ -40,8 +67,8 @@ step, tool calls through the belt, and two parallel `Send` branches.
 
 ## Configuration
 
-kagent supplies `KAGENT_CONFIG_JSON` (the AgentTemplate compiled: model, MCP bindings and their
-tool filters), `KAGENT_API_URL`, `KAGENT_PORT` and the egress trust bundle variables. Secrets
+kagent supplies `KAGENT_CONFIG_JSON` (the runtime settings, and the AgentTemplate compiled:
+model, MCP bindings and their tool filters) and the egress trust bundle variables. Secrets
 never enter the container: `ANTHROPIC_API_KEY` and Secret-backed MCP headers hold the
 placeholder `kagent-credential-injected`, and the Substrate egress gateway injects the real
 values. A Harness may add literal values only, and an actor carries at most 32 variables in
@@ -66,8 +93,9 @@ The `dev` extra includes the `kagent` extra, so the TaskStore contract tests alw
 tests use scripted fake models and fake tools; they make no Anthropic calls and need no key
 (`tests/conftest.py` points the SDK at an unroutable address and a placeholder key).
 
-The `kagent` extra pins `kagent-core==1.0.0a11` (the controller version in the cluster) and
-installs `kagent-proto` from the kagent repo at that tag's commit, because it is not on PyPI.
+The `kagent` extra pins `kagent-core==1.0.0a14` (the controller version this image targets)
+and installs `kagent-proto` from the kagent repo at that tag's commit, because it is not on
+PyPI. It also declares `fastapi`, which kagent-core 1.0.0a14 imports but does not declare.
 `grpcio-health-checking` stays below 1.75 because kagent-proto needs protobuf < 7.
 
 ## Container

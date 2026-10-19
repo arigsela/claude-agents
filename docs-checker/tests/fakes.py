@@ -158,11 +158,15 @@ def fake_tools_by_server(calls: list | None = None) -> dict[str, list[Structured
     }
 
 
-def fake_settings(env: dict | None = None):
-    """Settings whose AgentTemplate binds the two fake servers (FAKE_BINDINGS)."""
+def fake_settings(env: dict | None = None, *, runtime: dict | None = None):
+    """Settings whose AgentTemplate binds the two fake servers (FAKE_BINDINGS).
+
+    The config is the alpha14 ``ADKConfig``; ``runtime`` fills its runtime block
+    (``control_plane_url`` selects the controller TaskStore). Without it, local mode.
+    """
     from docs_checker.config import load_settings
 
-    config = {
+    agent = {
         "http_tools": [
             {
                 "params": {"url": f"http://{DOCS_SERVER}.kagent:3000/mcp"},
@@ -174,4 +178,5 @@ def fake_settings(env: dict | None = None):
             },
         ]
     }
+    config = {"runtime": runtime or {}, "agent": agent}
     return load_settings({"KAGENT_CONFIG_JSON": json.dumps(config), **(env or {})})
