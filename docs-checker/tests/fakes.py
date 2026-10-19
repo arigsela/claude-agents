@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
 from mcp.types import CallToolResult, Tool
+from pydantic import ValidationError
 
 # Captured github-mcp-server answers (Task 5), redacted.
 FIXTURES = Path(__file__).parent / "fixtures" / "mcp"
@@ -52,16 +53,30 @@ def tool_call(name: str, args: dict, call_id: str = "toolu_1") -> dict:
 
 
 class ScriptedModel:
-    """Returns the scripted replies in order; raises scripted exceptions."""
+    """Returns the scripted replies in order; raises scripted exceptions.
+
+    ``bind_tools`` records the tool names and its keyword arguments (``tool_choice``);
+    ``with_structured_output`` records ``(schema, method, include_raw)`` and returns a
+    runnable that parses the next reply's text as the schema, like ChatAnthropic's.
+    """
 
     def __init__(self, replies: list[Any]):
         self.replies = list(replies)
         self.calls: list[list[Any]] = []
         self.bound_tools: list[str] | None = None
+        self.bind_kwargs: dict[str, Any] | None = None
+        self.structured: list[tuple[Any, str | None, bool]] = []
 
-    def bind_tools(self, tools: list[Any], **_: Any) -> ScriptedModel:
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> ScriptedModel:
         self.bound_tools = [t.name for t in tools]
+        self.bind_kwargs = kwargs
         return self
+
+    def with_structured_output(
+        self, schema: Any, *, method: str | None = None, include_raw: bool = False, **_: Any
+    ) -> StructuredReplies:
+        self.structured.append((schema, method, include_raw))
+        return StructuredReplies(self, schema, include_raw)
 
     async def ainvoke(self, messages: list[Any], *_: Any, **__: Any) -> Any:
         self.calls.append(list(messages))
@@ -71,6 +86,26 @@ class ScriptedModel:
         if isinstance(item, BaseException):
             raise item
         return item
+
+
+class StructuredReplies:
+    """``with_structured_output(..., include_raw=True)`` over a ScriptedModel: the raw
+    reply (with its usage) and the reply's text parsed as the schema, or the error."""
+
+    def __init__(self, model: ScriptedModel, schema: Any, include_raw: bool):
+        self.model = model
+        self.schema = schema
+        self.include_raw = include_raw
+
+    async def ainvoke(self, messages: list[Any], *_: Any, **__: Any) -> Any:
+        raw = await self.model.ainvoke(messages)
+        try:
+            parsed = self.schema.model_validate_json(raw.content)
+        except ValidationError as error:
+            if not self.include_raw:
+                raise
+            return {"raw": raw, "parsed": None, "parsing_error": error}
+        return {"raw": raw, "parsed": parsed, "parsing_error": None} if self.include_raw else parsed
 
 
 class KeyedModel(ScriptedModel):
@@ -88,14 +123,17 @@ class KeyedModel(ScriptedModel):
 
 
 class FakeModels:
-    def __init__(self, **by_node: ScriptedModel):
+    """``names`` maps a node to its model name (default: Sonnet for every node)."""
+
+    def __init__(self, names: dict[str, str] | None = None, **by_node: ScriptedModel):
         self.by_node = by_node
+        self.names = names or {}
 
     def get(self, node: str) -> ScriptedModel:
         return self.by_node[node]
 
     def name(self, node: str) -> str:
-        return "claude-sonnet-5-5"
+        return self.names.get(node, "claude-sonnet-5-5")
 
 
 class TransientError(Exception):
