@@ -49,6 +49,7 @@ from docs_checker.evidence import (
     decide_in_code,
     insufficient,
     is_evidence_source,
+    named_thing_present,
     whole_files,
     windows_for,
 )
@@ -59,6 +60,7 @@ from docs_checker.memory import fingerprint
 from docs_checker.nodes import (
     TRANSCRIPT,
     ExtractionFailed,
+    ExtractionTruncated,
     extract_claims,
     judge_claim,
     propose_fix,
@@ -317,6 +319,11 @@ async def extract(state: DocState, runtime: Runtime[RunDeps]) -> dict:
                 claims = await extract_claims(_lines(state), meta, deps, commit=commit)
                 used += 1
                 _memo_put(deps, memo_key, [c.model_dump() for c in claims])
+            except ExtractionTruncated as error:
+                used += 1
+                claims = error.claims  # checked on what was kept; never memoized as whole
+                incomplete = True
+                reasons.append(f"only part of the claims were extracted: {error}")
             except ExtractionFailed as error:
                 used += 1
                 incomplete = True
@@ -573,6 +580,18 @@ async def fix(state: DocState, runtime: Runtime[RunDeps]) -> dict:
             decision = decisions.get(claim.id)
             if decision is None or decision.verdict not in ("stale", "missing"):
                 continue
+            if decision.verdict == "missing":
+                present = named_thing_present(claim, _texts(state.get("sources") or {}))
+                if present:
+                    # The repository contradicts it: the judge saw other files' windows.
+                    logger.info(
+                        "dropped a missing verdict: %s:%d names %s, which %s holds",
+                        claim.doc,
+                        claim.line_start,
+                        claim.values,
+                        present,
+                    )
+                    continue
             windows = evidence[claim.id].windows if claim.id in evidence else []
             window = _window_of(decision, windows)
             ev_hash = evidence_hash(windows)

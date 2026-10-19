@@ -1351,3 +1351,39 @@ async def test_a_path_the_intake_model_returns_is_validated_like_the_strict_form
     result = await h.run(text="check the ../secrets.md file please")
     assert result["outcome"] == "refused"
     assert "not a normalized repo-relative path" in result["report"]
+
+
+async def test_a_missing_verdict_on_a_thing_the_sources_still_hold_is_dropped(fixture_repo):
+    """The judge called a named thing missing while a read source holds it (live false
+    positive, 2026-10-19): the repository contradicts the verdict, so no finding."""
+    repo, commit = fixture_repo
+    h = Harness(repo, commit, judge=judge_model({VAULT_CLAIM: ("missing", 0.8)}))
+    result = await h.run(text=f"check {VAULT_DOC}")
+    assert findings_of(result, VAULT_DOC) == []  # "vault" is in base-apps/vault/values.yaml
+
+
+async def test_a_missing_verdict_stands_when_the_named_source_lacks_the_thing(fixture_repo):
+    """8200 is in service.yaml (so the judge has a window) but the claim names values.yaml,
+    which was read and does not hold it: the verdict is not contradicted, so it stands."""
+    repo, commit = fixture_repo
+    named = claim(VAULT_DOC, PORT_CLAIM, "name", [], ["8200"])
+    named["source_hint"] = "base-apps/vault/values.yaml"
+    h = Harness(
+        repo, commit, claims={VAULT_DOC: [named]}, judge=judge_model({PORT_CLAIM: ("missing", 0.9)})
+    )
+    result = await h.run(text=f"check {VAULT_DOC}")
+    assert [f.verdict for f in findings_of(result, VAULT_DOC)] == ["missing"]
+
+
+async def test_a_cut_off_claim_list_is_checked_on_its_complete_claims(fixture_repo):
+    """The extract answer stopped at max_tokens mid-list (kagent docs.md, 2026-10-19): the
+    complete claims at its start are judged, and the doc is reported incomplete."""
+    repo, commit = fixture_repo
+    whole = json.dumps({"claims": CLAIMS[VAULT_DOC]})
+    cut = whole[: whole.index('"text": "The UI listens') + 12]  # inside the second claim
+    h = Harness(repo, commit, extract=RoutedModel(lambda _user: reply(cut)))
+    result = await h.run(text=f"check {VAULT_DOC}")
+    outcome = result["outcomes"][VAULT_DOC]
+    assert [f.verdict for f in findings_of(result, VAULT_DOC)] == ["stale"]  # the first claim
+    assert outcome.status == "incomplete"
+    assert "cut off after 1 claims" in outcome.reason

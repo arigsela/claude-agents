@@ -25,6 +25,7 @@ from docs_checker.nodes import (
     extract_claims,
     judge_claim,
     propose_fix,
+    salvage_claims,
 )
 from docs_checker.prompts import fence_token
 from docs_checker.request import RunRequest
@@ -649,3 +650,16 @@ async def test_what_reaches_the_wire_and_the_reservation_covers_it(levers, monke
         json.dumps(body["output_config"]["format"]["schema"], **compact)
     )
     assert overheads[0] >= sent
+
+
+def test_salvage_keeps_only_the_complete_claims_of_a_cut_off_answer():
+    one = {"line_start": 3, "line_end": 3, "text": "a", "kind": "version", "keys": [],
+           "values": ["1.0"], "source_hint": ""}  # fmt: skip
+    whole = json.dumps(
+        {"claims": [one, {**one, "line_start": 4, "text": "b"}, {**one, "text": "c"}]}
+    )
+    cut = whole[: whole.rindex('"text": "c"') + 4]
+    assert [c.text for c in salvage_claims(cut)] == ["a", "b"]
+    assert salvage_claims(whole[:5]) == [] and salvage_claims("not json") == []
+    bad = json.dumps({"claims": [{"text": "no other fields"}, one]})
+    assert [c.text for c in salvage_claims(bad)] == ["a"]  # an invalid object is skipped

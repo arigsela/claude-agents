@@ -74,6 +74,15 @@ class ExtractionFailed(Exception):
     """The extract model's answer could not be read; the doc was not checked."""
 
 
+class ExtractionTruncated(ExtractionFailed):
+    """The extract answer was cut off (``max_tokens``) mid-list: ``claims`` holds the
+    complete claims at its start, already grounded, and the doc is checked on those."""
+
+    def __init__(self, message: str, claims: list[Any]):
+        super().__init__(message)
+        self.claims = claims
+
+
 # --- what each model must answer -------------------------------------------------
 
 
@@ -147,9 +156,16 @@ def _tools_for(ctx: NodeContext, node: str) -> list[Any]:
 
 
 async def _ask(
-    ctx: NodeContext, node: str, schema: type[BaseModel], system: str, user: str
+    ctx: NodeContext,
+    node: str,
+    schema: type[BaseModel],
+    system: str,
+    user: str,
+    *,
+    salvage: Any = None,
 ) -> Any | None:
-    """One structured call; the parsed answer, or None when it could not be read."""
+    """One structured call; the parsed answer, or None when it could not be read.
+    ``salvage(raw_text)`` gets one more chance at an unreadable answer (a cut-off one)."""
     tools = _tools_for(ctx, node)
     messages = [
         prompts.system_message(system, cache=ctx.levers.cache_prefix, ttl=ctx.settings.cache_ttl),
@@ -173,6 +189,9 @@ async def _ask(
     if not isinstance(parsed, schema):
         error = result.get("parsing_error") if isinstance(result, dict) else None
         logger.warning("%s: the model's answer could not be read (%s)", node, type(error).__name__)
+        if salvage is not None:
+            raw = result.get("raw") if isinstance(result, dict) else result
+            return salvage(_text_of(raw))
         return None
     return parsed
 
@@ -291,7 +310,9 @@ async def extract_claims(
         sources=fence(_cut(sources, width), fence_token(commit, meta.path, 1, first - 1)),
         lines=fence(numbered, fence_token(commit, meta.path, first, last)),
     )
-    answer = await _ask(ctx, "extract", ExtractAnswer, prompts.EXTRACT, user)
+    answer = await _ask(
+        ctx, "extract", ExtractAnswer, prompts.EXTRACT, user, salvage=_salvaged_extraction
+    )
     if answer is None:
         raise ExtractionFailed(f"{meta.path}: the extract model's answer could not be read")
 
@@ -316,7 +337,44 @@ async def extract_claims(
         except ValidationError:
             continue
         claims.setdefault(claim.id, claim)
+    if isinstance(answer, _Salvaged):
+        raise ExtractionTruncated(
+            f"{meta.path}: the claim list was cut off after {len(answer.claims)} claims",
+            list(claims.values()),
+        )
     return list(claims.values())
+
+
+class _Salvaged(ExtractAnswer):
+    """The complete claims at the start of a cut-off extract answer."""
+
+
+def salvage_claims(text: str) -> list[FoundClaim]:
+    """The complete claim objects at the start of a cut-off ``{"claims": [...`` answer: an
+    object the cut ran through, and anything after it, is dropped."""
+    start = text.find('"claims"')
+    bracket = text.find("[", start) if start >= 0 else -1
+    if bracket < 0:
+        return []
+    decoder, pos, found = json.JSONDecoder(), bracket + 1, []
+    while True:
+        while pos < len(text) and text[pos] in " \t\r\n,":
+            pos += 1
+        if pos >= len(text) or text[pos] != "{":
+            return found
+        try:
+            obj, pos = decoder.raw_decode(text, pos)
+        except ValueError:
+            return found
+        try:
+            found.append(FoundClaim.model_validate(obj))
+        except ValidationError:
+            continue
+
+
+def _salvaged_extraction(text: str) -> _Salvaged | None:
+    claims = salvage_claims(text)
+    return _Salvaged(claims=claims) if claims else None
 
 
 # --- judge -------------------------------------------------------------------------

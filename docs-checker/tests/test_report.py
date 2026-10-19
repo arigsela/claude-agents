@@ -159,3 +159,14 @@ def test_markdown_has_no_links_from_untrusted_fields():
         toks += [t] + list(t.children or [])
     kinds = {t.type for t in toks}
     assert not kinds & {"link_open", "image", "html_inline", "html_block"}
+
+
+def test_only_the_weekly_run_is_titled_weekly():
+    """An on-demand check (the kagent UI, ask-hk) was titled "Weekly docs check"."""
+    md, rep = render_report([outcome("a.md")], run_id="r", commit="c" * 40, summary=summary())
+    assert md.startswith("# Docs check (run ") and slack_text(rep).startswith("Docs check at ")
+    md, rep = render_report(
+        [outcome("a.md")], run_id="r", commit="c" * 40, summary=summary(), scheduled=True
+    )
+    assert md.startswith("# Weekly docs check (run ")
+    assert slack_text(rep).startswith("Weekly docs check at ")

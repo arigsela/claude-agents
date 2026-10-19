@@ -666,8 +666,14 @@ async def report(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         "dismissal_errors": state.get("notes") or [],
         "lines": list(deps.ledger.lower_bound),  # e.g. "cost after restart is a lower bound"
     }
+    request = state.get("request")
     markdown, data = render_report(
-        outcomes.values(), run_id=deps.ledger.run_id, commit=commit, summary=summary, notes=notes
+        outcomes.values(),
+        run_id=deps.ledger.run_id,
+        commit=commit,
+        summary=summary,
+        notes=notes,
+        scheduled=request is not None and request.mode == "scheduled",
     )
     if extra:
         markdown += (

@@ -49,6 +49,11 @@ class Report(BaseModel):
     cash_usd: float = 0.0
     complete_cost: bool = True
     notes: list[str] = Field(default_factory=list)
+    scheduled: bool = False  # the weekly run (its digest is "Weekly docs check")
+
+    @property
+    def title(self) -> str:
+        return "Weekly docs check" if self.scheduled else "Docs check"
 
     @property
     def coverage_incomplete(self) -> bool:
@@ -85,6 +90,7 @@ def render_report(
     commit: str,
     summary: RunSummary,
     notes: Mapping[str, Any] | None = None,
+    scheduled: bool = False,
 ) -> tuple[str, Report]:
     """Markdown report plus the structured ``Report``.
 
@@ -133,6 +139,7 @@ def render_report(
         cash_usd=summary.cash_cost_usd,
         complete_cost=summary.complete,
         notes=[_one_line(str(s)) for s in notes.get("lines", [])],
+        scheduled=scheduled,
     )
     return redact(_markdown(report)), report
 
@@ -179,7 +186,7 @@ def _finding_md(f: Finding) -> list[str]:
 def _markdown(r: Report) -> str:
     c = r.counts
     lines = [
-        f"# Weekly docs check (run {_code(r.run_id)})",
+        f"# {r.title} (run {_code(r.run_id)})",
         "",
         (
             f"Commit {_code(r.commit)}. {c['docs']} docs; {c['findings']} findings, "
@@ -273,7 +280,7 @@ def slack_text(
     c = report.counts
     head = [
         _fit_line(
-            f"Weekly docs check at {_esc(report.commit[:12])}: {c.get('findings', 0)} findings, "
+            f"{report.title} at {_esc(report.commit[:12])}: {c.get('findings', 0)} findings, "
             f"{c.get('needs_look', 0)} need a look, {c.get('carried', 0)} still open"
             + (f", {c['fix_withheld']} fixes withheld" if c.get("fix_withheld") else ""),
             max_line,
