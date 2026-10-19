@@ -34,6 +34,11 @@ fi
 
 runtime_name="docs_checker_$name"
 env_file="$here_agentcore/runtimes/$name.env"
+local_env=""
+if [ -r "$here_agentcore/runtimes/$name.local.env" ]; then
+  local_env="$here_agentcore/runtimes/$name.local.env"
+  echo "with overrides from runtimes/$name.local.env: $(grep -vcE '^\s*(#|$)' "$local_env") values" >&2
+fi
 ac=(aws bedrock-agentcore-control "${P[@]}")
 missing=0
 report() {
@@ -76,7 +81,8 @@ environment_json() {
   local ids
   ids="$(jq -cn --arg h "$HAIKU_PROFILE_ARN" --arg s "$SONNET_PROFILE_ARN" \
     '{"claude-haiku-5-5": $h, "claude-sonnet-5-5": $s}')"
-  grep -vE '^\s*(#|$)' "$env_file" | jq -Rn --arg ids "$ids" --arg mcp "$MCP_URL" --arg region "$REGION" '
+  # runtimes/<name>.local.env (gitignored) adds or overrides values for a test run.
+  cat "$env_file" ${local_env:+"$local_env"} | grep -vE '^\s*(#|$)' | jq -Rn --arg ids "$ids" --arg mcp "$MCP_URL" --arg region "$REGION" '
     [inputs | capture("^(?<key>[A-Z0-9_]+)=(?<value>.*)$")] | from_entries
     + {DOCS_CHECKER_BEDROCK_MODEL_IDS: $ids, DOCS_CHECKER_MCP_URL: $mcp, AWS_REGION: $region}'
 }

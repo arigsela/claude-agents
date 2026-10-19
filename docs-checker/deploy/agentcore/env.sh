@@ -34,7 +34,9 @@ GITHUB_MCP_URL=https://api.githubcopilot.com/mcp/x/repos/readonly
 
 SECURITY_GROUP_NAME=docs-checker-runtime
 SESSION_MOUNT=/mnt/workspace
-IDLE_TIMEOUT_S=3600
+# Overridable for a test run (IDLE_TIMEOUT_S=300 bash 03-runtime.sh ...); the default
+# keeps an approval pause alive for an hour.
+IDLE_TIMEOUT_S="${IDLE_TIMEOUT_S:-3600}"
 MAX_LIFETIME_S=28800
 
 # with_json_input CMD...: run CMD with --cli-input-json read from a private temp file

@@ -5,3 +5,4 @@ __pycache__/
 .ruff_cache/
 .env
 deploy/agentcore/out/
+deploy/agentcore/runtimes/*.local.env
