@@ -149,10 +149,13 @@ These are repo-specific today:
   - The kagent UI gives a session about 5 s to become available, then cancels the restore:
     "input was not accepted; retry after the session becomes available".
   - Go agents boot in under a second, so they never hit this.
-  - Lesson: a turn's cold boot must reach readiness in a few seconds. Defer heavy imports until
-    after readiness on non-golden boots; the actor identity's atespace is `ate-golden` for the
-    golden one. Check whether AgentCore sessions resume a memory snapshot or cold-start, and
-    design for the second case.
+  - Lesson: a turn's cold boot must reach readiness in a few seconds. The fix shipped in
+    claude-agents `68f145a` is `docs_checker.front`, a standard-library-only front process
+    (about 185 ms to start under emulation). It answers `/readyz` at once on a session boot,
+    holds A2A connections, and splices them to the real server (a loopback child) once that
+    server is up. On the golden boot (atespace `ate-golden`) it waits for the server, so new
+    sessions restore a warm snapshot (capped at 25 s). Check whether AgentCore sessions resume a
+    memory snapshot or cold-start; if they cold-start, keep this pattern.
 - **Readiness budget.** Substrate gave the golden actor 30 s to answer `/readyz`. Python
   imports alone took **23.5 s** under gVisor (7 s under qemu locally), and the first cold
   attempt missed the window. AgentCore cold starts are different but count too. Keep startup
