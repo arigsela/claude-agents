@@ -48,8 +48,10 @@ ruling so the ledger is not needed to decide.
   - Every node runs Haiku 5.5, except contested verdicts, which go to Sonnet 5.5.
   - The seven cost levers are switches (`levers.py`).
 - **Guards:**
-  - The run budget is reserved before each call: $1.00 for `all`, $0.10 per doc. Once what
-    is left cannot pay a doc's first call, no further doc is started.
+  - The run budget is reserved before each call: $1.00 for `all`, $0.10 per doc. After the
+    cache-warming doc, docs go out eight at a time (twice the concurrency), and before each
+    batch the run checks what is left: once it cannot pay a doc's first call, or the soft
+    deadline has passed, no further doc is started (not even loaded).
   - At most 12 model calls per doc (a judgement is reserved as 2 and charged as made: 1 when
     Haiku was sure, 2 when Sonnet decided), and one commit per run.
   - A soft deadline at three quarters of the 900 s turn limit (675 s): past it no doc or
@@ -362,6 +364,7 @@ fixed, with the minors it marked "fix now". Each item has a test; 975 pass, 0 sk
 | Commit | What |
 |---|---|
 | `51e311c` | I1: a judgement is reserved as 2 calls and charged as made (1 or 2), so a doc with more than five Haiku-judged claims fits the cap of 12 (the pilot stop rule "a doc is not `checked`" no longer trips on that). I2: pending docs go never-checked first, then by the memory's `run` of their last check. I3: a soft deadline at 0.75 × `run_timeout_s`; past it, and once the budget cannot pay a doc's first call, no doc or model call starts, docs not started are `skipped-budget` with a `not started: ...` reason, and the run still delivers its report and memory. `finish` fingerprints only `checked` docs. |
+| (N1) | The fan-out goes in batches of twice the concurrency after the warm-up doc, so the budget floor and the deadline are checked before every batch and a doc the run cannot afford is never loaded (before this, every pending doc went out in one round and the two guards could not fire in a 56-doc run). 56 docs at concurrency 4 is 8 rounds, about 22 supersteps; the 80-doc maximum is 28, under the recursion limit of 80. |
 | `62cbb75` | F2: rule 8 also reads the evidence with image digests stripped, so a tag before `@sha256:...` is a whole token (G1 untouched, pinned). `_BLOCK_PREFIX`: an ordered-list marker needs a following space, tab or line end, so a line that starts with a version may change. `evidence._token`: `example.com` is not a hit in `mail.example.com`; tests for quoted values, `8080` vs `18080`, `@sha256`. The drift page is regenerated (no embedding needed; the Rules column comes from `gate.build_fix_gate`; θ1, θ2 and the margin in `.2f`; one sentence on what rules and angle do together: the rules refuse all 10 bad fixes, the angle refuses none more; of 7 good fixes the rules refuse 4, the angle asks about 1 and 2 pass). |
 | `243a8b3` | C25b: `memory.MAX_INPUT_BYTES` = 960 KiB on both sides. M1: map sources are fingerprinted. M2: one spelling per source path on both sides of a dir listing (`./x/`, `/x/`). README Memory. |
 | `dafb17f` | M4: an error attempt with an HTTP status settles to $0 (only connection and timeout errors keep their reservation). M10: at most 200 tool-event part pairs per artifact plus a `docs-checker/tool-events` count. T10: an "audit" of nothing is off-topic. T2: `anthropic` declared, `protovalidate` in the dev extra (`uv lock`). T5, T8, T11, T16, T20, M9. README: the recursion default (80), the soft deadline and the cap, and M3: a `missing` finding carries a hint, not a proposed fix, in v1. |
@@ -614,6 +617,12 @@ changed" below has the detail):
 
 **Still open on the kubernetes branch:** the trigger's fallback does not check that its own
 alert posted (T132 (c) territory).
+
+**Recorded from the final re-review (N2, minor):** in interactive mode, past the soft deadline
+the `raise_budget` offer is not made at all, even when some docs were skipped for money
+earlier in the run; the report lists them as skipped and says nothing about why there is no
+offer. Reasonable (no time is left to spend the money in), but the hint should say "time ran
+out", or the offer should stay for docs skipped for budget.
 
 **T130 (K1), recorded only:**
 

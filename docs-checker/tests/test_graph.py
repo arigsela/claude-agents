@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from mcp.types import CallToolResult, TextContent
 
@@ -843,6 +844,72 @@ async def test_a_budget_that_fits_one_doc_reaches_the_other_doc_next_run(tmp_pat
         a: "skipped-budget",
         b: "checked",
     }
+
+
+def many_docs(n: int) -> tuple[dict, dict, dict]:
+    """``n`` docs under base-apps, each with one model-judged (supported) claim on its own
+    values file: the files, the claims and the verdicts."""
+    files, claims, verdicts = {}, {}, {}
+    for i in range(n):
+        doc, value = f"base-apps/d{i}/docs.md", f"app{i}"
+        files[f"base-apps/d{i}/values.yaml"] = f"name: {value}\n"
+        files[doc] = (
+            f"---\nsources:\n  - base-apps/d{i}/values.yaml\n---\nThe app is named {value}.\n"
+        )
+        claims[doc] = config_claims([f"The app is named {value}."], first=5, value=value)
+        verdicts[f"The app is named {value}"] = ("supported", 0.9)
+    return files, claims, verdicts
+
+
+async def test_the_fan_out_goes_in_batches_so_the_guards_act_between_them(tmp_path, monkeypatch):
+    # Review N1: after the warm-up doc the rest go out 2 x concurrency at a time, and the
+    # budget floor and the deadline are checked before every batch, so a doc the run can
+    # no longer afford is never loaded. Here each judgement bills $2.00 and the budget holds
+    # three: d0 alone, then d1 and d2 as one batch of two (concurrency 1, run one at a
+    # time), and d3 is not started (without batches it would be sent with d1 and d2, read
+    # its sources, and end "the run budget was exhausted after 0 of 0 claims").
+    files, claims, _ = many_docs(4)
+    repo, commit = make_tree(tmp_path, files)
+    calls = spy_on_tools(monkeypatch)
+    h = Harness(
+        repo, commit, settings={"concurrency": 1}, claims=claims, judge=expensive_judge(),
+        budget=Budget(6.005),
+    )  # fmt: skip
+    result = await h.run(RunRequest(scope="all", mode="scheduled"))
+    statuses = {d: o.status for d, o in result["outcomes"].items()}
+    d = [f"base-apps/d{i}/docs.md" for i in range(4)]
+    assert statuses == {d[0]: "checked", d[1]: "checked", d[2]: "checked", d[3]: "skipped-budget"}
+    assert result["outcomes"][d[3]].reason.startswith("not started: the remaining run budget")
+    assert [c for c in calls if c[1].get("path") == "base-apps/d3/values.yaml"] == []
+    assert len(h.extract.calls) == 3 and result["outcome"] == "unverified"
+    assert sorted(h.deps.store.snapshot(set(statuses))["docs"]) == d[:3]
+    assert result["report_data"].skipped_budget == [f"{d[3]}: {result['outcomes'][d[3]].reason}"]
+
+
+def supersteps(docs: int, concurrency: int) -> int:
+    """The parent graph's supersteps for ``docs`` pending docs with cache_prefix on: a
+    dispatch and a doc step per round (the first doc alone, then batches of
+    2 x concurrency) plus six for the rest (measured: 8 for one doc, 10 for two, 16 for
+    nine at concurrency 1)."""
+    rounds = 1 + -(-(docs - 1) // (2 * concurrency)) if docs > 1 else min(docs, 1)
+    return 6 + 2 * rounds
+
+
+async def test_batches_stay_under_the_recursion_limit(tmp_path):
+    files, claims, verdicts = many_docs(5)
+    repo, commit = make_tree(tmp_path, files)
+    need = supersteps(5, 1)  # d0 alone, then (d1, d2), then (d3, d4)
+    settings = {"concurrency": 1, "recursion_limit": need}
+    h = Harness(repo, commit, settings=settings, claims=claims, verdicts=verdicts)
+    result = await h.run(RunRequest(scope="all"))
+    assert {o.status for o in result["outcomes"].values()} == {"checked"}
+    settings["recursion_limit"] = need - 1
+    h = Harness(repo, commit, settings=settings, claims=claims, verdicts=verdicts)
+    with pytest.raises(GraphRecursionError):
+        await h.run(RunRequest(scope="all"))
+    # The defaults: 80 docs (max_docs) at concurrency 4 need far fewer than the limit of 80.
+    defaults = fake_settings()
+    assert supersteps(defaults.max_docs, defaults.concurrency) == 28 <= defaults.recursion_limit
 
 
 async def test_a_doc_skipped_before_it_started_is_offered_and_checked_on_approval(tmp_path):

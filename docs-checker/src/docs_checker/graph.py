@@ -14,8 +14,9 @@
   of their last check, oldest first (review I2): a weekly budget that runs out
   reaches every doc eventually instead of starving the end of the listing.
 - ``dispatch`` fans out: with ``cache_prefix`` on the first doc goes alone, so
-  the prompt cache is warm for the rest (C#41); after every round it sends what
-  is still pending. It stops fanning out (the pending docs end ``skipped-budget``,
+  the prompt cache is warm for the rest (C#41); after every round it sends the
+  next batch (twice the concurrency) of what is still pending, in priority order.
+  It stops fanning out (the pending docs end ``skipped-budget``,
   unread and unfingerprinted, with a "not started" reason) once the run's soft
   deadline has passed or the remaining budget cannot hold a doc's first model
   call (review I3). In interactive mode, docs skipped for budget are offered once
@@ -425,10 +426,10 @@ def _not_started(deps: RunDeps, commit: str, pending: list[str]) -> dict[str, Do
     remaining = deps.ledger.budget.remaining_usd
     if deps.out_of_time():
         why = "not started: the run's time limit was reached"
-    elif remaining is not None and remaining < _doc_floor_usd(deps):
+    elif remaining is not None and remaining < (floor := _doc_floor_usd(deps)):
         why = (
             f"not started: the remaining run budget (${remaining:.4f}) cannot hold a doc's "
-            f"first model call (${_doc_floor_usd(deps):.4f})"
+            f"first model call (${floor:.4f})"
         )
     else:
         return None
@@ -438,10 +439,19 @@ def _not_started(deps: RunDeps, commit: str, pending: list[str]) -> dict[str, Do
     }
 
 
+def _batch(deps: RunDeps) -> int:
+    """Docs per round after the warm-up doc: twice the lanes, so the lanes stay busy
+    while the budget floor and the deadline are checked between rounds (review N1).
+    Rounds cost supersteps against the recursion limit: 80 docs at concurrency 4 is 11
+    rounds, 28 supersteps in all, under the default limit of 80."""
+    return max(1, 2 * deps.settings.concurrency)
+
+
 async def dispatch(state: RunState, runtime: Runtime[RunDeps]) -> dict:
     """What to send next: the pending docs (the first one alone when warming the
-    prompt cache), or, once, the docs skipped for budget after an approval. Pending
-    docs the run can no longer afford, in time or money, are not sent at all."""
+    prompt cache, then ``_batch`` at a time, in priority order), or, once, the docs
+    skipped for budget after an approval. Pending docs the run can no longer afford,
+    in time or money, are not sent at all."""
     deps = runtime.context
     outcomes = state.get("outcomes") or {}
     pending = [m.path for m in state.get("docs") or [] if m.path not in outcomes]
@@ -451,7 +461,7 @@ async def dispatch(state: RunState, runtime: Runtime[RunDeps]) -> dict:
         if not_started is None:
             if rnd == 0 and deps.levers.cache_prefix and len(pending) > 1:
                 return {"next_docs": pending[:1], "round": 1}
-            return {"next_docs": pending, "round": rnd + 1}
+            return {"next_docs": pending[: _batch(deps)], "round": rnd + 1}
         logger.info(
             "%d docs not started: %s", len(pending), next(iter(not_started.values())).reason
         )
