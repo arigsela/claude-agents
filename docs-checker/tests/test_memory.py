@@ -152,7 +152,7 @@ def test_docs_over_the_cap_are_kept_with_a_warning(caplog):
     with caplog.at_level(logging.WARNING):
         snap = s.snapshot({"big.md"})
     assert "big.md" in snap["docs"] and not snap["decisions"]
-    assert "exceed" in caplog.text
+    assert "soft target" in caplog.text
 
 
 def test_memory_ignored_in_interactive_mode():
@@ -219,7 +219,7 @@ def test_open_findings_must_be_findings(caplog):
 
 def test_docs_over_the_hard_cap_are_dropped_largest_first_and_round_trip(caplog):
     s = SnapshotStore()
-    pad = "x" * (MAX_SNAPSHOT_BYTES // 2)
+    pad = "x" * (220 * 1024)  # five docs ~1.1 MiB: dropping only the largest fits
     for i in range(5):
         s.put_doc(
             f"d{i}.md",
@@ -233,6 +233,7 @@ def test_docs_over_the_hard_cap_are_dropped_largest_first_and_round_trip(caplog)
         snap = s.snapshot({f"d{i}.md" for i in range(5)} | {"small.md"})
     assert len(json.dumps(snap, separators=(",", ":")).encode()) <= MAX_INPUT_BYTES
     assert "small.md" in snap["docs"] and "d4.md" not in snap["docs"]
+    assert "d3.md" in snap["docs"]
     assert "dropped" in caplog.text
     again = SnapshotStore.from_snapshot(json.loads(json.dumps(snap)), mode="scheduled")
     assert again.get_doc("small.md") is not None and again.run == snap["run"] + 1

@@ -154,10 +154,11 @@ class SnapshotStore(InMemoryStore):
         return {i.key: i.value for i in self.search(ns, limit=1_000_000)}
 
     def snapshot(self, in_scope: set[str]) -> dict:
-        """The FULL snapshot, pruned: out-of-scope docs, decisions unused for
-        ``KEEP_RUNS`` runs, then the oldest decisions until it fits the size cap.
-        Docs in scope are never pruned for size: if they alone exceed the cap, a
-        warning is logged and they are returned anyway."""
+        """The FULL snapshot, pruned: out-of-scope docs go; decisions are pruned first
+        (unused for ``KEEP_RUNS`` runs, then oldest first until the 512 KiB soft
+        target); if still above ``MAX_INPUT_BYTES`` (1 MiB, the hard cap, which the
+        read side also enforces) whole in-scope doc entries are dropped largest-first
+        until it fits, and those docs are re-checked next run."""
         docs = {p: e for p, e in self._all(_DOC).items() if p in in_scope}
         decisions = {
             k: e for k, e in self._all(_DECISION).items() if e["last_run"] > self.run - KEEP_RUNS
@@ -179,7 +180,7 @@ class SnapshotStore(InMemoryStore):
                     break
         if size() > MAX_SNAPSHOT_BYTES:
             log.warning(
-                "memory snapshot is %d bytes with no decisions left: docs alone exceed %d",
+                "memory snapshot is %d bytes with no decisions left, above the soft target %d",
                 size(),
                 MAX_SNAPSHOT_BYTES,
             )
