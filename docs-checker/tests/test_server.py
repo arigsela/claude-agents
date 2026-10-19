@@ -203,6 +203,22 @@ def test_agent_card_describes_the_docs_check():
     assert "check all" in skill.examples and any("," in e for e in skill.examples)
 
 
+async def test_the_production_tool_gate_keeps_nothing():
+    # RecordingGate keeps every call it sees (for calibration); the gate production
+    # builds must not grow for the life of the process.
+    from docs_checker.gate import ToolCallContext
+
+    executor = build_executor(fake_settings(), graph=build_test_graph(), models=FakeModels())
+    gate = executor._gate
+    assert not isinstance(gate, RecordingGate)
+    call = ToolCallContext(
+        intent="i", action="read a", tool="get_file_contents", args={}, workflow="load"
+    )
+    for _ in range(100):
+        assert (await gate.check(call)).decision == "allow"
+    assert vars(gate) == {}
+
+
 class _Served(Exception):
     """Ends ``main()`` once the served executor has been checked."""
 

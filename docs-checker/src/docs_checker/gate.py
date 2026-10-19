@@ -7,9 +7,10 @@ AgentTemplate), then this gate, then the tool. The gate compares the *intent* (t
 agent card's description plus the original task, never the latest hop) with the
 *action* (the tool call rendered as one sentence) as the angle between two
 embeddings, and answers allow, ask or refuse by per-workflow thresholds. Until the
-drift phase ships, ``RecordingGate`` allows everything and keeps the rendered
-sentences, which become the calibration set. ``AngleGate`` is the real check; it
-needs an ``Embedder`` (see the design doc for the embedding-source decision).
+drift phase ships, production runs ``AllowGate`` (allows everything, keeps nothing);
+``RecordingGate`` allows everything and keeps the rendered sentences, for calibration
+runs that collect them. ``AngleGate`` is the real check; it needs an ``Embedder``
+(see the design doc for the embedding-source decision).
 
 Fixes (``FixGate``, spec section 7). A proposed fix is model output steered by doc
 and manifest text that anyone who can edit the repository writes, so it is
@@ -141,6 +142,14 @@ def _check_order(thresholds: Any) -> None:
             f"thresholds need ask_at < refuse_at, got ask_at={thresholds.ask_at!r}, "
             f"refuse_at={thresholds.refuse_at!r}"
         )
+
+
+class AllowGate:
+    """Allow everything and keep nothing: production's tool gate until the drift check
+    ships (a gate that recorded every call would grow for the life of the process)."""
+
+    async def check(self, call: ToolCallContext) -> GateResult:
+        return GateResult(decision="allow", reason="drift check not enabled")
 
 
 @dataclass

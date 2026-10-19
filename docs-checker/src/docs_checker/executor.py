@@ -372,7 +372,9 @@ class DocsCheckerExecutor(AgentExecutor):
         except asyncio.CancelledError:
             if not self._was_cancelled(task_id):
                 raise
-            # cancel() stopped the operation and already published CANCELED.
+            # cancel() stopped the operation and already published CANCELED. Only now,
+            # with the graph stopped, can nothing write to the task's thread again.
+            await self._end(task_id)
         finally:
             self._running.pop(task_id, None)
             self._cancelled.discard(task_id)
@@ -473,6 +475,7 @@ class DocsCheckerExecutor(AgentExecutor):
         )
         artifact = a2a_pb2.Artifact(artifact_id=str(uuid.uuid4()), name="report", parts=parts)
         artifact.metadata.CopyFrom(_struct({USAGE_KEY: usage_metadata(summary)}))
+        await self._forget_thread(task_id)
         await event_queue.enqueue_event(
             a2a_pb2.TaskArtifactUpdateEvent(
                 task_id=task_id, context_id=context_id, artifact=artifact, last_chunk=True
@@ -482,9 +485,30 @@ class DocsCheckerExecutor(AgentExecutor):
             _status(task_id, context_id, a2a_pb2.TaskState.TASK_STATE_COMPLETED, report)
         )
 
+    async def _forget_thread(self, task_id: str) -> None:
+        """A task that ended (completed, failed, timed out or cancelled) is never
+        resumed: delete its checkpoint thread (every namespace, subgraphs included), so
+        the db under the snapshotted /data does not grow with every run. Paused tasks
+        keep theirs. Done before the final status, while the task is still ours."""
+        delete = getattr(getattr(self._graph, "checkpointer", None), "adelete_thread", None)
+        if delete is None:
+            return
+        try:
+            await delete(task_id)
+        except Exception as error:  # noqa: BLE001 - the task's outcome stands without it
+            logger.warning(
+                "task %s: its checkpoint thread was not deleted (%s)", task_id, type(error).__name__
+            )
+
+    async def _end(self, task_id: str) -> None:
+        """A cancelled task's leftovers: its paused record and its checkpoint thread."""
+        await self._paused.drop(task_id)
+        await self._forget_thread(task_id)
+
     async def _fail(self, event_queue, task_id, context_id, ledger, reason: str) -> None:
         summary = ledger.summary("failed")
         logger.info("%s", summary.to_dict())
+        await self._forget_thread(task_id)
         await event_queue.enqueue_event(
             _status(
                 task_id,
@@ -535,12 +559,17 @@ class DocsCheckerExecutor(AgentExecutor):
         """Stop the task's whole operation (tool discovery, model and tool calls
         included), then report CANCELED; execute() publishes nothing after this."""
         task_id = context.task_id
+        # This runs only while this process holds the task (a2a's local cancel path).
+        # After a restart a2a cancels a paused task through its remote path
+        # (_cancel_remote: the TaskStore records CANCELED; executor.cancel is not
+        # called), so that task's paused row is reclaimed by the 64-entry eviction
+        # (paused.MAX_PAUSED), and its checkpoint thread is left in the db.
         operation = self._running.get(task_id)
-        if operation is not None:
+        if operation is not None and not operation.done():
             self._cancelled.add(task_id)
-            if not operation.done():
-                operation.cancel()
-        await self._paused.drop(task_id)
+            operation.cancel()  # execute() cleans up once the operation has stopped
+        else:
+            await self._end(task_id)  # paused or idle: nothing runs that could write
         await event_queue.enqueue_event(
             _status(context.task_id, context.context_id, a2a_pb2.TaskState.TASK_STATE_CANCELED)
         )

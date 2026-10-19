@@ -16,10 +16,13 @@ serializer (``graph.checkpoint_serde``), so only plain data is stored or loaded:
 - ``extract:``, ``decision:`` and ``fix:``: model replies the graph already reduced
   to plain data (claim dicts, a decision dict, a replacement string).
 
-A value of any other shape is not kept, and is named in a warning: a resume after a
-restart redoes that work and pays for it in its own ledger. A record that is missing
-or cannot be read is a lost pause: the executor resumes with a new ledger and the
-report says that the cost after the restart is a lower bound (C#25).
+Each entry is checked against what its key says it holds, both when it is written
+and when it is read back (``_decode``). A value of any other shape is not kept, and is
+named in a warning: a resume after a restart redoes that work and pays for it in its
+own ledger. A record that is missing, not the serializer's msgpack, or malformed in
+any part (a memo entry, a ledger entry, the budget) is a lost pause: the executor
+resumes with a new ledger and the report says that the cost after the restart is a
+lower bound (C#25).
 """
 
 from __future__ import annotations
@@ -29,11 +32,12 @@ import logging
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, get_args
 
 from docs_checker.graph import checkpoint_serde
 from docs_checker.ledger import CostLedger
-from docs_checker.tools import ToolResult
+from docs_checker.state import Claim, Decision
+from docs_checker.tools import _SEARCH_COUNT, _SEARCH_LAST_START, ToolResult, ToolStatus
 
 logger = logging.getLogger(__name__)
 
@@ -58,32 +62,90 @@ def _plain(value: Any) -> bool:
     return False
 
 
+# A ToolEvent's fields and their types (tools.ToolEvent).
+_EVENT_FIELDS: dict[str, type | tuple[type, ...]] = {
+    "name": str,
+    "server": str,
+    "args": dict,
+    "decision": str,
+    "action": str,
+    "result_chars": int,
+    "status": str,
+    "ok": bool,
+    "evidence": list,
+}
+_TOOL_STATUSES = frozenset(get_args(ToolStatus))
+
+
+def _expect(ok: bool, what: str) -> None:
+    if not ok:
+        raise ValueError(f"malformed memo entry: {what}")
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _tool_pair(entry: dict) -> tuple[ToolResult, dict]:
+    result, event = entry.get("result"), entry.get("event")
+    _expect(isinstance(result, dict) and set(result) == {"text", "status", "raw_chars"}, "result")
+    _expect(isinstance(result["text"], str), "result text")
+    _expect(result["status"] in _TOOL_STATUSES, "result status")
+    _expect(_is_int(result["raw_chars"]), "result size")
+    _expect(isinstance(event, dict) and set(event) == set(_EVENT_FIELDS), "event fields")
+    for name, kind in _EVENT_FIELDS.items():
+        _expect(isinstance(event[name], kind), f"event {name}")
+    _expect(_is_int(event["result_chars"]) and _plain(event["args"]), "event args")
+    _expect(all(isinstance(e, str) for e in event["evidence"]), "event evidence")
+    return ToolResult(**result), dict(event)
+
+
+def _decode(key: str, entry: Any) -> Any:
+    """The memo value an encoded entry holds, checked against what its key says it is
+    (raises ``ValueError`` or ``TypeError`` on anything else)."""
+    _expect(isinstance(entry, dict), "not an object")
+    kind, value = entry.get("kind"), entry.get("value")
+    if key.startswith("tool:"):
+        _expect(kind == "tool", "a tool key without a tool result")
+        return _tool_pair(entry)
+    if key == _SEARCH_COUNT:
+        _expect(kind == "number" and _is_int(value), "search count")
+        return value
+    if key == _SEARCH_LAST_START:
+        _expect(kind == "number" and (_is_int(value) or isinstance(value, float)), "search start")
+        return value
+    _expect(kind == "data" and _plain(value), "not plain data")
+    if key.startswith("extract:"):
+        _expect(isinstance(value, list) and all(isinstance(c, dict) for c in value), "claims")
+        for claim in value:
+            Claim.model_validate(claim)  # what extract replays must validate there too
+        return value
+    if key.startswith("decision:"):
+        _expect(isinstance(value, dict), "decision")
+        Decision.model_validate(value)
+        return value
+    if key.startswith("fix:"):
+        _expect(isinstance(value, str), "replacement")
+        return value
+    raise ValueError(f"no memo kind for key prefix {key.split(':', 1)[0]!r}")
+
+
 def _encode(key: str, value: Any) -> dict:
     if key.startswith("tool:"):
         result, event = value
-        if not isinstance(result, ToolResult) or not isinstance(event, dict) or not _plain(event):
+        if not isinstance(result, ToolResult):
             raise TypeError("not a (ToolResult, ToolEvent) pair")
-        return {
+        entry = {
             "kind": "tool",
             "result": {"text": result.text, "status": result.status, "raw_chars": result.raw_chars},
             "event": dict(event),
         }
-    if key.startswith("search:"):
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise TypeError("not a search counter")
-        return {"kind": "number", "value": value}
-    if key.startswith(("extract:", "decision:", "fix:")) and _plain(value):
-        return {"kind": "data", "value": value}
-    raise TypeError(f"no encoding for a {type(value).__name__}")
-
-
-def _decode(entry: dict) -> Any:
-    kind = entry["kind"]
-    if kind == "tool":
-        return ToolResult(**entry["result"]), dict(entry["event"])
-    if kind in ("number", "data"):
-        return entry["value"]
-    raise ValueError(f"unknown memo entry kind {kind!r}")
+    elif key.startswith("search:"):
+        entry = {"kind": "number", "value": value}
+    else:
+        entry = {"kind": "data", "value": value}
+    _decode(key, entry)  # nothing is written that could not be read back
+    return entry
 
 
 def encode_replay(replay: dict[str, Any]) -> tuple[dict[str, dict], list[str]]:
@@ -92,13 +154,15 @@ def encode_replay(replay: dict[str, Any]) -> tuple[dict[str, dict], list[str]]:
     for key, value in replay.items():
         try:
             encoded[key] = _encode(key, value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, KeyError):
             dropped.append(key)
     return encoded, dropped
 
 
-def decode_replay(encoded: dict[str, dict]) -> dict[str, Any]:
-    return {key: _decode(entry) for key, entry in encoded.items()}
+def decode_replay(encoded: Any) -> dict[str, Any]:
+    if not isinstance(encoded, dict):
+        raise TypeError("the memo is not an object")
+    return {key: _decode(key, entry) for key, entry in encoded.items()}
 
 
 class PausedTasks:
@@ -181,6 +245,8 @@ class PausedTasks:
         if held is not None or row is None:
             return held
         try:
+            if row[0] != "msgpack":  # what checkpoint_serde writes for a plain record
+                raise ValueError(f"record type {row[0]!r}")
             record = self._serde.loads_typed(row)
             if record.get("version") != RECORD_VERSION:
                 raise ValueError(f"record version {record.get('version')!r}")

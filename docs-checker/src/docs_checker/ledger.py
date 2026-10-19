@@ -31,9 +31,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Literal
 
 from docs_checker.redact import redact, redact_obj
@@ -270,7 +271,7 @@ class Budget:
         """Take over a paused run's budget in a new process: its limit, its spend, and
         what it left unsettled (one open reservation that never settles)."""
         for value in (spent_usd, reserved_usd) + (() if limit_usd is None else (limit_usd,)):
-            if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+            if not _is_amount(value):
                 raise ValueError(f"not a budget amount: {value!r}")
         self.limit_usd = None if limit_usd is None else float(limit_usd)
         self._spent = float(spent_usd)
@@ -299,6 +300,51 @@ class LedgerEntry:
         data = asdict(self)
         data["event"] = "cost_ledger"
         return data
+
+
+_ENTRY_STRINGS = ("run_id", "context_id", "node", "model", "rate_card_version")
+_ENTRY_OPTIONAL_STRINGS = ("request_id", "error", "stop_reason")
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_amount(value: Any) -> bool:
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
+
+
+def _restored_entry(data: Any) -> LedgerEntry:
+    """A ``LedgerEntry`` from ``asdict`` data, every field checked for its type, so a
+    malformed record fails here and never later in ``summary``."""
+    if not isinstance(data, dict) or set(data) != {f.name for f in fields(LedgerEntry)}:
+        raise ValueError("not a ledger entry")
+    wrong = [n for n in _ENTRY_STRINGS if not isinstance(data[n], str)]
+    wrong += [n for n in _ENTRY_OPTIONAL_STRINGS if not isinstance(data[n], str | None)]
+    wrong += [n for n in ("attempt", "latency_ms") if not _is_count(data[n])]
+    if data["cost_usd"] is not None and not _is_amount(data["cost_usd"]):
+        wrong.append("cost_usd")
+    if not _is_amount(data["ts"]):
+        wrong.append("ts")
+    if not isinstance(data["replayed"], bool):
+        wrong.append("replayed")
+    if data["status"] not in ("ok", "error"):
+        wrong.append("status")
+    usage = data["usage"]
+    if usage is not None and (
+        not isinstance(usage, dict)
+        or set(usage) != {f.name for f in fields(Usage)}
+        or not all(_is_count(v) for v in usage.values())
+    ):
+        wrong.append("usage")
+    if wrong:
+        raise ValueError(f"ledger entry fields of the wrong type: {', '.join(wrong)}")
+    return LedgerEntry(**{**data, "usage": None if usage is None else Usage(**usage)})
 
 
 @dataclass(frozen=True)
@@ -439,13 +485,9 @@ class CostLedger:
     def load_state(self, state: dict) -> None:
         """Continue the run ``dump_state`` described. Restored entries were logged by
         the process that made them, so they are not emitted again. Raises on anything
-        malformed, leaving this ledger as it was."""
-        entries = []
-        for data in state["entries"]:
-            usage = data["usage"]
-            entries.append(
-                LedgerEntry(**{**data, "usage": None if usage is None else Usage(**usage)})
-            )
+        malformed (a missing or extra field, a field of the wrong type, a negative or
+        non-finite amount), leaving this ledger as it was."""
+        entries = [_restored_entry(data) for data in state["entries"]]
         reasons = state["lower_bound"]
         if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
             raise TypeError("lower_bound must be a list of strings")

@@ -22,9 +22,11 @@ from langchain_core.messages import AIMessage
 from docs_checker.evals.localrepo import local_repo_tools
 from docs_checker.executor import LEDGER_KEY, REPORT_KEY
 from docs_checker.gate import RecordingGate
+from docs_checker.graph import checkpoint_serde
 from docs_checker.ledger import Budget, CostLedger
 from docs_checker.paused import TABLE, PausedTasks
 from docs_checker.server import open_executor
+from docs_checker.state import Claim, Decision
 from docs_checker.tools import ToolResult
 from tests.fakes import FakeModels, RoutedModel, fake_settings, reply
 from tests.test_executor import (
@@ -215,14 +217,35 @@ async def test_strict_approval_holds_after_a_restart(tmp_path):
     assert ledger_of(approved)["calls"] == 3  # extract, judge, fix: before the pause only
 
 
-async def test_a_lost_pause_record_makes_the_cost_a_lower_bound(tmp_path):
+def corrupt_the_record(path: str, task_id: str) -> None:
+    """Decodable, but a memo entry is not what its key says (a tool result that is not
+    a (ToolResult, ToolEvent) pair) and a ledger entry's cost is not a number."""
+    serde = checkpoint_serde()
+    with sqlite3.connect(path) as db:
+        kind, blob = db.execute(
+            f"SELECT type, record FROM {TABLE} WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        record = serde.loads_typed((kind, blob))
+        record["replay"]["tool:x"] = {"kind": "data", "value": "not a pair"}
+        record["ledger"]["entries"][0]["cost_usd"] = "not a number"
+        db.execute(
+            f"UPDATE {TABLE} SET record = ? WHERE task_id = ?",
+            (serde.dumps_typed(record)[1], task_id),
+        )
+
+
+@pytest.mark.parametrize("loss", ["deleted", "corrupt"])
+async def test_a_lost_pause_record_makes_the_cost_a_lower_bound(tmp_path, loss):
     repo, commit = make_tree(tmp_path, FILES)
     settings = dataclasses.replace(
         fake_settings(), checkpoint_db=str(tmp_path / "data" / "checkpoints.sqlite")
     )
     ask = await pause_on_a_fix(settings, repo, commit, "task-l")
-    with sqlite3.connect(settings.checkpoint_db) as db:
-        db.execute(f"DELETE FROM {TABLE}")
+    if loss == "deleted":
+        with sqlite3.connect(settings.checkpoint_db) as db:
+            db.execute(f"DELETE FROM {TABLE}")
+    else:
+        corrupt_the_record(settings.checkpoint_db, "task-l")
 
     async with executor_on(
         settings, repo, commit, models_after_restart(), fix_gate=asking_gate()
@@ -287,8 +310,15 @@ async def test_every_replay_kind_round_trips_and_the_ledger_with_it(db, caplog):
         "tool:1": (ToolResult(text="a: 1", status="ok", raw_chars=4), event),
         "search:count": 2,
         "search:last_start": 12.5,
-        "extract:c:doc.md": [{"doc": "doc.md", "text": "claim", "values": ["1"], "id": "abc"}],
-        "decision:c:doc.md:abc:key": {"verdict": "stale", "confidence": 0.9, "reason": "r"},
+        # as graph_doc stores them: model dumps of a Claim and a Decision
+        "extract:c:doc.md": [
+            Claim(
+                doc="doc.md", line_start=1, line_end=1, text="claim", kind="config", values=["1"]
+            ).model_dump()
+        ],
+        "decision:c:doc.md:abc:key": Decision(
+            verdict="stale", confidence=0.9, reason="r", judged_by="model"
+        ).model_dump(),
         "fix:c:doc.md:abc:h": "the fixed line",
         "model:worker:x:0": AIMessage(content="not a docs-checker memo value"),
     }
@@ -318,7 +348,125 @@ async def test_every_replay_kind_round_trips_and_the_ledger_with_it(db, caplog):
     assert await reader.take("task-x", lambda: fresh) is None  # taken once
 
 
-async def test_a_corrupt_record_is_treated_as_lost(db):
+def corrupted(change) -> tuple[str, bytes]:
+    """A well-formed record (a ledger and every memo kind), then ``change`` applied."""
+    ledger = ledger_with_spend()
+    event = {
+        "name": "get_file_contents",
+        "server": "agent-docs-mcp",
+        "args": {"path": "a.yaml"},
+        "decision": "allow",
+        "action": "read a.yaml",
+        "result_chars": 4,
+        "status": "ok",
+        "ok": True,
+        "evidence": ["a.yaml"],
+    }
+    claim = {
+        "doc": "d.md",
+        "line_start": 3,
+        "line_end": 3,
+        "text": "claim",
+        "kind": "config",
+        "keys": [],
+        "values": ["1"],
+        "source_hint": "",
+        "id": "abc",
+    }
+    decision = {"verdict": "stale", "confidence": 0.9, "reason": "r", "judged_by": "model"}
+    replay = {
+        "tool:1": {"kind": "tool", "result": {"text": "a: 1", "status": "ok", "raw_chars": 4},
+                   "event": event},
+        "search:count": {"kind": "number", "value": 2},
+        "search:last_start": {"kind": "number", "value": 1.5},
+        "extract:c:d.md": {"kind": "data", "value": [claim]},
+        "decision:c:d.md:abc:k": {"kind": "data", "value": decision},
+        "fix:c:d.md:abc:h": {"kind": "data", "value": "fixed"},
+    }  # fmt: skip
+    record = {"version": 1, "ledger": ledger.dump_state(), "replay": replay}
+    kind = change(record)
+    _, blob = checkpoint_serde().dumps_typed(record)
+    return kind or "msgpack", blob
+
+
+def _set(path: str, value):
+    def change(record):
+        *keys, last = path.split("/")
+        target = record
+        for key in keys:
+            target = target[int(key)] if isinstance(target, list) else target[key]
+        if isinstance(target, list):
+            target[int(last)] = value
+        else:
+            target[last] = value
+
+    return change
+
+
+def _drop(path: str):
+    def change(record):
+        *keys, last = path.split("/")
+        target = record
+        for key in keys:
+            target = target[int(key)] if isinstance(target, list) else target[key]
+        del target[last]
+
+    return change
+
+
+CORRUPTIONS = {
+    "a well-formed record": (lambda record: None, True),
+    "not the serializer's type": (lambda record: "json", False),
+    "a cost that is not a number": (_set("ledger/entries/0/cost_usd", "x"), False),
+    "a usage count that is not an int": (_set("ledger/entries/0/usage/output", "50"), False),
+    "an unknown entry status": (_set("ledger/entries/0/status", "maybe"), False),
+    "a missing entry field": (_drop("ledger/entries/0/ts"), False),
+    "a negative spend": (_set("ledger/budget/spent_usd", -1.0), False),
+    "a tool result that is not a pair": (
+        _set("replay/tool:x", {"kind": "data", "value": "not a pair"}), False),
+    "a tool status that is not a status": (_set("replay/tool:1/result/status", "fine"), False),
+    "a tool event without its fields": (_set("replay/tool:1/event", {"name": "x"}), False),
+    "an extraction that is a number": (
+        _set("replay/extract:c:d.md", {"kind": "number", "value": 3}), False),
+    "a claim that is not a claim": (
+        _set("replay/extract:c:d.md", {"kind": "data", "value": [{"doc": "d.md"}]}), False),
+    "a decision that is not a decision": (
+        _set("replay/decision:c:d.md:abc:k", {"kind": "data", "value": {"verdict": "maybe"}}),
+        False),
+    "a fix that is not text": (_set("replay/fix:c:d.md:abc:h", {"kind": "data", "value": 3}),
+                               False),
+    "a search counter that is text": (
+        _set("replay/search:count", {"kind": "number", "value": "2"}), False),
+    "a key of no known kind": (_set("replay/model:x", {"kind": "data", "value": "x"}), False),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("case", list(CORRUPTIONS))
+async def test_a_corrupt_record_is_treated_as_lost(db, case):
+    import asyncio
+
+    change, kept = CORRUPTIONS[case]
+    paused = PausedTasks(db, lock=asyncio.Lock())
+    await paused.setup()
+    kind, blob = corrupted(change)
+    await db.execute(
+        f"INSERT INTO {TABLE} (task_id, type, record, saved_at) VALUES (?, ?, ?, ?)",
+        ("task-c", kind, blob, 0.0),
+    )
+    await db.commit()
+    held = await paused.take("task-c", lambda: CostLedger("task-c", emit=False))
+    if kept:
+        ledger, memo = held
+        ledger.summary("verified")
+        assert set(memo) == {
+            "tool:1", "search:count", "search:last_start", "extract:c:d.md",
+            "decision:c:d.md:abc:k", "fix:c:d.md:abc:h",
+        }  # fmt: skip
+    else:
+        assert held is None
+
+
+async def test_undecodable_bytes_are_treated_as_lost(db):
     import asyncio
 
     paused = PausedTasks(db, lock=asyncio.Lock())
@@ -329,3 +477,105 @@ async def test_a_corrupt_record_is_treated_as_lost(db):
     )
     await db.commit()
     assert await paused.take("task-c", lambda: CostLedger("task-c", emit=False)) is None
+
+
+# --- checkpoint threads end with their task --------------------------------------------
+
+
+def thread_rows(path: str, task_id: str) -> int:
+    with sqlite3.connect(path) as db:
+        return sum(
+            db.execute(f"SELECT count(*) FROM {table} WHERE thread_id = ?", (task_id,)).fetchone()[
+                0
+            ]
+            for table in ("checkpoints", "writes")
+        )
+
+
+def paused_rows(path: str, task_id: str) -> int:
+    with sqlite3.connect(path) as db:
+        return db.execute(f"SELECT count(*) FROM {TABLE} WHERE task_id = ?", (task_id,)).fetchone()[
+            0
+        ]
+
+
+def vault_models(**overrides) -> FakeModels:
+    models = {
+        "extract": extract_model(CLAIMS),
+        "judge": judge_model(VERDICTS),
+        "fix": fix_model({"Vault runs chart vault version 0.30.1.": VAULT_FIXED}),
+        **overrides,
+    }
+    return FakeModels(names=NAMES, **models)
+
+
+@pytest.mark.parametrize("end", ["completed", "failed", "timeout"])
+async def test_a_finished_task_leaves_no_checkpoint_thread(tmp_path, end):
+    repo, commit = make_tree(tmp_path, FILES)
+    settings = dataclasses.replace(
+        fake_settings(),
+        checkpoint_db=str(tmp_path / "data" / "checkpoints.sqlite"),
+        run_timeout_s=2.0,
+    )
+    models = vault_models()
+    message = a2a_message("", {"scope": [VAULT_DOC]})
+    if end == "failed":
+        message = a2a_message("check all at no-such-branch")
+    elif end == "timeout":
+        models = vault_models(extract=extract_model(CLAIMS, delay=60))
+    async with executor_on(settings, repo, commit, models) as executor:
+        queue = await send(executor, message, "task-t")
+    state = {
+        "completed": a2a_pb2.TaskState.TASK_STATE_COMPLETED,
+        "failed": a2a_pb2.TaskState.TASK_STATE_FAILED,
+        "timeout": a2a_pb2.TaskState.TASK_STATE_FAILED,
+    }[end]
+    assert queue.last_status().state == state
+    assert thread_rows(settings.checkpoint_db, "task-t") == 0
+
+
+async def test_a_paused_task_keeps_its_thread_and_a_cancel_removes_both(tmp_path):
+    from tests.test_executor import Queue, request_context
+
+    repo, commit = make_tree(tmp_path, FILES)
+    db = str(tmp_path / "data" / "checkpoints.sqlite")
+    settings = dataclasses.replace(fake_settings(), checkpoint_db=db)
+    message = a2a_message("", {"scope": [VAULT_DOC], "mode": "interactive"})
+    async with executor_on(
+        settings, repo, commit, vault_models(), fix_gate=asking_gate()
+    ) as executor:
+        paused = await send(executor, message, "task-p")
+        pending_request(paused)
+        assert thread_rows(db, "task-p") > 0 and paused_rows(db, "task-p") == 1
+
+        queue = Queue()
+        await executor.cancel(request_context(message, "task-p", resumed=True), queue)
+
+        assert queue.states() == [a2a_pb2.TaskState.TASK_STATE_CANCELED]
+        assert paused_rows(db, "task-p") == 0  # the durable record, not only memory
+        assert thread_rows(db, "task-p") == 0
+
+
+async def test_a_cancelled_running_task_leaves_no_checkpoint_thread(tmp_path):
+    import asyncio
+
+    from tests.test_executor import Queue, request_context
+
+    repo, commit = make_tree(tmp_path, FILES)
+    db = str(tmp_path / "data" / "checkpoints.sqlite")
+    settings = dataclasses.replace(fake_settings(), checkpoint_db=db)
+    extract = extract_model(CLAIMS, delay=60)
+    message = a2a_message("", {"scope": [VAULT_DOC]})
+    async with executor_on(settings, repo, commit, vault_models(extract=extract)) as executor:
+        context, queue = request_context(message, "task-k"), Queue()
+        run = asyncio.create_task(executor.execute(context, queue))
+        for _ in range(500):
+            if extract.active:
+                break
+            await asyncio.sleep(0.01)
+        assert extract.active == 1 and thread_rows(db, "task-k") > 0
+        await executor.cancel(context, queue)
+        await asyncio.wait_for(run, 5)
+
+    assert queue.states()[-1] == a2a_pb2.TaskState.TASK_STATE_CANCELED
+    assert thread_rows(db, "task-k") == 0
