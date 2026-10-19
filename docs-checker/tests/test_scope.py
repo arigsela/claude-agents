@@ -3,7 +3,7 @@
 import pytest
 
 from docs_checker.frontmatter import parse_front_matter
-from docs_checker.repo import RepoReader
+from docs_checker.repo import ReadResult, RepoReader
 from docs_checker.scope import DiscoveryError, discover, expand_sources, in_scope
 from tests.test_repo import git, local_belt
 
@@ -93,7 +93,8 @@ async def test_discovery_reports_a_listing_it_cannot_read(tmp_path):
     # a root that is a file, not a directory, is an error and not an empty scope
     with pytest.raises(DiscoveryError):
         await discover(reader, roots=("base-apps/a.md",), max_docs=5)
-    assert await discover(reader, roots=("recovery",), max_docs=5) == ([], False)  # absent: skipped
+    with pytest.raises(DiscoveryError):  # the only root is absent: wrong roots, not an empty scope
+        await discover(reader, roots=("recovery",), max_docs=5)
 
 
 async def test_expand_reads_paths_maps_and_dirs_and_never_urls(tmp_path):
@@ -142,3 +143,109 @@ async def test_oversize_file_is_skipped_not_returned(tmp_path):
     )
     assert list(read) == ["ok.yaml"]
     assert skipped == ["big.yaml: over 50 bytes"]
+
+
+class ScriptedReader:
+    """list_dir and read answer from per-path scripts (the last answer repeats)."""
+
+    def __init__(self, listings: dict, files: dict):
+        self.listings, self.files, self.calls = listings, files, []
+
+    def _next(self, script: dict, path: str, kind: str):
+        self.calls.append((kind, path))
+        answers = script[path]
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, str) and answer in ("transient", "denied", "error", "absent"):
+            return ReadResult(path, answer, None, None)
+        return ReadResult(path, "found", answer, None if kind == "list" else "0" * 40)
+
+    async def list_dir(self, path, *, node="load", events=None):
+        return self._next(self.listings, path, "list")
+
+    async def read(self, path, *, node="load", events=None):
+        return self._next(self.files, path, "read")
+
+
+GOOD = DOC.format(src="x.yaml")
+
+
+async def test_transient_file_read_is_retried_once():
+    reader = ScriptedReader(
+        {"base-apps": ["base-apps/a.md"]}, {"base-apps/a.md": ["transient", GOOD]}
+    )
+    assert await discover(reader, roots=("base-apps",), max_docs=5) == (["base-apps/a.md"], False)
+    assert reader.calls.count(("read", "base-apps/a.md")) == 2
+
+
+@pytest.mark.parametrize("status", ["transient", "denied", "error"])
+async def test_unreadable_file_is_kept_so_the_load_stage_reports_it(status):
+    reader = ScriptedReader(
+        {"base-apps": ["base-apps/a.md\nbase-apps/b.md"]},
+        {"base-apps/a.md": [status], "base-apps/b.md": [GOOD]},
+    )
+    docs, truncated = await discover(reader, roots=("base-apps",), max_docs=5)
+    assert (docs, truncated) == (["base-apps/a.md", "base-apps/b.md"], False)
+    assert reader.calls.count(("read", "base-apps/a.md")) == (2 if status == "transient" else 1)
+
+
+async def test_listed_file_absent_at_the_commit_raises():
+    reader = ScriptedReader({"base-apps": ["base-apps/a.md"]}, {"base-apps/a.md": ["absent"]})
+    with pytest.raises(DiscoveryError):
+        await discover(reader, roots=("base-apps",), max_docs=5)
+
+
+async def test_failed_listings_are_all_named_after_trying_every_root():
+    reader = ScriptedReader(
+        {
+            "base-apps": ["transient"],
+            "docs": ["base-apps/never.md"],  # a stub answer: docs lists fine
+            "recovery": ["denied"],
+        },
+        {"base-apps/never.md": [GOOD]},
+    )
+    with pytest.raises(DiscoveryError) as err:
+        await discover(reader, max_docs=5)
+    assert {f.path: f.status for f in err.value.failures} == {
+        "base-apps": "transient",
+        "recovery": "denied",
+    }
+    assert "base-apps" in str(err.value) and "recovery" in str(err.value)
+    assert reader.calls.count(("list", "base-apps")) == 2  # transient: retried once
+    assert reader.calls.count(("list", "recovery")) == 1
+    assert ("list", "docs") in reader.calls  # the other roots were still tried
+
+
+async def test_transient_listing_succeeds_on_retry():
+    reader = ScriptedReader(
+        {"base-apps": ["transient", "base-apps/a.md"]}, {"base-apps/a.md": [GOOD]}
+    )
+    assert (await discover(reader, roots=("base-apps",), max_docs=5))[0] == ["base-apps/a.md"]
+
+
+async def test_every_root_absent_raises_but_one_missing_root_is_fine(tmp_path):
+    repo, commit = make_tree(tmp_path, {"base-apps/a/d.md": GOOD})
+    reader = reader_of(repo, commit)
+    with pytest.raises(DiscoveryError):
+        await discover(reader, roots=("base-app", "doc"), max_docs=5)
+    docs, _ = await discover(reader, roots=("base-apps", "recovery"), max_docs=5)
+    assert docs == ["base-apps/a/d.md"]
+
+
+async def test_exclusions_match_whole_path_segments(tmp_path):
+    for path in ("templates-old/t.md", "docs/superpowers-x/p.md"):
+        assert in_scope(path), path
+    assert not in_scope("docs/superpowers/p.md") and not in_scope("templates/t.md")
+    repo, commit = make_tree(
+        tmp_path,
+        {
+            "docs/superpowers-x/p.md": GOOD,
+            "docs/superpowers/q.md": GOOD,
+            "docs/ok.md": GOOD,
+            "templates-old/t.md": GOOD,
+            "templates/t.md": GOOD,
+        },
+    )
+    docs, _ = await discover(
+        reader_of(repo, commit), roots=("docs", "templates-old", "templates"), max_docs=10
+    )
+    assert docs == ["docs/ok.md", "docs/superpowers-x/p.md", "templates-old/t.md"]

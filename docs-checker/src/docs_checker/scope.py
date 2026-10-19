@@ -16,6 +16,7 @@ the result and reported. Skipped entries read ``"<value>: <reason>"``.
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from docs_checker.frontmatter import DocMeta, FrontMatterError, parse_front_matter
 from docs_checker.repo import ReadResult, RepoReader
@@ -24,45 +25,84 @@ DEFAULT_ROOTS = ("base-apps", "docs", "recovery")
 
 _EXCLUDED = (
     re.compile(r"(?:.*/)?SPEC\.md"),
-    re.compile(r"docs/superpowers/.*"),
     re.compile(r"base-apps/[^/]+/docs/(?:index|runbook)\.md"),
-    re.compile(r"templates/.*"),
 )
-
-
 _EXCLUDED_DIRS = ("docs/superpowers", "templates")
 
 
+def _under(path: str, directory: str) -> bool:
+    """Whole path segments: ``templates-old`` is not under ``templates``."""
+    return path == directory or path.startswith(directory + "/")
+
+
 class DiscoveryError(Exception):
-    def __init__(self, path: str, status: str):
-        self.path = path
-        self.status = status
-        super().__init__(f"cannot read {path} while discovering docs ({status})")
+    """Scope could not be established. ``failures`` is every (path, status) that
+    failed, so one error names all of them."""
+
+    def __init__(self, failures: list[tuple[str, str]] | str, status: str = ""):
+        if isinstance(failures, str):
+            failures = [(failures, status)]
+        self.failures = [Failure(p, st) for p, st in failures]
+        self.path = self.failures[0].path
+        self.status = self.failures[0].status
+        listed = ", ".join(f"{f.path} ({f.status})" for f in self.failures)
+        super().__init__(f"cannot establish the docs in scope: {listed}")
+
+
+class Failure(NamedTuple):
+    path: str
+    status: str
 
 
 def in_scope(path: str) -> bool:
     """A candidate by path: a markdown file that is not excluded. (Front matter
     with ``sources`` is the other half; ``discover`` checks it.)"""
     path = path.strip("/")
-    return path.endswith(".md") and not any(rule.fullmatch(path) for rule in _EXCLUDED)
+    return (
+        path.endswith(".md")
+        and not any(rule.fullmatch(path) for rule in _EXCLUDED)
+        and not any(_under(path, d) for d in _EXCLUDED_DIRS)
+    )
 
 
 def _may_hold_docs(directory: str) -> bool:
-    return not directory.strip("/").startswith(_EXCLUDED_DIRS)
+    directory = directory.strip("/")
+    return not any(_under(directory, d) for d in _EXCLUDED_DIRS)
+
+
+async def _retrying(call, path: str) -> ReadResult:
+    """One retry for a transient answer (2 attempts in all)."""
+    result = await call(path, node="scope")
+    if result.status == "transient":
+        result = await call(path, node="scope")
+    return result
 
 
 async def discover(
     reader: RepoReader, roots: tuple[str, ...] = DEFAULT_ROOTS, *, max_docs: int
 ) -> tuple[list[str], bool]:
-    """In-scope doc paths in listing order, and whether more existed past ``max_docs``."""
-    docs: list[str] = []
+    """In-scope doc paths in listing order, and whether more existed past ``max_docs``.
 
-    async def walk(directory: str) -> bool:  # True once the cap is exceeded
-        listing = await reader.list_dir(directory, node="scope")
+    A file that will not read (after one retry of a transient answer) stays in
+    the list, so the load stage reports that doc failed and the run goes on. A
+    directory that will not list is remembered while the walk continues, and all
+    of them are raised together at the end: a partial list is never returned as
+    complete. When every root is absent the roots are wrong, and that raises too.
+    """
+    docs: list[str] = []
+    failures: list[tuple[str, str]] = []
+
+    absent_roots = 0
+
+    async def walk(directory: str, *, is_root: bool = False) -> bool:  # True past the cap
+        nonlocal absent_roots
+        listing = await _retrying(reader.list_dir, directory)
         if listing.status == "absent":
+            absent_roots += is_root
             return False
         if not listing.found:
-            raise DiscoveryError(directory, listing.status)
+            failures.append((directory, listing.status))
+            return False
         for entry in (listing.text or "").splitlines():
             if entry.endswith("/"):
                 if _may_hold_docs(entry) and await walk(entry.rstrip("/")):
@@ -74,18 +114,26 @@ async def discover(
         return False
 
     async def has_sources(path: str) -> bool:
-        result = await reader.read(path, node="scope")
-        if not result.found:
+        result = await _retrying(reader.read, path)
+        if result.status == "absent":  # listed, yet not there at this commit
             raise DiscoveryError(path, result.status)
+        if not result.found:
+            return True  # the load stage reports it with the reader's status
         try:
             return bool(parse_front_matter(path, result.text or "").sources)
         except FrontMatterError:
             return (result.text or "").startswith("---")
 
+    truncated = False
     for root in roots:
-        if await walk(root.strip("/")):
-            return docs, True
-    return docs, False
+        truncated = await walk(root.strip("/"), is_root=True)
+        if truncated:
+            break
+    if failures:
+        raise DiscoveryError(failures)
+    if roots and absent_roots == len(roots):
+        raise DiscoveryError([(r.strip("/"), "absent") for r in roots])
+    return docs, truncated
 
 
 async def expand_sources(
