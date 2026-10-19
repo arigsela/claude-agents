@@ -1,12 +1,12 @@
 """Curating the eval set: instances from git, planted overlays, labelling packets.
 
-``python -m docs_checker.evals.curate <command>``::
+``python -m docs_checker.evals.curate <command>`` (the CLI is ``cli.py``)::
 
     build      [--evals-dir DIR] [--clone PATH]
     packets    --out DIR [--evals-dir DIR] [--clone PATH]
     merge      --a PATH [--a PATH ...] --b PATH [--b PATH ...] --out FILE --disagreements FILE
                [--evals-dir DIR] [--clone PATH]
-    adjudicate --labels FILE --decisions FILE --disagreements FILE
+    adjudicate --labels FILE [--decisions FILE --disagreements FILE] [--overrides FILE]
     validate   [--evals-dir DIR] [--clone PATH]
 
 ``merge``, ``adjudicate`` and ``validate`` are in ``labels.py``; this module builds the
@@ -40,19 +40,18 @@ argument list.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from docs_checker.evals.harness import EVALS_DIR, Instance, load_eval_set
+from docs_checker.evals.harness import Instance
 from docs_checker.evals.localrepo import LocalRepoSession, _git_env
 from docs_checker.frontmatter import FrontMatterError, parse_front_matter
 from docs_checker.scope import in_scope
@@ -559,88 +558,7 @@ def write_packets(instances: Iterable[Instance], repo: Repo, out: Path) -> list[
     return entries
 
 
-# --- CLI -------------------------------------------------------------------------------------------
+if __name__ == "__main__":  # python -m docs_checker.evals.curate <command>: see cli.py
+    from docs_checker.evals.cli import main
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m docs_checker.evals.curate")
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    def with_repo(name: str, summary: str) -> argparse.ArgumentParser:
-        command = commands.add_parser(name, help=summary)
-        command.add_argument("--evals-dir", type=Path, default=EVALS_DIR)
-        command.add_argument("--clone", type=Path, default=DEFAULT_CLONE)
-        return command
-
-    with_repo("build", "write instances.json from curate.json, planted/ and canary/")
-    with_repo("packets", "write the labelling packets").add_argument(
-        "--out", type=Path, required=True
-    )
-    merge_cmd = with_repo("merge", "join two labellers' rows over the served docs")
-    merge_cmd.add_argument("--a", type=Path, action="append", required=True)
-    merge_cmd.add_argument("--b", type=Path, action="append", required=True)
-    merge_cmd.add_argument("--out", type=Path, required=True)
-    merge_cmd.add_argument("--disagreements", type=Path, required=True)
-    adjudicate_cmd = commands.add_parser("adjudicate", help="apply decisions to a labels file")
-    adjudicate_cmd.add_argument("--labels", type=Path, required=True)
-    adjudicate_cmd.add_argument("--decisions", type=Path, required=True)
-    adjudicate_cmd.add_argument("--disagreements", type=Path, required=True)
-    with_repo("validate", "check the labels against the served docs")
-    return parser
-
-
-def _run(args: argparse.Namespace) -> int:
-    if args.command == "build":
-        data = build(args.evals_dir, args.clone)
-        print(f"wrote {args.evals_dir / 'instances.json'}: {len(data['instances'])} instances")
-    elif args.command == "packets":
-        instances = load_eval_set(args.evals_dir).instances.values()
-        entries = write_packets(instances, Repo(args.clone), args.out)
-        print(f"wrote {len(entries)} packets and manifest.json to {args.out}")
-    elif args.command == "merge":
-        from docs_checker.evals import labels  # labels.py builds on this module
-
-        docs = labels.served_lines(args.evals_dir, args.clone)
-        merged = labels.merge(labels.read_rows(args.a), labels.read_rows(args.b), docs)
-        write_json(args.out, [label.model_dump() for label in merged.labels])
-        write_json(args.disagreements, [d.model_dump() for d in merged.disagreements])
-        agreed = len(merged.labels) - len(merged.disagreements)
-        print(
-            f"{agreed} agreed lines, {len(merged.disagreements)} disagreements (in {args.out} as "
-            f"rows awaiting adjudication), {len(merged.dropped)} rows on blank lines dropped"
-        )
-        for row in merged.dropped:
-            print(f"  dropped: labeller {row['labeller']}, {row['instance']} line {row['line']}")
-    elif args.command == "adjudicate":
-        from docs_checker.evals import labels
-
-        done = labels.adjudicate(
-            labels.load_rows(args.labels, labels.LabelledLine),
-            labels.load_rows(args.decisions, labels.LabellerRow),
-            labels.load_rows(args.disagreements, labels.Disagreement),
-        )
-        write_json(args.labels, [label.model_dump() for label in done])
-        print(f"{args.labels}: {len(done)} lines")
-    else:
-        from docs_checker.evals import labels
-
-        problems = labels.validate(args.evals_dir, args.clone)
-        for problem in problems:
-            print(problem)
-        if problems:
-            return 1
-        print("labels valid")
-    return 0
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    try:
-        return _run(args)
-    except (ValueError, FileNotFoundError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
     sys.exit(main())

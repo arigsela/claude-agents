@@ -9,12 +9,14 @@ JSON files under ``evals/``. ``make_repo`` and ``make_evals`` are shared with
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from docs_checker import prompts
-from docs_checker.evals import curate
+from docs_checker.evals import cli, curate
 from docs_checker.evals.harness import EVALS_DIR, load_eval_set
 from docs_checker.evals.localrepo import LocalRepoSession
 from tests.test_repo import git
@@ -369,7 +371,7 @@ def test_packets_number_the_served_doc_and_list_overlays(evals, tmp_path):
     curate.build(evals_dir, clone)
     out = tmp_path / "packets"
     argv = ["packets", "--evals-dir", str(evals_dir), "--clone", str(clone), "--out", str(out)]
-    assert curate.main(argv) == 0
+    assert cli.main(argv) == 0
 
     planted = (out / "planted-version.txt").read_text().split("\n")
     assert planted[0] == "     1\t---"
@@ -386,6 +388,18 @@ def test_packets_number_the_served_doc_and_list_overlays(evals, tmp_path):
     assert by_id["h-app"]["commit"] == parent and by_id["h-app"]["lines"] == 12
     assert "split" not in by_id["h-app"] and "purpose" not in by_id["h-app"]
     assert any("git -C" in step and "show" in step for step in manifest["how_to_read_evidence"])
+
+
+def test_python_m_curate_runs_the_cli():
+    for command in ("build", "packets", "merge", "adjudicate", "validate"):
+        done = subprocess.run(
+            [sys.executable, "-m", "docs_checker.evals.curate", command, "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert done.returncode == 0, done.stderr
+        assert f"python -m docs_checker.evals.curate {command}" in done.stdout
 
 
 # --- the committed set -----------------------------------------------------------------------

@@ -10,15 +10,24 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx2
 import pytest
 
-from docs_checker.evals.__main__ import main
-from docs_checker.evals.harness import HarnessConfig, Instance, run_arm, run_instance
+from docs_checker.evals.__main__ import main, summary
+from docs_checker.evals.harness import (
+    HarnessConfig,
+    Instance,
+    append_results,
+    load_eval_set,
+    load_instances,
+    run_arm,
+    run_instance,
+)
 from docs_checker.evals.harness import levers_spec as levers_of
 from docs_checker.evals.replay import CassetteMiss, ReplayTransport
-from docs_checker.evals.score import LabelledLine, score
+from docs_checker.evals.score import AWAITING, AwaitingAdjudication, LabelledLine, Score, score
 from docs_checker.evals.spend import (
     LEDGER_ENV,
     HarnessBusy,
@@ -305,6 +314,81 @@ def test_score_one_to_one_and_adjudication():
     assert (empty.precision, empty.recall, empty.cost_per_verified) == (None, None, None)
     with pytest.raises(ValueError, match="twice"):
         score([], [label("a", 3, "true"), label("a", 3, "stale")])
+
+
+PENDING = LabelledLine(
+    instance="a", line=5, label="uncertain", note=AWAITING, labeller_a="stale", labeller_b="missing"
+)
+
+
+def test_a_disagreement_awaiting_adjudication_is_never_scored():
+    """Its placeholder label (uncertain) would silently exclude the finding on it."""
+    with pytest.raises(AwaitingAdjudication, match=r"1 labelled lines await .*: a line 5"):
+        score([finding("a", 5, 5)], [PENDING, label("a", 9, "true")])
+    decided = PENDING.model_copy(update={"label": "stale", "note": "", "adjudicated_by": "claude"})
+    assert score([finding("a", 5, 5)], [decided]).tp == 1
+    kept_note = PENDING.model_copy(update={"label": "stale", "adjudicated_by": "claude"})
+    assert score([finding("a", 5, 5)], [kept_note]).tp == 1  # adjudicated: no longer pending
+    plain = score([finding("a", 5, 5)], [label("a", 5, "uncertain")])
+    assert (plain.tp, plain.fp, plain.fn, plain.excluded) == (0, 0, 0, 1)
+
+
+def test_an_eval_set_holding_a_placeholder_does_not_load(tmp_path, capsys):
+    evals = tmp_path / "evals"
+    write_eval_set(evals, [Instance(id="a", doc=DOC, commit="c" * 40)])
+    (evals / "labels").mkdir()
+    (evals / "labels" / "set.json").write_text(json.dumps([PENDING.model_dump()]))
+    with pytest.raises(AwaitingAdjudication, match="a line 5"):
+        load_eval_set(evals)
+    argv = ["run", "--instances", "a", "--levers", "none", "--evals-dir", str(evals), "--dry-run"]
+    assert main(argv) == 1
+    assert "await adjudication" in capsys.readouterr().err
+    instances, _ = load_instances(evals)  # curation still reads the instances
+    assert list(instances) == ["a"]
+    decided = {**PENDING.model_dump(), "label": "stale", "adjudicated_by": "claude"}
+    (evals / "labels" / "set.json").write_text(json.dumps([decided]))
+    assert [lab.label for lab in load_eval_set(evals).labels] == ["stale"]
+
+
+def test_results_and_the_console_show_excluded_findings(tmp_path):
+    base = {
+        "ts": "t1",
+        "arm": "baseline",
+        "kind": "instance",
+        "instance": "a",
+        "levers": "none",
+        "mode": "replay",
+        "memory_in": False,
+        "status": "checked",
+        "calls": 3,
+        "cache_read": 0,
+        "cache_write": 0,
+        "workload_usd": 0.1,
+        "cash_usd": 0.0,
+    }
+    now = Score(tp=1, fp=0, fn=0, excluded=2)
+    old = {k: v for k, v in now.to_dict().items() if k != "excluded"}  # before the column
+    append_results(
+        tmp_path, [{**base, "score": now.to_dict()}, {**base, "arm": "older", "score": old}]
+    )
+    lines = (tmp_path / "results.md").read_text().splitlines()
+
+    def cells(line: str) -> list[str]:
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+    column = cells(next(line for line in lines if line.startswith("| When")))
+    column_index = column.index("Excluded (uncertain lines)")
+    rows = {cells(line)[1]: cells(line) for line in lines if line.startswith("| t1 ")}
+    assert (rows["baseline"][column_index], rows["older"][column_index]) == ("2", "0")
+
+    run = SimpleNamespace(
+        instance=SimpleNamespace(id="a"),
+        status="checked",
+        summary=SimpleNamespace(calls=3, workload_cost_usd=0.1),
+        cash_usd=0.0,
+        score=now,
+    )
+    assert summary(run).endswith("TP 1 FP 0 FN 0, to adjudicate 0, excluded 2")
 
 
 # --- the harness on a temp repo ------------------------------------------------------------

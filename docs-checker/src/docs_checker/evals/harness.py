@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from docs_checker.config import load_settings
 from docs_checker.evals.localrepo import SERVER, local_repo_tools
 from docs_checker.evals.replay import CassetteMiss, Mode, Offline, ReplayTransport
-from docs_checker.evals.score import LabelledLine, Score, score
+from docs_checker.evals.score import LabelledLine, Score, check_adjudicated, score
 from docs_checker.evals.spend import SpendGuard
 from docs_checker.executor import memory_snapshot
 from docs_checker.gate import AllowGate, build_fix_gate
@@ -101,9 +101,9 @@ class EvalSet:
         return [self.instances[i] for i in ids]
 
 
-def load_eval_set(evals_dir: Path) -> EvalSet:
-    """``instances.json`` ({"instances": [...], "sets": {name: [id, ...]}}) and every
-    ``labels/*.json`` (each a list of labelled lines)."""
+def load_instances(evals_dir: Path) -> tuple[dict[str, Instance], dict[str, list[str]]]:
+    """The instances and named sets of ``instances.json`` ({"instances": [...], "sets":
+    {name: [id, ...]}}), without the labels (curation reads these while labels are open)."""
     path = evals_dir / "instances.json"
     if not path.exists():
         raise FileNotFoundError(f"no eval set at {path} (Task 17 curates it)")
@@ -114,12 +114,20 @@ def load_eval_set(evals_dir: Path) -> EvalSet:
         if instance.id in instances:
             raise ValueError(f"instance {instance.id} is defined twice")
         instances[instance.id] = instance
+    return instances, dict(data.get("sets") or {})
+
+
+def load_eval_set(evals_dir: Path) -> EvalSet:
+    """The instances and sets, and every ``labels/*.json`` (each a list of labelled lines).
+    Raises ``AwaitingAdjudication`` while a disagreement's placeholder is still there."""
+    instances, sets = load_instances(evals_dir)
     labels = [
         LabelledLine.model_validate(item)
         for file in sorted((evals_dir / "labels").glob("*.json"))
         for item in json.loads(file.read_text())
     ]
-    return EvalSet(instances, dict(data.get("sets") or {}), labels)
+    check_adjudicated(labels)
+    return EvalSet(instances, sets, labels)
 
 
 def levers_spec(levers: Levers) -> str:
@@ -433,6 +441,7 @@ def _row(record: dict) -> str:
         s["fp"],
         s["fn"],
         len(s["to_adjudicate"]),
+        s.get("excluded", 0),
         _ratio(s["precision"]),
         _ratio(s["recall"]),
         _money(s["cost_per_verified"]),
@@ -443,8 +452,8 @@ def _row(record: dict) -> str:
 _HEADER = (
     "| When (UTC) | Arm | Instance | Levers | Mode | Memory | Status | Calls "
     "| Cache read/write tokens | Workload $ | Cash $ | TP | FP | FN | To adjudicate "
-    "| Precision | Recall | Workload $ per TP |\n"
-    "|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+    "| Excluded (uncertain lines) | Precision | Recall | Workload $ per TP |\n"
+    "|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
 )
 
 

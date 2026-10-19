@@ -30,6 +30,7 @@ from docs_checker.evals.harness import (
     KEY_ENV,
     RUN_BUDGET_USD,
     HarnessConfig,
+    InstanceRun,
     levers_spec,
     load_eval_set,
     run_arm,
@@ -109,15 +110,20 @@ def _run(args: argparse.Namespace) -> int:
             if cfg.live is not None:
                 await cfg.live.aclose()
 
-    runs = asyncio.run(arm())
-    for run in runs:
-        s = run.score
-        print(
-            f"{run.instance.id}: {run.status}, {run.summary.calls} calls, workload "
-            f"${run.summary.workload_cost_usd:.4f}, cash ${run.cash_usd:.4f}, "
-            f"TP {s.tp} FP {s.fp} FN {s.fn}, to adjudicate {len(s.to_adjudicate)}"
-        )
+    for run in asyncio.run(arm()):
+        print(summary(run))
     return 0
+
+
+def summary(run: InstanceRun) -> str:
+    """One run's line on the console; ``excluded`` counts findings on uncertain lines."""
+    s = run.score
+    return (
+        f"{run.instance.id}: {run.status}, {run.summary.calls} calls, workload "
+        f"${run.summary.workload_cost_usd:.4f}, cash ${run.cash_usd:.4f}, "
+        f"TP {s.tp} FP {s.fp} FN {s.fn}, to adjudicate {len(s.to_adjudicate)}, "
+        f"excluded {s.excluded}"
+    )
 
 
 def _spend(args: argparse.Namespace) -> int:

@@ -15,6 +15,10 @@ negatives, and ``uncertain`` lines count for nothing.
   it is excluded; when none of its lines is labelled, it goes to ``to_adjudicate``
   rather than straight to the false positives (C#32).
 - A positive label no finding matched is a false negative.
+
+A disagreement the labels merge left for adjudication (``AWAITING``) is never scored:
+``score`` raises ``AwaitingAdjudication`` (and so does loading an eval set), because its
+placeholder label would silently exclude findings on a contested line.
 """
 
 from __future__ import annotations
@@ -29,6 +33,8 @@ from docs_checker.state import Finding
 
 Label = Literal["stale", "missing", "true", "not-a-claim", "uncertain"]
 POSITIVE: frozenset[str] = frozenset({"stale", "missing"})
+# The note of a placeholder row ``labels.merge`` writes for a disagreement.
+AWAITING = "disagreement: awaiting adjudication"
 
 
 class LabelledLine(BaseModel):
@@ -45,6 +51,26 @@ class LabelledLine(BaseModel):
     labeller_b: str | None = None
     adjudicated_by: str | None = None
     reviewed_by_ari: bool = False
+
+    @property
+    def awaiting(self) -> bool:
+        """A disagreement's placeholder, not yet adjudicated: not a label to score."""
+        return self.adjudicated_by is None and self.note == AWAITING
+
+
+class AwaitingAdjudication(ValueError):
+    """Labels still hold disagreements that were never adjudicated."""
+
+
+def check_adjudicated(labels: Iterable[LabelledLine]) -> None:
+    """Raise ``AwaitingAdjudication`` naming every placeholder in ``labels``."""
+    pending = sorted((label.instance, label.line) for label in labels if label.awaiting)
+    if pending:
+        where = ", ".join(f"{instance} line {line}" for instance, line in pending)
+        raise AwaitingAdjudication(
+            f"{len(pending)} labelled lines await adjudication (python -m "
+            f"docs_checker.evals.curate adjudicate): {where}"
+        )
 
 
 @dataclass(frozen=True)
@@ -117,6 +143,7 @@ def score(
     workload_usd: float = 0.0,
     cash_usd: float = 0.0,
 ) -> Score:
+    check_adjudicated(labels)
     by_line: dict[tuple[str, int], int] = {}
     for index, label in enumerate(labels):
         key = (label.instance, label.line)
