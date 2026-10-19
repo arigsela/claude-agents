@@ -323,6 +323,23 @@ def test_a_changed_markdown_skeleton_is_rejected(old, new):
     assert validate_replacement(old, new, EVIDENCE) is None
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        # a backtick moved up a line: "``` a`" is no fence opener, so the fence is gone
+        ("Chart 0.30.1:\n``` a\n`install it", "Chart 0.31.0:\n``` a`\ninstall it"),
+        ("Chart 0.30.1 `a\nb` end", "Chart 0.31.0 `a`\nb end"),
+        ("Chart 0.30.1 a <b>\nc d", "Chart 0.31.0 a\nc <b> d"),
+    ],
+    ids=["backtick-fence", "code-span", "tag"],
+)
+def test_markup_characters_cannot_move_between_lines(old, new):
+    """Ruling G5: the markup runs are compared line by line, not across the text (the
+    same runs in the same order across the whole text pass every other rule)."""
+    assert validate_replacement(old, new, EVIDENCE) is None
+    assert validate_replacement(old, old.replace("0.30.1", "0.31.0"), EVIDENCE) is not None
+
+
 def test_a_bracket_inside_a_code_span_cannot_re_pair_a_link():
     old = "Vault 0.30.1 [ a `]` x ] ]( //evil.example/x"
     new = "Vault [ a `]` b ]( //evil.example/x ) 0.31.0"

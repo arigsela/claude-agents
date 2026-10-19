@@ -298,10 +298,12 @@ def _line_shape(line: str) -> tuple[bool, str, bool, bool, bool]:
     )
 
 
-def _skeleton(text: str) -> tuple[list[str], list[tuple[bool, str, bool, bool, bool]]]:
-    """The runs of markup characters in order (``[docs](x)`` is ``["[", "](", ")"]``,
-    ``[docs]: x`` is ``["[", "]:"]``) and the shape of every line (``_line_shape``)."""
-    return _MARKUP_RUN.findall(text), [_line_shape(line) for line in text.split("\n")]
+def _skeleton(text: str) -> list[tuple[list[str], tuple[bool, str, bool, bool, bool]]]:
+    """For every line, its runs of markup characters in order (``[docs](x)`` is
+    ``["[", "](", ")"]``, ``[docs]: x`` is ``["[", "]:"]``) and its shape
+    (``_line_shape``). Per line (ruling G5): a backtick moved to the next line can
+    make a fence opener plain text."""
+    return [(_MARKUP_RUN.findall(line), _line_shape(line)) for line in text.split("\n")]
 
 
 def occurs_whole(token: str, text: str) -> bool:
@@ -346,9 +348,9 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     3. a different number of lines than ``old``;
     4. a character that is not printable ASCII or ``\\n`` (non-ASCII, zero-width,
        bidi, control, or a line break such as U+2028) unless ``old`` has it;
-    5. a different markdown skeleton (rulings G0, G2(a) and G3): the runs of the
-       characters ``[ ] ( ) < > \\ ` !`` plus a ``:`` right after ``]`` in order (which
-       constructs there are, and which of their characters touch), and for each line
+    5. a different markdown skeleton (rulings G0, G2(a), G3 and G5): for each line,
+       the runs of the characters ``[ ] ( ) < > \\ ` !`` plus a ``:`` right after ``]``
+       in order (which constructs there are, and which of their characters touch),
        whether it is blank, its block prefix (indentation, list markers and their
        width, ordered-list numbers, ``>``, ``#``, tilde and backtick fences, ``|``,
        ``=`` and ``_``), and for the text after the prefix whether it is blank and

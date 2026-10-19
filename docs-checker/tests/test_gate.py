@@ -1,28 +1,40 @@
 import math
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from docs_checker.gate import (
-    MAX_RENDER_LINE_CHARS,
     AngleGate,
     FixAction,
     FixGate,
     RecordingGate,
     Thresholds,
     ToolCallContext,
-    added_urls,
     angle_degrees,
     apply_fix,
     build_fix_gate,
     render_action,
     render_fix,
     render_intent,
-    rendered_urls,
 )
+from docs_checker.prompts import validate_replacement
+from docs_checker.render import structure_refusal
 from docs_checker.server import build_executor, placeholder_graph
 from docs_checker.state import Claim, Finding, Window
 from tests.fakes import FakeModels, fake_settings, fake_tools_by_server
+from tests.markdown_cases import (
+    BLIND_SPOTS,
+    CONTROL,
+    CONTROL_LINES,
+    FLIP_IDS,
+    FLIPS,
+    FRONT_MATTER,
+    OPEN_TAG_QUOTE,
+    REPRO_COMMENT_NESTING,
+    REPRO_TOGGLE,
+    flip_case,
+)
 
 
 def test_actions_render_as_one_deterministic_sentence():
@@ -98,7 +110,6 @@ async def test_recording_gate_allows_and_keeps_the_calibration_data():
 # --- the fix gate ------------------------------------------------------------------
 
 DOC_PATH = "base-apps/vault/docs.md"
-FRONT_MATTER = ["---", "sources:", "  - base-apps/vault/values.yaml", "---"]
 DOC = FRONT_MATTER + [
     "# Vault",  # 5
     "",
@@ -341,172 +352,97 @@ async def test_production_factory_uses_the_rules_gate():
     assert await decide(fix(), deps.fix_gate) == "allow"
 
 
-# --- the render check (rulings G2(b) and G4) ---------------------------------------
-
-EVIL_SCRIPT = "https://evil.example/install.sh"
-EVIL_PIXEL = "https://evil.example/pixel.png"
-HIDDEN = [f"[docs]: {EVIL_SCRIPT}", f"[logo]: {EVIL_PIXEL}"]
-
-# Block-kind flips inside the claim lines that per-line rules can miss (the controller's
-# probe cases 10g and 10h). The doc holds the hidden definitions above, so a live [docs]
-# or ![logo] links the script or loads the pixel.
-FLIPS = [
-    # 10g: the text after an unchanged block prefix flips the line's block kind
-    (
-        "fence content line becomes a closer",
-        "~~~\n~~~ a\n[docs] pins chart 0.30.1.",
-        "~~~\n~~~ \n[docs] pins chart 0.31.0.",
-    ),
-    (
-        "backtick variant",
-        "```\n``` a\n[docs] pins chart 0.30.1.",
-        "```\n``` \n[docs] pins chart 0.31.0.",
-    ),
-    (
-        "html block start moved off line start",
-        "Chart 0.30.1\n<div>\n[docs] pins it",
-        "Chart 0.31.0\nsee <div>\n[docs] pins it",
-    ),
-    (
-        "thematic break ___ made text",
-        "Chart 0.30.1\n___\n    [docs] pins it",
-        "Chart 0.31.0\nand\n    [docs] pins it",
-    ),
-    (
-        "setext underline made text",
-        "Chart 0.30.1\n--- \n    [docs] pins it",
-        "Chart 0.31.0\n--- a\n    [docs] pins it",
-    ),
-    (
-        "definition moved off line start",
-        '[docs]: notes "Vault 0.30.1"',
-        'see [docs]: notes "Vault 0.31.0"',
-    ),
-    # 10h: HTML block types 6 and 7, a comment closed early, a split definition
-    (
-        "type-7 html block gets trailing text",
-        "Intro 0.30.1\n\n<em>\n[docs] pins it",
-        "Intro 0.31.0\n\n<em> x\n[docs] pins it",
-    ),
-    (
-        "type-7 html block, image",
-        "Intro 0.30.1\n\n<em>\n![logo] pins it",
-        "Intro 0.31.0\n\n<em> x\n![logo] pins it",
-    ),
-    (
-        "type-6 <div> swapped with inline <em>",
-        "Chart 0.30.1\n<div>\n[docs] pins <em>",
-        "Chart 0.31.0\n<em>\n[docs] pins <div>",
-    ),
-    (
-        "html comment closed earlier",
-        "<!-- a -- >\n[docs] chart 0.30.1\n-->",
-        "<!-- a -->\n[docs] chart 0.31.0\n-->",
-    ),
-    (
-        "html comment closed earlier, image",
-        "<!-- a -- >\n![logo] chart 0.30.1\n-->",
-        "<!-- a -->\n![logo] chart 0.31.0\n-->",
-    ),
-    (
-        "multi-line definition invalidated",
-        '[docs]:\nnotes\n"Vault 0.30.1"',
-        '[docs]:\nnotes x\n"Vault 0.31.0"',
-    ),
-]
+# --- the render check through the whole gate (rulings G4 and G5) --------------------
 
 
-def doc_around(old: str) -> tuple[list[str], int, int]:
-    """A doc with front matter and the hidden definitions, then ``old``; its range."""
-    head = FRONT_MATTER + ["# Notes", ""] + HIDDEN + ["", "Intro.", ""]
-    lines = head + old.split("\n") + ["", "The end."]
-    start = len(head) + 1
-    return lines, start, start + old.count("\n")
+async def decide_case(case, kind="version") -> str:
+    lines, start, end, new = case
+    claim = make_claim(start, end, kind=kind)
+    return await decide(fix(new, claim=claim, doc_lines=lines))
 
 
-@pytest.mark.parametrize(("name", "old", "new"), FLIPS, ids=[c[0] for c in FLIPS])
+def passes_line_rules(case) -> bool:
+    lines, start, end, new = case
+    old = "\n".join(lines[start - 1 : end])
+    return validate_replacement(old, new, EVIDENCE.text) == new
+
+
+@pytest.mark.parametrize(("name", "old", "new"), FLIPS, ids=FLIP_IDS)
 async def test_a_block_kind_flip_that_makes_a_link_live_is_refused(name, old, new):
-    lines, start, end = doc_around(old)
-    patched = apply_fix(lines, start, end, new)
-    assert patched[start - 1 : end] == new.split("\n")
-    expected = EVIL_PIXEL if "image" in name else EVIL_SCRIPT
-    # The render check on its own, before any per-line rule.
-    assert expected in added_urls(lines, patched)
-    assert added_urls(lines, lines) == set()
-    # And the whole gate.
-    claim = make_claim(start, end)
-    assert await decide(fix(new, claim=claim, doc_lines=lines)) == "refuse"
+    assert await decide_case(flip_case(old, new)) == "refuse"
 
 
-async def test_a_bare_url_that_becomes_a_link_is_refused():
-    # The URL is already in the old line, as indented code; the fix makes it a paragraph,
-    # which GitHub autolinks.
-    old = f"    {EVIL_SCRIPT} chart 0.30.1"
-    new = f"{EVIL_SCRIPT} chart 0.31.0"
-    lines, start, end = doc_around(old)
-    assert added_urls(lines, apply_fix(lines, start, end, new)) == {EVIL_SCRIPT}
-    assert await decide(fix(new, claim=make_claim(start, end), doc_lines=lines)) == "refuse"
+async def test_review_repro_comment_closed_over_deep_nesting_is_refused():
+    # Passes every per-line rule: only the render check refuses it.
+    assert passes_line_rules(REPRO_COMMENT_NESTING)
+    assert await decide_case(REPRO_COMMENT_NESTING) == "refuse"
 
 
-async def test_an_ordinary_fix_in_a_doc_with_links_is_allowed():
-    lines = DOC + [""] + HIDDEN + ["", "![logo] and [docs] are linked here."]
-    patched = apply_fix(lines, 7, 7, VERSION_FIX)
-    assert rendered_urls("\n".join(lines))[EVIL_SCRIPT] == 1
-    assert added_urls(lines, patched) == set()
-    assert await decide(fix(doc_lines=lines)) == "allow"
+@pytest.mark.parametrize("name", list(REPRO_TOGGLE))
+async def test_review_repro_fence_toggled_by_a_moved_backtick_is_refused(name):
+    # Refused twice over: the backtick moved lines (per-line markup runs, G5) and the
+    # structure changed.
+    assert not passes_line_rules(REPRO_TOGGLE[name])
+    assert await decide_case(REPRO_TOGGLE[name]) == "refuse"
 
 
-async def test_a_url_used_more_often_is_refused():
-    # A live [docs] link is already there; a flip adds a second one.
-    old = "<!-- a -- >\n[docs] chart 0.30.1\n-->"
-    new = "<!-- a -->\n[docs] chart 0.31.0\n-->"
-    lines, start, end = doc_around(old)
-    lines[lines.index("Intro.")] = "Intro: see [docs]."
-    patched = apply_fix(lines, start, end, new)
-    assert rendered_urls("\n".join(lines))[EVIL_SCRIPT] == 1
-    assert added_urls(lines, patched) == {EVIL_SCRIPT}
+@pytest.mark.parametrize("name", list(BLIND_SPOTS))
+async def test_each_parser_blind_spot_is_refused(name):
+    assert await decide_case(BLIND_SPOTS[name]) == "refuse"
 
 
-@pytest.mark.parametrize("opening", ["---", "﻿---"])
-def test_front_matter_cannot_hide_the_body_from_the_render_check(opening):
-    # As plain CommonMark the indented fence inside the front matter swallows the whole
-    # body, so no link renders at all; GitHub renders the body after the front matter.
-    lines = [opening, "sources:", "  - base-apps/vault/values.yaml", "notes: |", "  ```", "---"]
-    lines += HIDDEN + ["", "~~~", "~~~ a", "[docs] pins chart 0.30.1."]
-    patched = apply_fix(lines, 10, 12, "~~~\n~~~ \n[docs] pins chart 0.31.0.")
-    assert not rendered_urls("\n".join(patched))
-    assert added_urls(lines, patched) == {EVIL_SCRIPT}
+async def test_an_underscore_host_is_refused_by_the_line_rule_inside_the_claim():
+    # GitHub autolinks https://get_vault.evil.example/..., linkify-it does not, so as
+    # plain text inside the claim's line it leaves the structure alone: the replacement
+    # rule refuses it (a URL the old line does not have). Outside the claim's lines it
+    # only goes live through a flip, which the structure check refuses (BLIND_SPOTS,
+    # REPRO_TOGGLE["underscore host"]).
+    lines = FRONT_MATTER + ["", "Install chart 0.30.1 from the registry.", "", "End."]
+    new = "Install chart 0.31.0 from https://get_vault.evil.example/install.sh"
+    assert structure_refusal(lines, apply_fix(lines, 6, 6, new)) is None
+    assert not passes_line_rules((lines, 6, 6, new))
+    assert await decide_case((lines, 6, 6, new)) == "refuse"
+
+
+async def test_a_text_only_fix_after_raw_html_left_open_is_refused():
+    assert passes_line_rules(OPEN_TAG_QUOTE)
+    assert await decide_case(OPEN_TAG_QUOTE) == "refuse"
+
+
+@pytest.mark.parametrize("line", CONTROL_LINES)
+async def test_a_version_fix_in_ordinary_markdown_is_allowed(line):
+    new = CONTROL[line - 1].replace("0.30.1", "0.31.0")
+    assert await decide_case((CONTROL, line, line, new)) == "allow"
+
+
+@pytest.mark.parametrize("limit", [1000, 2500], ids=["python-default", "kagent-core"])
+@pytest.mark.parametrize("deep", [">" * 1200 + " Install it", "- " * 600 + "Install it"])
+async def test_very_deep_nesting_is_refused_not_crashed(monkeypatch, limit, deep):
+    # Past the nesting limit, or past Python's recursion limit (kagent.core raises it
+    # to 2500 in the image): a refusal either way, in the worker thread, no crash.
+    before = sys.getrecursionlimit()
+    sys.setrecursionlimit(limit)
+    try:
+        result = await FixGate().check(INTENT, fix(doc_lines=DOC + ["", deep]))
+    finally:
+        sys.setrecursionlimit(before)
+    assert result.decision == "refuse"
+    assert "RecursionError" in result.reason or "nests deeper" in result.reason
 
 
 @pytest.mark.parametrize(
-    ("markdown", "urls"),
+    "target",
     [
-        ("[a](https://a.example/x)", ["https://a.example/x"]),
-        ("![a](https://a.example/p.png)", ["https://a.example/p.png"]),
-        ("[a][r]\n\n[r]: https://a.example/r", ["https://a.example/r"]),
-        ("<https://a.example/auto>", ["https://a.example/auto"]),
-        ("see https://a.example/bare.", ["https://a.example/bare"]),
-        ("see www.a.example/w.", ["http://www.a.example/w"]),
-        ("[a](javascript:alert(1))", ["javascript:alert(1)"]),
-        ('<a href="https://a.example/h">a</a>', ["https://a.example/h"]),
-        ('<img src="https://a.example/i.png">', ["https://a.example/i.png"]),
-        (
-            '<img srcset="https://a.example/1.png 1x, https://a.example/2.png 2x">',
-            ["https://a.example/1.png", "https://a.example/2.png"],
-        ),
-        ('<svg><use xlink:href="https://a.example/u"/></svg>', ["https://a.example/u"]),
-        ("`https://a.example/code`", []),
-        ("    https://a.example/indented", []),
-        ("<!-- <img src=https://a.example/c.png> -->", []),
-        ("ghcr.io/hashicorp/vault:1.17.0 and grafana.example.com", []),  # GitHub links neither
+        "docs_checker.gate.validate_replacement",
+        "docs_checker.gate.structure_refusal",
+        "docs_checker.gate.apply_fix",
+        "docs_checker.evidence.code_only",
     ],
 )
-def test_rendered_urls_finds_every_link_and_image(markdown, urls):
-    assert sorted(rendered_urls(markdown).elements()) == sorted(urls)
+async def test_anything_the_rules_raise_is_a_refusal(monkeypatch, target):
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
 
-
-async def test_a_doc_with_a_line_too_long_to_render_check_gets_no_fix():
-    lines = DOC + ["", "x" * (MAX_RENDER_LINE_CHARS + 1)]
-    assert await decide(fix(doc_lines=lines)) == "refuse"
-    lines = DOC + ["", "x" * MAX_RENDER_LINE_CHARS]
-    assert await decide(fix(doc_lines=lines)) == "allow"
+    monkeypatch.setattr(target, broken)
+    result = await FixGate().check(INTENT, fix())
+    assert result.decision == "refuse" and "RuntimeError" in result.reason
