@@ -6,12 +6,13 @@ against a paid API.
 
 ## Where things stand
 
-- **The agent works offline.** `cd docs-checker && .venv/bin/pytest -q` gives 943 passed,
-  0 skipped. Ruff and black are clean. The branch `feature/docs-checker` has 47 commits
-  (`f4b7735..d6083ec`), plus this file.
+- **The agent works offline.** `cd docs-checker && .venv/bin/pytest -q` gives 975 passed,
+  0 skipped. Ruff and black are clean. The branch `feature/docs-checker` has 52 commits
+  (`f4b7735..dafb17f`), plus this file's commits. The last four are the final review's fix
+  round ("What the final fix round changed" below).
 - **The image builds and completes a real A2A task.** The smoke test (`scripts/smoke.sh`) ends
-  `smoke ok`. It ran in a throwaway colima profile, as linux/amd64 under emulation. The image
-  is not pushed.
+  `smoke ok`, re-run after the final fix round. It ran in a throwaway colima profile, as
+  linux/amd64 under emulation. The image is not pushed.
 - **Evals are preregistered and dry-run only.** The plan is in `evals/plan.md`. The dry run
   estimates $18.70 of the $20 cap. No paid run happened, because
   `DOCS_CHECKER_EVAL_ANTHROPIC_API_KEY` was not set. So there are no measured precision,
@@ -20,9 +21,12 @@ against a paid API.
   wrote them, and Claude decided 105 rows (73 disagreements and 32 audited overrides). You have
   reviewed none of them, so the precision gate stays provisional until you do.
 - **Drift demo (offline only).** θ1 is 37.44° and θ2 is 38.29°, so θ1 < θ2 by 0.85°. This
-  demonstrates the method; it does not calibrate a gate. Production ships the rules gate.
-- **kubernetes changes are ready but not pushed.** The branch `feat/docs-checker-k` has 10
-  commits (K3, K2, K1, K4, K5/K6) and is rebased onto K0 (PR #873, still open at `6861ada`).
+  demonstrates the method; it does not calibrate a gate. Production ships the rules gate,
+  which refuses 10 of 10 bad fixes and 4 of 7 good ones (the 4 human PR rewrites); the
+  digest-pinned version passes since F2.
+- **kubernetes changes are ready but not pushed.** The branch `feat/docs-checker-k` has 11
+  commits (K3, K2, K1, K4, K5/K6, and the final review's text fixes) and is rebased onto K0
+  (PR #873, still open at `6861ada`).
   CI stays red until you pin the image digest. That is by design.
 - **Your critical path:** land K0, then K3, then push the image, pin its digest, land the rest,
   and do the first live run. The eval pilot and the label review do not depend on the deploy.
@@ -44,19 +48,26 @@ ruling so the ledger is not needed to decide.
   - Every node runs Haiku 5.5, except contested verdicts, which go to Sonnet 5.5.
   - The seven cost levers are switches (`levers.py`).
 - **Guards:**
-  - The run budget is reserved before each call: $1.00 for `all`, $0.10 per doc.
-  - At most 12 model calls per doc, and one commit per run.
+  - The run budget is reserved before each call: $1.00 for `all`, $0.10 per doc. Once what
+    is left cannot pay a doc's first call, no further doc is started.
+  - At most 12 model calls per doc (a judgement is reserved as 2 and charged as made: 1 when
+    Haiku was sure, 2 when Sonnet decided), and one commit per run.
+  - A soft deadline at three quarters of the 900 s turn limit (675 s): past it no doc or
+    model call starts, and the run completes with what it checked (the rest
+    `skipped-budget` with a time reason) instead of failing as `timeout` with nothing.
   - Docs are never evidence.
   - Everything a model or a log sees is redacted.
   - Tools: read-only `agent-docs`, with exactly `get_file_contents`, `search_code`,
     `list_commits` and `get_commit`.
 - **Fix gate:** production runs rules only (`validate_replacement` plus a structural markdown
   render check).
-  - It is strict. In the drift demo it refused 10 of 10 bad fixes, and also 5 of 7 good ones:
-    the 4 human PR rewrites and one digest-pinned version (ruling F2).
+  - It is strict. In the drift demo it refuses 10 of 10 bad fixes, and also 4 of 7 good ones:
+    the 4 human PR rewrites. The digest-pinned version passes since ruling F2 landed.
   - A withheld fix still reports its finding (ruling F1).
 - **Memory:** the weekly trigger sends a full JSON snapshot with each run and receives a full
-  one back. Memory is honoured in `scheduled` mode only.
+  one back. Memory is honoured in `scheduled` mode only. The snapshot is capped at 960 KiB on
+  both sides (C25b), under the trigger's ConfigMap budget. Pending docs go never-checked
+  first, then the longest unchecked (I2), so a budget that runs out reaches every doc.
 - **Evals:**
   - The harness records and replays cassettes, enforces a per-user $20 spend ledger, and
     scores the findings.
@@ -86,6 +97,7 @@ More detail: `README.md`, `evals/README.md`, `evals/plan.md`, `docs/drift-demo.m
 | `67cf827` | K4 | fix(kagent): docs-checker template-ref test and doc drift (§T.131) |
 | `ea7bbe4` | K5/K6 | feat(kagent): docs-checker eval corpus and weekly trigger (§T.132) |
 | `ec2f979` | K5/K6 | fix(kagent): docs-checker trigger delivers the report when memory can't be saved (§T.132) |
+| `c3fa867` | review | docs(kagent): docs-checker deploy ordering and runbook fixes (§T.130-T.132) |
 
 - **Base:** the branch is rebased onto K0, PR #873's head
   `6861ada892e7bd36639a5314e63fc8b93462b056`.
@@ -181,7 +193,8 @@ D=<64 hex chars, without the sha256: prefix>
 sed -i '' "s/docs-checker@sha256:REPLACE_WITH_DIGEST/docs-checker@sha256:$D/" \
   base-apps/admission-policies/agent-capability-taxonomy.yaml \
   tests/admission-policies/fixtures/agent-capability/good/good-byo-docs-checker.yaml \
-  base-apps/kagent/harnesses/docs-checker.yaml
+  base-apps/kagent/harnesses/docs-checker.yaml \
+  SPEC.md
 python3 scripts/gen-agent-capability-policy.py --repo-root .
 python3 scripts/gen-agent-audit-cronjob.py --repo-root .
 python3 scripts/validate-agent-capability.py --repo-root .
@@ -191,10 +204,14 @@ git commit -m "feat(kagent): pin the docs-checker image digest (§T.130, §T.131
   base-apps/admission-policies/agent-capability.yaml \
   base-apps/postgresql/agent-audit-cronjob.yaml \
   base-apps/kagent/harnesses/docs-checker.yaml \
-  tests/admission-policies/fixtures/agent-capability/good/good-byo-docs-checker.yaml
+  tests/admission-policies/fixtures/agent-capability/good/good-byo-docs-checker.yaml \
+  SPEC.md
 ```
 
-`tests/admission-policies` needs a working Docker. The default VM is full, so let CI run it.
+- `SPEC.md` row T131 carries `docs-checker@sha256:REPLACE_WITH_DIGEST` too (the sed above
+  rewrites it), and rows T130–T132 say "PREPARED, ⊥ applied": that status flips when the PR
+  merges, not here.
+- `tests/admission-policies` needs a working Docker. The default VM is full, so let CI run it.
 
 ### 4. Open the main PR, apply, provision, merge
 
@@ -304,8 +321,9 @@ jq -c '.[] | select(.label=="stale" or .label=="missing" or .adjudicated_by=="cl
 
 - **Limits:** at most $0.10 and 15 minutes. Keep the `context:` id for follow-ups.
 - **Expect:** a report on 1 doc. The Harness table row
-  `| kagent-stateless | none | none | k8s-reader |` should come back stale: implementer and
-  restarter run on kagent-stateless too.
+  ``| `kagent-stateless` | none | none | k8s-reader |`` (with the backticks around
+  `kagent-stateless`, as the file has it) should come back stale: implementer and restarter
+  run on kagent-stateless too.
   That row is line 220 on the branch, and was line 198 at `c08a1b0` (label `kagent-live:198`).
 - **If the session fails at start:** see the kagent runbook, "Symptom: `docs-checker` sessions
   fail at start".
@@ -323,14 +341,34 @@ kubectl -n kagent logs -f "job/$RUN" | jq -cR 'fromjson? | select(.posted or .er
 - **Cost:** one paid run, at most $1.00.
 - **Expect `skipped-budget` docs on the first run.**
   - Memory starts empty, so every in-scope doc is checked: 56 on the branch, under the 80 cap.
-  - The per-doc cost is unmeasured, so some docs may end `skipped-budget`.
-  - Later weeks skip unchanged docs and reach the rest.
+  - The per-doc cost is unmeasured, so some docs may end `skipped-budget`. A doc the run never
+    started says `not started: ...` (the budget could not pay its first call, or the 675 s
+    soft deadline passed); a doc cut off mid-way says how many claims were judged.
+  - Later weeks skip unchanged docs and take the never-checked docs first, then the longest
+    unchecked, so the whole set is reached.
 - **Failure modes:**
   - "completed without a report … Request refused": the gateway dropped the data part
     (T132 (a)).
   - A timeout: the 1200 s blocking send (T132 (b)).
   - In both cases memory is untouched, and the kagent runbook's "Weekly docs check" symptom
     applies.
+
+## What the final fix round changed
+
+The whole-branch review (`.superpowers/sdd/.../final-review-docs-checker.md`, local only)
+found no critical issue and three Important ones about the first live runs. All three are
+fixed, with the minors it marked "fix now". Each item has a test; 975 pass, 0 skipped.
+
+| Commit | What |
+|---|---|
+| `51e311c` | I1: a judgement is reserved as 2 calls and charged as made (1 or 2), so a doc with more than five Haiku-judged claims fits the cap of 12 (the pilot stop rule "a doc is not `checked`" no longer trips on that). I2: pending docs go never-checked first, then by the memory's `run` of their last check. I3: a soft deadline at 0.75 × `run_timeout_s`; past it, and once the budget cannot pay a doc's first call, no doc or model call starts, docs not started are `skipped-budget` with a `not started: ...` reason, and the run still delivers its report and memory. `finish` fingerprints only `checked` docs. |
+| `62cbb75` | F2: rule 8 also reads the evidence with image digests stripped, so a tag before `@sha256:...` is a whole token (G1 untouched, pinned). `_BLOCK_PREFIX`: an ordered-list marker needs a following space, tab or line end, so a line that starts with a version may change. `evidence._token`: `example.com` is not a hit in `mail.example.com`; tests for quoted values, `8080` vs `18080`, `@sha256`. The drift page is regenerated (no embedding needed; the Rules column comes from `gate.build_fix_gate`; θ1, θ2 and the margin in `.2f`; one sentence on what rules and angle do together: the rules refuse all 10 bad fixes, the angle refuses none more; of 7 good fixes the rules refuse 4, the angle asks about 1 and 2 pass). |
+| `243a8b3` | C25b: `memory.MAX_INPUT_BYTES` = 960 KiB on both sides. M1: map sources are fingerprinted. M2: one spelling per source path on both sides of a dir listing (`./x/`, `/x/`). README Memory. |
+| `dafb17f` | M4: an error attempt with an HTTP status settles to $0 (only connection and timeout errors keep their reservation). M10: at most 200 tool-event part pairs per artifact plus a `docs-checker/tool-events` count. T10: an "audit" of nothing is off-topic. T2: `anthropic` declared, `protovalidate` in the dev extra (`uv lock`). T5, T8, T11, T16, T20, M9. README: the recursion default (80), the soft deadline and the cap, and M3: a `missing` finding carries a hint, not a proposed fix, in v1. |
+
+Not changed: the model request bodies (the smoke cassettes replay as before), the prompts,
+`CHECKER_VERSION`, the eval plan (the dry run still estimates $0.15 for the pilot and
+$18.70 in all).
 
 ## Known stale lines left for docs-checker's first live run
 
@@ -426,7 +464,7 @@ ruling is wrong.
 | N1 | Node functions take a `NodeContext` Protocol; `RunDeps` satisfies it. | A small rename. |
 | U1 | A replacement may keep a URL or markdown link only if it is verbatim in the old text, and may never add one. | An attacker can keep a link, not add one. |
 | U2 | With `tools_on_demand` on, intake binds no tools; with it off, all four schemas are bound with `tool_choice` none (the anti-pattern row). | None. |
-| U3 | The per-doc call cap counts `judge_claim` as up to 2 calls (Haiku plus escalation). | None recorded. |
+| U3 | The per-doc call cap reserves `judge_claim` as 2 calls (Haiku plus escalation) and, since I1, charges what it took (1 or 2). | None recorded. |
 | C10 | Containment minors are folded into the fix round: near-variant fence closers are neutralised, and @mentions, `<!-- -->`, entities and backslash escapes are rejected unless already in the old text. | A larger fix round. |
 | G0 | The replacement keeps old's markdown skeleton (the ordered runs of `[`, `]`, `(`, `)`, `<`, `>`, `\`, backtick and `!`) and each line's leading whitespace. | A fix that must change markup is withheld (finding still reported). |
 | G1 | For image, host, namespace and name claims, a new letters-only token must appear in the comment-free evidence. | Some prose-word fixes on those kinds are rejected. |
@@ -497,7 +535,7 @@ ruling is wrong.
 
 | Id | Decision | Cost if wrong |
 |---|---|---|
-| F2 | The rules gate falsely refuses digest-pinned versions (`0.35.1` inside `ollama/ollama:0.35.1@sha256:…`). Fix: evidence tokens split on `:`, `@` and `/`, keeping G1. Queued for the final fix round. | Fixes for digest-pinned image versions stay withheld (findings still reported). |
+| F2 | The rules gate falsely refused digest-pinned versions (`0.35.1` inside `ollama/ollama:0.35.1@sha256:…`). Landed in the final fix round: rule 8 also reads the evidence with each digest replaced by a space (accept-only; G1 untouched and pinned by a test). | A tag next to a digest is accepted as a whole token; nothing else widened. |
 
 **Task 20: image and smoke**
 
@@ -535,7 +573,13 @@ ruling is wrong.
 | Id | Decision | Cost if wrong |
 |---|---|---|
 | C25 | Fixed the 422 Important: a budget check, plus a claim-only fallback that still delivers the report. Folded Minors 2, 4 and 5; recorded 1, 3, 6 and 7 as T132 follow-ups. | The recorded minors stay open. |
-| C25b | Lower docs-checker's snapshot hard cap below the trigger's ConfigMap budget (e.g. 960 KiB). Queued for the final fix round. | Memory is trimmed slightly earlier. |
+| C25b | docs-checker's snapshot hard cap is 960 KiB on both sides, below the trigger's ConfigMap budget. Landed in the final fix round. | Memory is trimmed slightly earlier. |
+
+**Final fix round (after the whole-branch review)**
+
+| Id | Decision | Cost if wrong |
+|---|---|---|
+| FD | One final fix dispatch for the review's three Important findings (I1 the call-cap charging, I2 the pending-doc order, I3 the soft deadline and the budget floor), the pre-ruled items (F2 and the drift regeneration, C25b, the README default, `_BLOCK_PREFIX`), the minors M1–M4, M9, M10 and the triage's fix-now items; M3 as a README deviation note; M6–M8 as HANDOFF edits; M11 dropped; M12 for you alone. | A large last round, re-reviewed before finishing. |
 
 ### Other calls worth a look (not ledger rulings)
 
@@ -557,20 +601,19 @@ ruling is wrong.
 
 ## Open follow-ups
 
-**Queued for a final fix round.** These were open when this was written; check `git log` on
-both branches.
+**Done in the final fix round** (the four `fix(docs-checker)` commits after `e76e451` on
+this branch, and `c3fa867` on the kubernetes branch; the section "What the final fix round
+changed" below has the detail):
 
-- F2: the digest-pinned version false refusal (evidence tokens split on `:`, `@` and `/`).
-- C25b, T132 (f): the hard snapshot cap (`MAX_INPUT_BYTES`, 1 MiB) is above the ConfigMap
-  budget of 1 MiB − 16 KiB.
-- The README's Configuration table says `DOCS_CHECKER_RECURSION_LIMIT` defaults to 12;
-  `config.py` uses 80.
-- The kagent runbook bump step swaps the `byo-images` entry in place, but a later image should
-  be a NEW entry. With independent Argo apps, an in-place swap can leave the Harness update
-  denied.
-- The trigger runbook (`runbook.md:275-276`): a repeating "memory not saved" alert needs the
-  cap lowered, because a reset alone regrows. Also, the fallback does not check that its own
-  alert posted.
+- F2: the digest-pinned version false refusal.
+- C25b, T132 (f): the snapshot hard cap is 960 KiB on both sides.
+- The README's `DOCS_CHECKER_RECURSION_LIMIT` default (80).
+- The kagent runbook bump step adds a NEW `byo-images` entry (no in-place swap), and the
+  admission runbook's pin step syncs `admission-policies` before `kagent-secrets`.
+- The trigger runbook's "memory not saved" alert points at the cap in claude-agents.
+
+**Still open on the kubernetes branch:** the trigger's fallback does not check that its own
+alert posted (T132 (c) territory).
 
 **T130 (K1), recorded only:**
 
@@ -584,8 +627,8 @@ both branches.
 - byo Harness `workload.command`, `args` and `env` are not constrained by CI; this relies on PR
   review.
 - A stale `velero/velero-server` cluster-admin binding exists, and its namespace is gone.
-- K1's docs cite `agent-definitions-from-git.yaml` by line number (`:62`, `:103`); they should
-  point at the `# enforcing` markers.
+- K1's docs now cite the policy's two `# enforcing` markers instead of line numbers
+  (`c3fa867`).
 
 **T132 (K5/K6), recorded only:**
 
@@ -597,7 +640,7 @@ both branches.
 - (d) `send_request` duplicates kagent_a2a's resend loop and uses its private
   `_send_not_accepted`. Add `parts=` to kagent_a2a next time it changes.
 - (e) A paused task in scheduled mode is alerted but not rejected, so its session stays paused.
-- (f) The snapshot cap (C25b above).
+- (f) The snapshot cap: done (C25b, 960 KiB on both sides).
 
 **Deferred minors that matter:**
 
@@ -618,13 +661,23 @@ both branches.
 - `scope_args` does not reject `..` in sha or ref. Server-side checks stop it today.
 - A hostile 256 KiB doc costs about 5–8 s of CPU in the render check, in a thread that cannot
   be cancelled.
-- In `smoke.sh`, the `|| true` on the replacement-error grep turns a failed `docker logs` into
-  "ok".
 
 ## Unverified until live
 
 - A data part through the alpha14 JSON-RPC gateway (T132 (a)).
 - The 1200 s blocking send (T132 (b)).
+- The first `all` run's wall time against the 900 s turn limit and the new 675 s soft
+  deadline. The offline estimate for 56 docs is roughly 8–12 minutes (about 400 model calls
+  over 4 lanes, 500–800 reads, a `list_commits` per source of every checked doc), so the
+  first run may end with docs `not started: the run's time limit was reached`; they are
+  taken first next week. If that repeats, raise `DOCS_CHECKER_RUN_TIMEOUT_S` on the Harness
+  towards the trigger's 1200 s send and keep the trigger's "stops itself at 15 min" comment
+  in step with it.
+- The completed artifact's size for 56 docs against the controller TaskStore's gRPC message
+  limit: the report twice (text and `docs-checker/report`), the findings, the full memory
+  snapshot (up to 960 KiB) and at most 200 tool-event part pairs plus their count.
+- The shared `agent-docs` PAT's GitHub API budget for one `all` run: the same 500–800 reads
+  plus the `list_commits` calls, memoised per task, against the token's hourly limit.
 - uid 65532 binding port 80 under gVisor. kagent's own runtime does the same.
 - `/data` ownership: whether 65532 can write it under the DurableDir mount.
 - Per-origin key injection for the Haiku calls, since the template binds the Sonnet
@@ -643,9 +696,9 @@ both branches.
 ## This machine
 
 - **The `dcbuild` colima profile** (40 GB disk, docker context `colima-dcbuild`) is still
-  running. It holds `docs-checker:dev` and the smoke sidecar image. Use it for the step 2
-  push, then delete it with `colima delete -p dcbuild`. The current docker context is
-  `colima`.
+  running. It holds `docs-checker:dev` (rebuilt by the final round's smoke run) and the smoke
+  sidecar image. Use it for the step 2 push, then delete it with `colima delete -p dcbuild`.
+  The current docker context is `colima`.
 - **The default colima VM's docker disk is 100% full** (98G of 98G on `/var/lib/docker`).
   `docker system df` shows about 62 GB of images and 8 GB of build cache reclaimable. Nothing
   was pruned. That is why the CI-only Docker tests (admission suite on k3s, ansible) were not
