@@ -152,7 +152,7 @@ def _fence(text: str) -> str:
 def _finding_md(f: Finding) -> list[str]:
     where = f"{f.doc}:{f.line_start}" + (f"-{f.line_end}" if f.line_end != f.line_start else "")
     out = [
-        f"### {_code(where)} at `{f.commit[:12]}`: {f.verdict} (confidence {f.confidence:.2f})",
+        f"### {_code(where)} at {_code(f.commit[:12])}: {_code(f.verdict)} (confidence {f.confidence:.2f})",
         "",
         f"- Claim: {_code(f.claim.text)}",
     ]
@@ -165,20 +165,24 @@ def _finding_md(f: Finding) -> list[str]:
         out.append("- Evidence: none found")
     out.append(f"- Old text: {_code(f.old_text)}")
     if f.fix_withheld:
-        out.append(f"- Fix withheld: {_one_line(f.fix_withheld)}")
+        out.append(f"- Fix withheld: {_code(f.fix_withheld)}")
     else:
         out.append(f"- Replacement: {_code(f.replacement)}")
-    out += [f"- Evidence hash: `{f.evidence_hash}`", f"- Action digest: `{f.action_digest}`", ""]
+    out += [
+        f"- Evidence hash: {_code(f.evidence_hash)}",
+        f"- Action digest: {_code(f.action_digest)}",
+        "",
+    ]
     return out
 
 
 def _markdown(r: Report) -> str:
     c = r.counts
     lines = [
-        f"# Weekly docs check (run {r.run_id})",
+        f"# Weekly docs check (run {_code(r.run_id)})",
         "",
         (
-            f"Commit `{r.commit}`. {c['docs']} docs; {c['findings']} findings, "
+            f"Commit {_code(r.commit)}. {c['docs']} docs; {c['findings']} findings, "
             f"{c['needs_look']} need a look, {c['carried']} still open, "
             f"{c['fix_withheld']} fixes withheld; {r.refused} refused."
         ),
@@ -234,7 +238,7 @@ def _fit(make, text: str, max_line: int) -> str:
 
 
 def _slack_finding(f: Finding, max_line: int) -> str:
-    where = _slack_code(f"{f.doc}:{f.line_start}")
+    where = _fit(_slack_code, f"{f.doc}:{f.line_start}", 80)
     prefix = f"- {f.confidence:.2f} {where} {f.verdict}: "
     if f.fix_withheld:
         reason = _fit(_slack_code, f.fix_withheld, 70)
@@ -244,13 +248,22 @@ def _slack_finding(f: Finding, max_line: int) -> str:
     else:
         tail = ""
     room = max_line - len(prefix) - len(tail)
-    room = max(room, 20)  # a long path: the claim is the part to give up
+    if room < 20:  # keep the claim readable: the tail is the part to give up
+        tail = ""
+        room = max(max_line - len(prefix), 20)
     claim = _fit(_slack_code, f.claim.text, room)
     return _fit_line(prefix + claim + tail, max_line)
 
 
+_PARTIAL_ENTITY = re.compile(r"&[a-z]{0,3}$")
+
+
 def _fit_line(line: str, max_line: int) -> str:
-    return line if len(line) <= max_line else line[: max_line - 1] + "…"
+    """Backstop cut: never inside an entity, and an open code span is closed."""
+    if len(line) <= max_line:
+        return line
+    cut = _PARTIAL_ENTITY.sub("", line[: max_line - 2]) + "\u2026"
+    return cut + "`" if cut.count("`") % 2 else cut
 
 
 def slack_text(
@@ -277,7 +290,7 @@ def slack_text(
             return []
         return [
             _fit_line(
-                f"+{left} more; full report in the job log (run {_slack_code(report.run_id)})",
+                f"+{left} more; full report in the job log (run {_fit(_slack_code, report.run_id, 60)})",
                 max_line,
             )
         ]
@@ -287,11 +300,9 @@ def slack_text(
     for f in sorted(report.findings, key=_order)[:max_findings]:
         line = _slack_finding(f, max_line)
         candidate = lines + [line]
-        if len("\n".join(candidate + footer(listed + 1))) > limit:
+        if len(redact("\n".join(candidate + footer(listed + 1)))) > limit:
             break
         lines = candidate
         listed += 1
-    out = redact("\n".join(lines + footer(listed)))
-    if len(out) > limit:  # only a pathological header; the footer is kept
-        out = out[: limit - 1] + "…"
-    return out
+    # Whole findings are dropped, never sliced: the head and footer are bounded.
+    return redact("\n".join(lines + footer(listed)))

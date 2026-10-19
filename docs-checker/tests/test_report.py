@@ -110,7 +110,7 @@ def test_withheld_fix_and_carried_sections():
     w = finding(replacement="", fix_withheld="changes link target")
     k = finding(doc="k.md", carried=True)
     md, rep = render([outcome("a.md", [w]), outcome("k.md", [k], status="unchanged")])
-    assert "Fix withheld: changes link target" in md
+    assert "Fix withheld: `changes link target`" in md
     assert "## Still open" in md
     assert rep.counts["fix_withheld"] == 1 and rep.counts["carried"] == 1
     assert "fix withheld" in slack_text(rep)
@@ -121,3 +121,41 @@ def test_needs_look_separate_and_counted():
     _, rep = render([outcome("a.md", [finding(needs_look=True, conf=0.5)])])
     assert rep.findings == [] and len(rep.needs_look) == 1
     assert "+1 more" in slack_text(rep)
+
+
+def _check_lines(text):
+    import re
+
+    for line in text.splitlines():
+        assert len(line) <= 200
+        assert line.count("`") % 2 == 0
+        assert not re.search(r"&(?!amp;|lt;|gt;)", line)
+
+
+def test_slack_lines_safe_with_hostile_paths():
+    nasty = "<&>" * 84  # 252 chars, 3 entities each when escaped
+    astral = "\U0001d54f" * 120 + "&" * 80
+    fs = [
+        finding(doc=nasty, conf=0.95, fix_withheld="x" * 90, replacement=""),
+        finding(doc=astral + ".md", conf=0.9, claim="a\r\nb\r\n" * 60),
+        finding(doc="ok.md", conf=0.8),
+    ]
+    _, rep = render([outcome("m.md", fs + [finding(doc=f"d{i}.md") for i in range(30)])])
+    text = slack_text(rep)
+    _check_lines(text)
+    assert len(text) <= 3000
+    assert "more; full report in the job log (run `run-1`)" in text.splitlines()[-1]
+    assert "\r" not in text
+
+
+def test_markdown_has_no_links_from_untrusted_fields():
+    from markdown_it import MarkdownIt
+
+    evil = "[click](http://evil.example) <img src=x> ![i](http://e)"
+    f = finding(claim=evil, replacement="", fix_withheld=evil, old_text=evil)
+    md, _ = render_report([outcome("a.md", [f])], run_id=evil, commit="c" * 40, summary=summary())
+    toks = []
+    for t in MarkdownIt("commonmark").parse(md):
+        toks += [t] + list(t.children or [])
+    kinds = {t.type for t in toks}
+    assert not kinds & {"link_open", "image", "html_inline", "html_block"}
