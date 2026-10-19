@@ -13,18 +13,27 @@ from collections.abc import Generator
 
 import httpx
 
-SIGNED_HEADERS = ("content-type", "accept", "mcp-session-id", "mcp-protocol-version")
+SIGNED_HEADERS = (
+    "content-type",
+    "accept",
+    "mcp-session-id",
+    "mcp-protocol-version",
+    "a2a-version",
+    "x-amzn-bedrock-agentcore-runtime-session-id",
+)
 
 
 class SigV4Auth(httpx.Auth):
     requires_request_body = True
 
-    def __init__(self, *, service: str, region: str):
+    def __init__(self, *, service: str, region: str, profile: str | None = None):
+        """``profile`` names an AWS CLI profile (the operator's client); None is the
+        default chain (the runtime's role inside AgentCore)."""
         import botocore.session
 
         self._service = service
         self._region = region
-        self._session = botocore.session.Session()
+        self._session = botocore.session.Session(profile=profile)
 
     def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
         from botocore.auth import SigV4Auth as BotocoreSigV4
