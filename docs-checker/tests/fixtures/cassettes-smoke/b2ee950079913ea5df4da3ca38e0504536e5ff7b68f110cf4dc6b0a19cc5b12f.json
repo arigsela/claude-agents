@@ -1,0 +1,31 @@
+{
+ "attempts": [
+  {
+   "body": {
+    "content": [
+     {
+      "text": "{\"replacement\": \"The Argo CD Application pins the kagent chart at `targetRevision: 0.7.1`.\"}",
+      "type": "text"
+     }
+    ],
+    "id": "msg_smoke_fix_1",
+    "model": "claude-haiku-5-5",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "input_tokens": 635,
+     "output_tokens": 60
+    }
+   },
+   "content_type": "application/json",
+   "request_id": "req_smoke_fix_1",
+   "retry_after": null,
+   "status": 200
+  }
+ ],
+ "version": 1
+}

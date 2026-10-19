@@ -149,3 +149,14 @@ def test_search_is_off_unless_asked_for():
     assert fake_settings().search_enabled is False
     assert fake_settings({"DOCS_CHECKER_SEARCH": "true"}).search_enabled is True
     assert fake_settings({"DOCS_CHECKER_SEARCH": "0"}).search_enabled is False
+
+
+def test_model_replay_is_off_by_default():
+    assert load_settings({}).replay_dir == ""
+    assert fake_settings().replay_dir == ""
+
+
+def test_the_replay_dir_must_be_an_existing_directory(tmp_path):
+    assert load_settings({"DOCS_CHECKER_REPLAY_DIR": str(tmp_path)}).replay_dir == str(tmp_path)
+    with pytest.raises(ValueError, match="DOCS_CHECKER_REPLAY_DIR .* is not a directory"):
+        load_settings({"DOCS_CHECKER_REPLAY_DIR": str(tmp_path / "absent")})

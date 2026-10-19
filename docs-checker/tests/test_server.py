@@ -262,3 +262,68 @@ def test_main_serves_the_docs_checker_graph(tmp_path, monkeypatch):
     assert isinstance(seen["paused"], PausedTasks) and seen["paused"].durable
     assert seen["reason"].startswith("docs-checker failed: ")
     assert "main" in seen["reason"]
+
+
+# --- DOCS_CHECKER_REPLAY_DIR: the replay-only seam the image smoke test uses ------------
+
+
+def _files(directory) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in sorted(directory.iterdir())}
+
+
+def test_production_models_go_to_the_api_unless_replay_is_set(caplog):
+    from docs_checker.server import build_models
+
+    with caplog.at_level("WARNING", logger="docs_checker.server"):
+        models = build_models(load_settings({}))
+    assert models._transport is None  # the SDK's own transport: the API
+    assert "replay" not in caplog.text
+
+
+async def test_the_replay_dir_serves_recordings_and_never_records(tmp_path, caplog):
+    import anthropic
+    import httpx2
+    from langchain_core.messages import HumanMessage
+
+    from docs_checker.evals.replay import ReplayTransport
+    from docs_checker.models import AnthropicModels
+    from docs_checker.server import build_models
+    from tests.test_llm import message_body
+
+    settings = load_settings({"DOCS_CHECKER_REPLAY_DIR": str(tmp_path)})
+    # One recording, made the way the eval harness makes them (a mock stands in for the API).
+    api = httpx2.MockTransport(lambda request: httpx2.Response(200, json=message_body("ok")))
+    recorder = ReplayTransport(api, tmp_path, "record-missing")
+    judge = AnthropicModels(
+        settings.node_models, settings.levers, http_timeout_s=60.0, transport=recorder
+    ).get("judge")
+    await judge.ainvoke([HumanMessage("q")])
+    recorded = _files(tmp_path)
+    assert len(recorded) == 1
+
+    with caplog.at_level("WARNING", logger="docs_checker.server"):
+        models = build_models(settings)
+    assert f"model replay is active: every response comes from {tmp_path}" in caplog.text
+
+    answer = await models.get("judge").ainvoke([HumanMessage("q")])
+    assert answer.content == "ok"
+    # A request with no recording fails its call: nothing is sent and nothing is written.
+    with pytest.raises(anthropic.APIConnectionError):
+        await models.get("judge").ainvoke([HumanMessage("never recorded")])
+    transport = models._transport
+    assert transport.mode == "replay"
+    assert (transport.sent, transport.live, len(transport.misses)) == (0, 0, 1)
+    assert _files(tmp_path) == recorded
+
+
+async def test_the_replay_seam_sends_nothing(tmp_path):
+    # Belt and braces: the transport under the seam's replay refuses every request, so
+    # even a record-missing transport built over it could not send anything.
+    import httpx2
+
+    from docs_checker.evals.replay import Offline, replay_only
+
+    transport = replay_only(tmp_path)
+    assert transport.mode == "replay" and isinstance(transport.inner, Offline)
+    with pytest.raises(RuntimeError, match="replay-only"):
+        await Offline().handle_async_request(httpx2.Request("POST", "https://api.anthropic.com"))

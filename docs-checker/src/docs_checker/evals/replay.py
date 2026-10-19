@@ -214,3 +214,19 @@ class ReplayTransport(httpx2.AsyncBaseTransport):
 
     async def aclose(self) -> None:
         await self.inner.aclose()
+
+
+class Offline(httpx2.AsyncBaseTransport):
+    """The inner transport of a replay-only run: nothing may leave."""
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        raise RuntimeError("a replay-only run tried to reach the API")
+
+
+def replay_only(cassette_dir: Path | str) -> ReplayTransport:
+    """``replay`` mode over ``Offline``: every response comes from ``cassette_dir``,
+    nothing is recorded, and a request with no recording raises ``CassetteMiss``.
+
+    The production seam (``DOCS_CHECKER_REPLAY_DIR``) uses one for the server's
+    lifetime, so each recorded attempt is served once per process, in order."""
+    return ReplayTransport(Offline(), cassette_dir, "replay")

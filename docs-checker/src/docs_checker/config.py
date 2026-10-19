@@ -111,6 +111,9 @@ class Settings:
     # kagent alpha14 snapshots persist only /data between turns.
     data_dir: str = "/data/docs-checker"
     checkpoint_db: str = "/data/docs-checker/checkpoints.sqlite"
+    # A test seam, off unless set: every model response comes from the cassettes in this
+    # directory (replay only, never recorded, nothing sent). The image smoke test runs on it.
+    replay_dir: str = ""
 
     @property
     def under_kagent(self) -> bool:
@@ -224,6 +227,13 @@ def _repo(value: str) -> str:
     return f"{owner}/{name}"
 
 
+def _replay_dir(value: str) -> str:
+    """Fail at startup on a replay directory that is not there, never miss every call."""
+    if value and not os.path.isdir(value):
+        raise ValueError(f"DOCS_CHECKER_REPLAY_DIR {value!r} is not a directory")
+    return value
+
+
 def _num(env: Mapping[str, str], name: str, default: float) -> float:
     return float(env.get(f"DOCS_CHECKER_{name}", default))
 
@@ -278,4 +288,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         search_enabled=_flag(env, "SEARCH", False),
         data_dir=data_dir,
         checkpoint_db=env.get("DOCS_CHECKER_CHECKPOINT_DB") or f"{data_dir}/checkpoints.sqlite",
+        replay_dir=_replay_dir(env.get("DOCS_CHECKER_REPLAY_DIR", "")),
     )

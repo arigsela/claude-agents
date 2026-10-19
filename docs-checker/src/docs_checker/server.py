@@ -234,6 +234,33 @@ async def load_mcp_tools(settings: Settings) -> dict[str, list[Any]]:
     }
 
 
+def build_models(settings: Settings) -> AnthropicModels:
+    """The models production serves: Anthropic through the SDK's own transport.
+
+    ``settings.replay_dir`` (``DOCS_CHECKER_REPLAY_DIR``, unset in production) is a
+    test seam: every response then comes from the cassettes there, in ``replay`` mode
+    over a transport that refuses to send, so nothing is recorded, nothing reaches the
+    API, and a request with no recording fails its call. The image smoke test runs a
+    real task on it without a key (``scripts/smoke.sh``)."""
+    transport = None
+    if settings.replay_dir:
+        from docs_checker.evals.replay import replay_only
+
+        transport = replay_only(settings.replay_dir)
+        logger.warning(
+            "model replay is active: every response comes from %s; nothing is recorded "
+            "and nothing reaches the API (DOCS_CHECKER_REPLAY_DIR)",
+            settings.replay_dir,
+        )
+    return AnthropicModels(
+        settings.node_models,
+        settings.levers,
+        http_timeout_s=settings.http_timeout_s,
+        on_response=request_id_hook,
+        transport=transport,
+    )
+
+
 def build_executor(
     settings: Settings,
     *,
@@ -260,13 +287,7 @@ def build_executor(
     return DocsCheckerExecutor(
         graph=graph,
         settings=settings,
-        models=models
-        or AnthropicModels(
-            settings.node_models,
-            settings.levers,
-            http_timeout_s=settings.http_timeout_s,
-            on_response=request_id_hook,
-        ),
+        models=models or build_models(settings),
         tools=tools or default_tools,
         gate=gate or AllowGate(),
         fix_gate=build_fix_gate(settings) if fix_gate is None else fix_gate,

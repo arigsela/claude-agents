@@ -6,8 +6,9 @@ match the manifests they describe, and proposes the corrected line. It is built 
 
 Status: the runtime and the audit graph are wired and tested offline (scripted models, a
 local git fake of the agent-docs server), and so is the eval harness (record and replay,
-the $20 spend guard, scoring; `evals/README.md`); the curated eval set, the paid evals and
-the image come next. Design:
+the $20 spend guard, scoring; `evals/README.md`), and the image builds and completes a real
+A2A task in its smoke test (Container); the labelled eval set and the paid evals come next.
+Design:
 `docs/superpowers/specs/2026-10-18-docs-checker-design.md`; plan:
 `docs/superpowers/plans/2026-10-18-docs-checker-plan.md`.
 
@@ -96,6 +97,7 @@ all, so the knobs below are optional:
 | `DOCS_CHECKER_RECURSION_LIMIT` | `12` | Graph circuit breaker (LangGraph's own default is 10007) |
 | `DOCS_CHECKER_RATE_CARD` | `anthropic-2026-10-18` | Rate card the ledger prices with |
 | `DOCS_CHECKER_REPO` | `arigsela/kubernetes` | The one repository the tools may read |
+| `DOCS_CHECKER_REPLAY_DIR` | unset | Test seam: every model response from the cassettes in this directory (replay only: nothing recorded or sent, a request with no recording fails its call; logged at startup). The smoke test uses it; never set it in a Harness |
 
 ## Local development
 
@@ -115,9 +117,34 @@ PyPI. It also declares `fastapi`, which kagent-core 1.0.0a14 imports but does no
 
 ## Container
 
-`Dockerfile` follows kagent's own BYO samples: a bookworm base and a uv-managed Python,
-because gVisor checkpoint/restore crashed processes on trixie's glibc and on the system
-CPython. The Harness must set `workload.command: ["/app/.venv/bin/docs-checker"]`.
+    docker build --platform linux/amd64 -t docs-checker:dev docs-checker
+    bash docs-checker/scripts/smoke.sh      # DOCKER_CONTEXT=<context> to pick a docker context
+
+`Dockerfile` follows kagent's own BYO samples and runtime image (v1.0.0-alpha14): a bookworm
+base and a uv-managed Python 3.13, because gVisor checkpoint/restore crashed processes on
+trixie's glibc and on the system CPython. Two stages: the build stage (uv, and git for
+`kagent-proto`) runs `uv sync --locked --no-dev --extra kagent --no-editable`; the final
+stage holds only the interpreter (`/python`) and the venv (`/app/.venv`), runs as uid 65532
+(kagent's runtime uid) with `/data` owned by it, and has
+`ENTRYPOINT ["/app/.venv/bin/docs-checker"]`. Both bases are pinned by digest. The
+`.dockerignore` is an allowlist (`pyproject.toml`, `uv.lock`, `README.md`, `src/`), so `.env`
+files, the venv, tests, eval cassettes and the spend ledger never reach the build.
+`tests/test_dockerfile.py` pins these invariants. The Harness must set
+`workload.command: ["/app/.venv/bin/docs-checker"]` and the image by digest.
+
+`scripts/smoke.sh` builds the image (or tests `SMOKE_IMAGE`, e.g. the pushed digest) and runs
+one real task through it with no key and no cluster: a sidecar built from the image's build
+stage serves the fake controller TaskStore (`tests/fake_controller.py`) and a fake agent-docs
+MCP server over a fixture repository (`tests/fixtures/smoke-repo`), waits for `/readyz`, sends
+`check base-apps/kagent/docs.md` over A2A gRPC and checks that the controller holds the task
+COMPLETED and settled, with the report and the ledger. The model calls replay
+`tests/fixtures/cassettes-smoke` through `DOCS_CHECKER_REPLAY_DIR`. It also checks the
+image's user, entrypoint and interpreter, prints each check, and ends with `smoke ok`. It runs
+in the docker context `DOCKER_CONTEXT` names (the CLI's own variable), never switches
+contexts, pushes or prunes, and removes its containers and network on exit.
+`tests/test_smoke_stack.py` runs the same task in process in every test run; when a change
+alters a model request it fails there, and `.venv/bin/python -m tests.smoke_stack record`
+rewrites the cassettes from hand-written answers (no API, no key).
 
 ## Memory
 

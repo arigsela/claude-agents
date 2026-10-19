@@ -1,0 +1,31 @@
+{
+ "attempts": [
+  {
+   "body": {
+    "content": [
+     {
+      "text": "{\"claims\": [{\"line_start\": 9, \"line_end\": 9, \"text\": \"kagent runs in the `kagent` namespace.\", \"kind\": \"namespace\", \"keys\": [\"namespace\"], \"values\": [\"kagent\"], \"source_hint\": \"base-apps/kagent.yaml\"}, {\"line_start\": 11, \"line_end\": 11, \"text\": \"The Argo CD Application pins the kagent chart at `targetRevision: 0.6.0`.\", \"kind\": \"chart\", \"keys\": [\"targetRevision\"], \"values\": [\"0.6.0\"], \"source_hint\": \"base-apps/kagent.yaml\"}]}",
+      "type": "text"
+     }
+    ],
+    "id": "msg_smoke_extract_1",
+    "model": "claude-haiku-5-5",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "input_tokens": 976,
+     "output_tokens": 60
+    }
+   },
+   "content_type": "application/json",
+   "request_id": "req_smoke_extract_1",
+   "retry_after": null,
+   "status": 200
+  }
+ ],
+ "version": 1
+}

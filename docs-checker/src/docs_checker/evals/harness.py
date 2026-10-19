@@ -40,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from docs_checker.config import load_settings
 from docs_checker.evals.localrepo import SERVER, local_repo_tools
-from docs_checker.evals.replay import CassetteMiss, Mode, ReplayTransport
+from docs_checker.evals.replay import CassetteMiss, Mode, Offline, ReplayTransport
 from docs_checker.evals.score import LabelledLine, Score, score
 from docs_checker.evals.spend import SpendGuard
 from docs_checker.executor import memory_snapshot
@@ -145,13 +145,6 @@ class MeteredBudget(Budget):
             self.unknown_live_usd += reservation.amount_usd
 
 
-class _Offline(httpx2.AsyncBaseTransport):
-    """The inner transport of a replay run: nothing may leave."""
-
-    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
-        raise RuntimeError("a replay run tried to reach the API")
-
-
 @dataclass
 class HarnessConfig:
     evals_dir: Path
@@ -212,7 +205,7 @@ async def _until_miss(run: Any, transport: ReplayTransport, timeout_s: float) ->
 
 def replay_transport(cfg: HarnessConfig) -> ReplayTransport:
     """One run's transport: the API behind it only in record-missing mode."""
-    inner = cfg.live if cfg.mode == "record-missing" and cfg.live is not None else _Offline()
+    inner = cfg.live if cfg.mode == "record-missing" and cfg.live is not None else Offline()
     return ReplayTransport(inner, cfg.cassettes, cfg.mode, overloaded=cfg.overloaded)
 
 
