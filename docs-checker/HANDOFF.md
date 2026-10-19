@@ -4,6 +4,31 @@ You asked for the whole plan (`docs/superpowers/plans/2026-10-18-docs-checker-pl
 built overnight. It is built and tested offline. Nothing was pushed, applied, deployed or run
 against a paid API.
 
+## Deployed (later on 2026-10-19)
+
+Steps 1–5 and 8 below are done. The rest of this file is the morning snapshot; the AgentCore
+port starts from `docs/bedrock-agentcore-handover.md`.
+
+- **PRs merged:** #885 (ECR repository), #886 (substrate pulls, byo admission, manifests,
+  trigger), #890 (re-pin). Atlantis applied the ECR repository and the `docs-checker-pull` IAM
+  user. The pull key is in Vault and on both workers.
+- **Agent `kagent/docs-checker` is Ready** on `docs-checker:51f7c166faeb`
+  (`sha256:1a2a11aa…`, claude-agents `51f7c16`).
+- **Eval gate:** 12/12 on its first run.
+- **First live check** of `base-apps/kagent/docs.md`: $0.011, 2m23s, 0 findings, coverage
+  incomplete. The per-doc cap of 12 calls left 5 claims unjudged.
+- **The first image never became Ready.** Its golden actor missed the 30 s `/readyz` probe.
+  `51f7c16` logs startup on stdout and guards the checkpoint db. The cause recorded in #890 and
+  SPEC T131 (a root-owned `/data`) is **wrong**: the sandbox runs the agent as uid 0. The likely
+  cause is cold startup: imports took 23.5 s, and the agent was ready at about 27 s on the
+  attempt that worked.
+- **Open:**
+  - speed up the imports (about 3 s of margin left);
+  - remove the old `byo-images` entry and fix T131's cause note;
+  - make the eval gate wait for Ready (its first PostSync run beat the golden snapshot);
+  - tune the per-doc cap;
+  - K2 acceptance: key rotation, and the credential file unreadable from a sandbox.
+
 ## Where things stand
 
 - **The agent works offline.** `cd docs-checker && .venv/bin/pytest -q` gives 975 passed,
