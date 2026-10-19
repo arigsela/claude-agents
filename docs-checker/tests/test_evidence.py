@@ -2,6 +2,7 @@ from docs_checker.evidence import (
     decide_in_code,
     insufficient,
     is_evidence_source,
+    named_thing_present,
     whole_files,
     windows_for,
 )
@@ -201,3 +202,61 @@ def test_a_key_in_key_position_is_a_hit_ranked_last():
     # a key-only window does not satisfy insufficient(): widening may still add evidence
     assert insufficient(ws, claim())
     assert windows_for(claim(keys=()), {"base-apps/x/v.yaml": planted}) == []
+
+
+# --- the claim's own source (live false positive, 2026-10-19) ----------------------------
+# "The Dex side is the static client `vault` in base-apps/dex/configmap.yaml": "vault" is on
+# dozens of lines of the Vault manifests listed first, which filled every window, so the
+# judge never saw Dex's `- id: vault` and called the client missing.
+
+DEX = "base-apps/dex/configmap.yaml"
+
+
+def vault_sources(n_vault_files: int = 6) -> dict[str, str]:
+    sources = {
+        f"base-apps/vault/f{i}.yaml": lines(40, {k: "name: vault" for k in range(3, 40, 8)})
+        for i in range(n_vault_files)
+    }
+    sources[DEX] = lines(30, {12: "    staticClients:", 13: "      - id: vault"})
+    return sources
+
+
+def dex_claim(keys=(), **kw) -> Claim:
+    return claim(values=("vault",), keys=keys, kind="name", source_hint=DEX, **kw)
+
+
+def test_the_claims_own_source_ranks_first_within_a_tier():
+    ws = windows_for(dex_claim(), vault_sources())
+    assert ws[0].source == DEX and "- id: vault" in ws[0].text
+
+
+def test_the_claims_own_source_is_never_crowded_out_by_a_better_tier():
+    sources = vault_sources()
+    sources = {
+        **{f"base-apps/vault/k{i}.yaml": lines(20, {5: "client: vault"}) for i in range(6)},
+        **sources,
+    }
+    ws = windows_for(dex_claim(keys=("client",)), sources)  # six key+value hits elsewhere
+    assert len(ws) == 5 and DEX in [w.source for w in ws]
+
+
+def test_without_a_hint_the_doc_order_still_decides():
+    ws = windows_for(claim(values=("vault",), keys=(), kind="name"), vault_sources())
+    assert DEX not in [w.source for w in ws]  # unchanged behaviour: five Vault windows
+
+
+def test_a_named_thing_is_present_where_the_claim_says():
+    sources = vault_sources()
+    assert named_thing_present(dex_claim(), sources) == DEX
+    gone = {**sources, DEX: lines(30, {13: "      - id: argocd"})}
+    assert named_thing_present(dex_claim(), gone) is None  # the hint was read: only it counts
+    no_hint = claim(values=("vault",), keys=(), kind="name")
+    assert named_thing_present(no_hint, gone) == "base-apps/vault/f0.yaml"
+    commented = {DEX: lines(30, {13: "# - id: vault"})}
+    assert named_thing_present(dex_claim(), commented) is None  # a comment is not evidence
+
+
+def test_a_path_claim_is_present_when_its_file_was_read():
+    path_claim = claim(values=("./base-apps/dex/configmap.yaml",), keys=(), kind="path")
+    assert named_thing_present(path_claim, {DEX: "kind: ConfigMap"}) == DEX
+    assert named_thing_present(path_claim, {"base-apps/x.yaml": "x"}) is None

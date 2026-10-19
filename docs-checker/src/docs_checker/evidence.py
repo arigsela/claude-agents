@@ -90,7 +90,10 @@ def windows_for(
     max_windows: int = 5,
 ) -> list[Window]:
     """Up to ``max_windows`` windows of ±``radius`` lines around hits, best first:
-    key+value lines, then value-only lines, then key-position lines (ruling K1)."""
+    key+value lines, then value-only lines, then key-position lines (ruling K1); within a
+    tier, the source the claim names (``source_hint``) first, then the doc's source order.
+    When the named source has a hit, one of its windows is always kept: a value common to
+    many files (an app's own name) must not crowd out the file the claim is about."""
     values = [v for v in claim.values if v]
     if not values:
         return []
@@ -109,7 +112,8 @@ def windows_for(
             else:
                 continue
             hits.append((tier, order, path, n))
-    hits.sort()
+    hint = _clean_path(claim.source_hint)
+    hits.sort(key=lambda h: (h[0], h[2] != hint, h[1], h[3]))
 
     spans: list[list] = []  # [source, start, end] in selection order
     for _tier, _order, path, n in hits:
@@ -135,12 +139,48 @@ def windows_for(
             if changed:
                 break
 
+    hinted = next((h for h in hits if h[2] == hint), None) if hint else None
+    if hinted and not any(s[0] == hint for s in spans):
+        span = [hint, hinted[3] - radius, hinted[3] + radius]
+        if len(spans) < max_windows:
+            spans.append(span)
+        elif spans:
+            spans[-1] = span
+
     out: list[Window] = []
     for path, lo, hi in spans:
         rows = sources[path].split("\n")
         lo, hi = max(1, lo), min(len(rows), hi)
         out.append(Window(source=path, start=lo, end=hi, text="\n".join(rows[lo - 1 : hi])))
     return out
+
+
+def _clean_path(path: str) -> str:
+    return (path or "").strip().strip("`").removeprefix("./").lstrip("/")
+
+
+def named_thing_present(claim: Claim, sources: dict[str, str]) -> str | None:
+    """Where the thing a claim names still is, or None. A path claim names a file: present
+    when that file was read. Any other claim names values: present when one of them is on a
+    code line of the source the claim names (``source_hint``) if that source was read,
+    else of any evidence source. A ``missing`` verdict on a present thing is contradicted
+    by the repository (a model that saw only other files' windows can call it missing)."""
+    if claim.kind == "path":
+        wanted = {_clean_path(v) for v in claim.values if v}
+        return next((p for p in sources if _clean_path(p) in wanted), None)
+    values = [v for v in claim.values if v]
+    if not values:
+        return None
+    hint = _clean_path(claim.source_hint)
+    scope = {hint: sources[hint]} if hint in sources else sources
+    for path, text in scope.items():
+        if not is_evidence_source(path):
+            continue
+        if any(
+            _has_value(_code(line), values) for line in text.split("\n") if not _is_comment(line)
+        ):
+            return path
+    return None
 
 
 def whole_files(sources: dict[str, str]) -> list[Window]:
