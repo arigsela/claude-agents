@@ -57,6 +57,7 @@ from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from docs_checker import prompts
 from docs_checker.config import Settings, load_settings
 from docs_checker.executor import DocsCheckerExecutor
+from docs_checker.findings_sink import build_findings_sink
 from docs_checker.gate import AllowGate, FixGate, build_fix_gate
 from docs_checker.graph import build_graph, checkpoint_serde, open_checkpointer
 from docs_checker.llm import request_id_hook
@@ -328,6 +329,7 @@ def build_executor(
         gate=gate or AllowGate(),
         fix_gate=build_fix_gate(settings) if fix_gate is None else fix_gate,
         paused=paused,
+        findings=build_findings_sink(settings),
     )
 
 

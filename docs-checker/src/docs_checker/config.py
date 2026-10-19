@@ -137,6 +137,8 @@ class Settings:
     # A repo profile (profile.RepoProfile) for docs without sources front matter:
     # the docs to check and their sources, and the prompts' repo and domain wording.
     profile: Any = None
+    # CloudWatch Logs group for findings (findings_sink.py); empty means off.
+    findings_log_group: str = ""
 
     @property
     def under_kagent(self) -> bool:
@@ -383,4 +385,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         runtime=runtime_kind,
         sqlite_nolock=agentcore,
         profile=profile,
+        findings_log_group=env.get("DOCS_CHECKER_FINDINGS_LOG_GROUP", ""),
     )

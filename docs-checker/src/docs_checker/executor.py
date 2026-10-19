@@ -282,8 +282,10 @@ class DocsCheckerExecutor(AgentExecutor):
         gate: ToolGate,
         fix_gate: FixGate,
         paused: PausedTasks | None = None,
+        findings: Any = None,
     ):
         self._graph = graph
+        self._findings = findings  # findings_sink.CloudWatchFindings, or None
         self._settings = settings
         self._models = models
         self._tools = tools
@@ -507,6 +509,11 @@ class DocsCheckerExecutor(AgentExecutor):
             memory=memory_snapshot(deps.store, result),
             summary=summary,
         )
+        report_data = result.get("report_data")
+        if self._findings is not None and report_data is not None:
+            await self._findings.publish(
+                ledger.run_id, report_data, summary, repo=self._settings.repo
+            )
         artifact = a2a_pb2.Artifact(artifact_id=str(uuid.uuid4()), name="report", parts=parts)
         artifact.metadata.CopyFrom(_struct({USAGE_KEY: usage_metadata(summary)}))
         await self._forget_thread(task_id)
