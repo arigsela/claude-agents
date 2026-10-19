@@ -105,9 +105,11 @@ same case), at most 400 characters. Never paraphrase, summarize or join words fr
 distant lines.
 - kind: one of version, image, chart, name, namespace, host, port, path, schedule, \
 resources, count, config.
-- keys: up to 5 configuration keys a manifest would use for this fact (for example image, \
-tag, version, replicas, schedule, namespace, port, host); empty when there is none.
-- values: 1 to 5 concrete values the claim states, copied exactly as the doc writes them.
+- keys: up to 5 words from text that a manifest would also use as configuration keys for \
+this fact (for example image, tag, version, replicas, schedule, namespace, port, host); \
+only words that appear in text; empty when none does.
+- values: 1 to 5 concrete values the claim states, each copied exactly as it appears in \
+text.
 - source_hint: the listed source most likely to hold the fact, or empty.
 
 List the claims in document order. Return an empty list when the doc makes no checkable \
@@ -189,16 +191,18 @@ def fence_token(commit: str, path: str, line_start: int, line_end: int) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-def fence(text: str, token: str) -> str:
-    """``text`` as one data block that only the code closes.
+# Any "<" that starts a data marker, open or close, with any token, spacing or case.
+_MARKER = re.compile(r"<(?=\s*/?\s*data-)", re.IGNORECASE)
 
-    A ``</data-...>`` with another token is just text. The block's own closing tag
-    inside ``text`` would need a sha256 preimage; it is neutralized anyway, so the
-    block always ends where the code ends it.
+
+def fence(text: str, token: str) -> str:
+    """``text`` as one data block that only the code opens and closes.
+
+    Every ``<`` inside ``text`` that begins a data marker (``<data-``, ``</data-``,
+    with any token, spaces or case) becomes ``&lt;``: a forged or near-miss closer,
+    or another block's token relayed by a model, can never end or start a block.
     """
-    closer = f"</data-{token}>"
-    body = text.replace(closer, f"&lt;/data-{token}>")
-    return f"<data-{token}>\n{body}\n{closer}"
+    return f"<data-{token}>\n{_MARKER.sub('&lt;', text)}\n</data-{token}>"
 
 
 # --- the replacement rule ------------------------------------------------------
@@ -207,24 +211,49 @@ def fence(text: str, token: str) -> str:
 REPLACEMENT_GROWTH = 2
 REPLACEMENT_SLACK_CHARS = 80
 
-_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://|\bwww\.")
+# URLs and links: allowed only when the old lines have exactly the same one (U1).
+_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"'`()\[\]]*|\bwww\.[^\s<>\"'`()\[\]]*")
 _LINK = re.compile(
-    r"!?\[[^\]\n]*\][(\[]"  # [text](target), ![alt](src), [text][ref]
-    r"|^[ \t]*\[[^\]\n]+\]:"  # [ref]: target
-    r"|<[a-z][a-z0-9+.-]*:[^>\s]*>"  # <scheme:...> autolinks
-    r"|<\s*(?:a|img)\b",  # HTML links and images
+    r"!?\[[^\]\n]*\]\([^)\n]*\)?"  # [text](target), ![alt](src), unclosed too
+    r"|!?\[[^\]\n]*\]\[[^\]\n]*\]?"  # [text][ref]
+    r"|^[ \t]*\[[^\]\n]+\]:[^\n]*"  # [ref]: target
+    r"|<[a-z][a-z0-9+.-]*:[^>\s]*>?"  # <scheme:...> autolinks
+    r"|<\s*(?:a|img)\b[^>\n]*>?",  # HTML links and images
     re.IGNORECASE | re.MULTILINE,
 )
-_TOKEN = re.compile(r"[A-Za-z0-9_.:/@-]+")
-_TOKEN_EDGE = "._:/@-"  # stripped from a token's ends (sentence punctuation, list dashes)
+# Ways to spell a character as something else, address someone or hide text: each
+# allowed only as a substring the old lines already have.
+_DISGUISE = re.compile(
+    r"&(?:[A-Za-z][A-Za-z0-9]*|#\d+|#[xX][0-9A-Fa-f]+);"  # HTML entities
+    r"|\\[\s\S]?"  # backslash escapes
+    r"|@[\w.-]*"  # mentions (and a digest's @)
+    r"|<!--"  # HTML comments
+)
+_LEAD = "`'\"(*"  # stripped from a token's start: quotes, backticks, parens, emphasis
+_TRAIL = ".,;:!?`'\")*"  # and from its end: sentence punctuation as well
 _WORD = re.compile(r"[A-Za-z]+")
 _PARTS = re.compile(r"[:@]")
 
 
+def _foreign(char: str) -> bool:
+    """Not printable ASCII and not a newline: non-ASCII, a control or a line break
+    that ``str.splitlines`` would see (``\v \f \x1c-\x1e \x85 U+2028 U+2029``)."""
+    return char != "\n" and not " " <= char <= "~"
+
+
+def _urls(text: str) -> set[str]:
+    return {m.group().rstrip(".,;:!?") for m in _URL.finditer(text)}
+
+
+def _links(text: str) -> set[str]:
+    return {m.group() for m in _LINK.finditer(text)}
+
+
 def _whole(token: str, text: str) -> bool:
-    """``token`` occurs in ``text`` as a whole token: not part of a longer word, number
-    or dotted name (``1.2`` is not in ``1.2.3``, ``example.com`` not in ``a.example.com``)."""
-    pattern = r"(?<![\w-])(?<!\w\.)" + re.escape(token) + r"(?![\w-])(?!\.\w)"
+    """``token`` occurs in ``text`` as a whole token, not inside a longer word, number,
+    dotted name or path (``1.2`` is not in ``1.2.3``, ``example.com`` not in
+    ``a.example.com``, ``values.yaml`` not in ``vault/values.yaml``)."""
+    pattern = r"(?<![\w./@-])" + re.escape(token) + r"(?![\w/@-])(?!\.\w)"
     return re.search(pattern, text) is not None
 
 
@@ -247,16 +276,26 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
     1. empty or blank;
     2. longer than ``2 * len(old) + 80`` characters;
     3. a different number of lines than ``old``;
-    4. any URL (``scheme://`` or ``www.``), even one ``old`` already has;
-    5. any markdown link, image or reference (``[x](y)``, ``![x](y)``, ``[x][y]``,
-       ``[x]: y``), autolink (``<scheme:...>``) or HTML ``<a>``/``<img>``;
-    6. a token from nowhere. Tokens are runs of ``[A-Za-z0-9_.:/@-]``, with
-       ``._:/@-`` stripped from their ends. A token of letters only (a plain word)
-       may change. Any other token (a version, number, path, host, image) must occur
-       as a whole token (see ``_whole``) in ``old`` or ``evidence_text``, or else
-       every part of it split at ``:`` and ``@`` must (an image reference built from
-       a repository and a tag). A leading ``v`` on a version is ignored either way.
+    4. a character that is not printable ASCII or ``\\n`` (non-ASCII, zero-width,
+       bidi, control, or a line break such as U+2028) unless ``old`` has it;
+    5. a URL (``scheme://...``, ``www....``) or a markdown link, image, reference or
+       definition, ``<scheme:...>`` autolink or HTML ``<a>``/``<img>`` that ``old``
+       does not have verbatim (U1: one copied unchanged may stay);
+    6. an HTML entity (``&colon;``, ``&#58;``), a backslash escape, an ``@`` mention
+       or ``<!--`` unless ``old`` has that same substring;
+    7. a token from nowhere. Tokens are whitespace-separated, with only quotes,
+       backticks, parens and ``*`` stripped from the start and those plus sentence
+       punctuation (``.,;:!?``) from the end, so a leading ``../``, ``./`` or ``/``
+       stays. A token of ASCII letters only (a plain word) may change. Any other
+       must occur whole (see ``_whole``) in ``old`` or in the evidence's code (comment
+       lines and trailing ``# ...`` removed: comments are never evidence), or else
+       every part of it split at ``:`` and ``@`` must (an image built from a
+       repository and a tag). A leading ``v`` on a version is ignored either way.
     """
+    # Not at module level: gate imports this module, and evidence -> state -> tools
+    # -> gate would make a cycle.
+    from docs_checker.evidence import code_only
+
     new = new.replace("\r\n", "\n").replace("\r", "\n")
     if not old.endswith("\n"):
         new = new.rstrip("\n")
@@ -266,15 +305,18 @@ def validate_replacement(old: str, new: str, evidence_text: str) -> str | None:
         return None
     if new.count("\n") != old.count("\n"):
         return None
-    if _URL.search(new) or _LINK.search(new):
+    if any(_foreign(char) and char not in old for char in set(new)):
         return None
-    sources = (old, evidence_text)
-    for raw in _TOKEN.findall(new):
-        token = raw.strip(_TOKEN_EDGE)
+    if not _urls(new) <= _urls(old) or not _links(new) <= _links(old):
+        return None
+    if any(m.group() not in old for m in _DISGUISE.finditer(new)):
+        return None
+    sources = (old, code_only(evidence_text))
+    for raw in new.split():
+        token = raw.lstrip(_LEAD).rstrip(_TRAIL)
         if not token or _WORD.fullmatch(token) or _known(token, sources):
             continue
-        parts = [p.strip(_TOKEN_EDGE) for p in _PARTS.split(token)]
-        parts = [p for p in parts if p]
+        parts = [p for p in _PARTS.split(token) if p]
         if len(parts) > 1 and all(_known(p, sources) for p in parts):
             continue
         return None

@@ -65,6 +65,11 @@ def _is_comment(line: str) -> bool:
     return bool(_COMMENT.match(line))
 
 
+def code_only(text: str) -> str:
+    """What of ``text`` can be evidence: comment lines dropped, trailing ``# ...`` cut."""
+    return "\n".join(_code(line) for line in text.split("\n") if not _is_comment(line))
+
+
 def windows_for(
     claim: Claim,
     sources: dict[str, str],

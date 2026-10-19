@@ -20,10 +20,10 @@ claims are checked against the doc's own lines, paths go through
 ``parse_request``, verdicts are range-checked, and replacements pass
 ``prompts.validate_replacement``.
 
-Tools: these nodes never run a tool loop. Whatever ``belt.schemas_for(node)``
-returns (lever 4: none for extract, judge and fix when on; every read tool when
-off) is bound with ``models.no_tools_choice()``, so the model sees but cannot
-call it.
+Tools: these nodes never run a tool loop. With ``tools_on_demand`` on no model
+node carries a tool (intake's ``NODE_TOOLS`` resolve the ref in code, ruling U2);
+off, every read tool is bound with ``models.no_tools_choice()``, so the model sees
+but cannot call it.
 """
 
 from __future__ import annotations
@@ -132,11 +132,19 @@ def _overhead_chars(schema: type[BaseModel], tools: list[Any]) -> int:
     return chars + sum(len(json.dumps(convert_to_openai_tool(tool))) for tool in tools)
 
 
+def _tools_for(ctx: NodeContext, node: str) -> list[Any]:
+    """The schemas a node's model carries (lever 4). Intake's own tools are the code's
+    ref resolution, not the model's, so with the lever on it carries none (U2)."""
+    if node == "intake" and ctx.levers.tools_on_demand:
+        return []
+    return ctx.belt.schemas_for(node)
+
+
 async def _ask(
     ctx: NodeContext, node: str, schema: type[BaseModel], system: str, user: str
 ) -> Any | None:
     """One structured call; the parsed answer, or None when it could not be read."""
-    tools = ctx.belt.schemas_for(node)
+    tools = _tools_for(ctx, node)
     messages = [
         prompts.system_message(system, cache=ctx.levers.cache_prefix, ttl=ctx.settings.cache_ttl),
         HumanMessage(user),
@@ -226,6 +234,16 @@ def _span(
     return numbers[bisect_right(offsets, found) - 1], numbers[bisect_right(offsets, last) - 1]
 
 
+def _grounded(found: FoundClaim) -> bool:
+    """Every value occurs in the claim's text (case kept) and every key too (any case),
+    whitespace-normalized. Values and keys pick the evidence windows and drive the
+    code judge with no model in between, so they must come from the doc as well."""
+    text = _ws(found.text)
+    values = [_ws(value) for value in found.values]
+    keys = [_ws(key).lower() for key in found.keys]
+    return all(v and v in text for v in values) and all(k and k in text.lower() for k in keys)
+
+
 async def extract_claims(
     doc_lines: list[str], meta: DocMeta, ctx: NodeContext, *, commit: str
 ) -> list[Claim]:
@@ -235,7 +253,8 @@ async def extract_claims(
     ``doc_lines`` is the whole file (line 1 is the first front-matter fence); the
     body from ``meta.body_start`` is sent numbered, each line cut to
     ``max_line_chars``. A claim whose text is not in its lines (whitespace aside,
-    case kept) is dropped; one that is gets the narrowest range that holds it.
+    case kept) is dropped, and so is one whose values or keys are not in its text;
+    a claim that stays gets the lines of the text's first occurrence in its range.
     """
     first, last = meta.body_start, len(doc_lines)
     if first > last:
@@ -256,7 +275,7 @@ async def extract_claims(
         if len(claims) >= ctx.settings.max_claims_per_doc:
             break
         span = _span(found.text, doc_lines, found.line_start, found.line_end, first)
-        if span is None:
+        if span is None or not _grounded(found):
             continue
         try:
             claim = Claim(
