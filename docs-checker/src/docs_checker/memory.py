@@ -9,7 +9,13 @@ receives the report. Memory is honoured only in ``scheduled`` mode (C#22): in an
 mode ``from_snapshot`` returns an empty store.
 
 Namespaces: ``("doc",)`` keyed by doc path, ``("decision",)`` keyed by
-``Claim.semantic_key``. The run counter lives in ``("meta",)``.
+``Claim.semantic_key``. The run counter lives in ``("meta",)``. A doc entry's ``run``
+(the run that last checked it) is what ``graph.scope`` orders the pending docs by,
+oldest first, after the docs it has no entry for (review I2).
+
+Size: the trigger keeps the snapshot in a ConfigMap and budgets 1 MiB - 16 KiB for
+it, so ``MAX_INPUT_BYTES`` (960 KiB) is the hard cap on both sides: a larger input
+is ignored, and ``snapshot`` drops whole doc entries before writing more (C25b).
 """
 
 from __future__ import annotations
@@ -32,7 +38,9 @@ KEEP_RUNS = 4
 CHECKER_KEY = "__checker__"  # reserved fingerprint key; no repo path starts with it
 UNKNOWN = "!unknown"  # a commit we could not resolve: never equal to anything
 
-MAX_INPUT_BYTES = 2 * MAX_SNAPSHOT_BYTES
+# The hard cap, read and write side: under the trigger's ConfigMap budget of
+# 1 MiB - 16 KiB (C25b), with room for the ConfigMap's own metadata.
+MAX_INPUT_BYTES = 960 * 1024
 MAX_COUNTER = 10**6
 STATUSES = frozenset({"checked", "unchanged", "incomplete", "skipped-budget", "failed"})
 
@@ -160,7 +168,7 @@ class SnapshotStore(InMemoryStore):
     def snapshot(self, in_scope: set[str]) -> dict:
         """The FULL snapshot, pruned: out-of-scope docs go; decisions are pruned first
         (unused for ``KEEP_RUNS`` runs, then oldest first until the 512 KiB soft
-        target); if still above ``MAX_INPUT_BYTES`` (1 MiB, the hard cap, which the
+        target); if still above ``MAX_INPUT_BYTES`` (960 KiB, the hard cap, which the
         read side also enforces) whole in-scope doc entries are dropped largest-first
         until it fits, and those docs are re-checked next run."""
         docs = {p: e for p, e in self._all(_DOC).items() if p in in_scope}
@@ -207,11 +215,12 @@ class SnapshotStore(InMemoryStore):
 async def fingerprint(
     meta: DocMeta, reader: RepoReader, evidence_paths: list[str], checker_version: str
 ) -> dict[str, str]:
-    """{path: latest commit} for the doc, every path/dir source and every evidence path
-    used, plus the checker version. A path whose commit is unknown (None: no commit, or
-    a transient failure) gets ``UNKNOWN``, so the doc is never skipped on it."""
+    """{path: latest commit} for the doc, every path, dir and map source (every source
+    but a URL) and every evidence path used, plus the checker version. A path whose
+    commit is unknown (None: no commit, or a transient failure) gets ``UNKNOWN``, so
+    the doc is never skipped on it."""
     paths = [meta.path]
-    paths += [s.value for s in meta.sources if s.kind in ("path", "dir")]
+    paths += [s.value for s in meta.sources if s.kind in ("path", "dir", "map")]
     paths += evidence_paths
     result: dict[str, str] = {}
     for path in dict.fromkeys(paths):

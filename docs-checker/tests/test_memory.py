@@ -44,6 +44,14 @@ def loaded(fp, status="checked"):
     return s.get_doc("docs/a.md")
 
 
+async def test_fingerprint_covers_map_sources_too():
+    # A map source ({id, resource, title}, spec section 4) is read as evidence, so a
+    # change to it must invalidate the skip like a path source's (review M1).
+    meta = DocMeta("docs/a.md", [SourceRef("map", "app/m.yaml", 3)], None, 5)
+    fp = await fingerprint(meta, Reader({"docs/a.md": "a" * 40, "app/m.yaml": "b" * 40}), [], "v1")
+    assert fp == {"docs/a.md": "a" * 40, "app/m.yaml": "b" * 40, CHECKER_KEY: "v1"}
+
+
 async def test_skip_when_everything_matches():
     fp = await fingerprint(META, Reader(COMMITS), ["app/e.yaml"], "chk")
     assert skip_unchanged(META, loaded(fp), dict(fp))
@@ -186,6 +194,43 @@ def _ignored(snap, caplog):
         store = SnapshotStore.from_snapshot(snap, mode="scheduled")
     assert store.get_doc("a.md") is None and store.run == 1
     assert "ignoring memory snapshot" in caplog.text
+
+
+def _padded(extra: int) -> dict:
+    """A snapshot ``extra`` bytes past the hard cap (0: exactly at it)."""
+    snap = _snap_with()
+    size = len(json.dumps(snap, separators=(",", ":")).encode())
+    snap["docs"]["a.md"]["fingerprint"]["x"] = "x" * (MAX_INPUT_BYTES + extra - size + 1)
+    return snap
+
+
+def test_the_hard_cap_is_under_the_triggers_configmap_budget():
+    # C25b: the trigger keeps the snapshot in a ConfigMap with a budget of 1 MiB - 16 KiB;
+    # the agent's cap, enforced when it reads and when it writes, stays under that.
+    assert MAX_INPUT_BYTES == 960 * 1024 < 1024 * 1024 - 16 * 1024
+
+
+def test_input_at_the_cap_loads_and_one_byte_over_is_rejected(caplog):
+    at_cap = _padded(0)
+    assert len(json.dumps(at_cap, separators=(",", ":")).encode()) == MAX_INPUT_BYTES
+    assert SnapshotStore.from_snapshot(at_cap, mode="scheduled").get_doc("a.md") is not None
+    _ignored(_padded(1), caplog)
+
+
+def test_the_write_side_stays_at_the_cap_too(caplog):
+    s = SnapshotStore()
+    for i in range(4):  # four docs of 245 KiB: 980 KiB, under 1 MiB but over 960 KiB
+        s.put_doc(
+            f"d{i}.md",
+            status="checked",
+            fingerprint={"p": "x" * (245 * 1024) + "y" * i},
+            checker="c",
+            open_findings=[],
+        )
+    with caplog.at_level(logging.WARNING):
+        snap = s.snapshot({f"d{i}.md" for i in range(4)})
+    assert len(json.dumps(snap, separators=(",", ":")).encode()) <= MAX_INPUT_BYTES
+    assert sorted(snap["docs"]) == ["d0.md", "d1.md", "d2.md"] and "dropped 1 doc" in caplog.text
 
 
 def test_hostile_snapshots_yield_an_empty_store(caplog):

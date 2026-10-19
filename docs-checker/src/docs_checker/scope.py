@@ -19,7 +19,7 @@ import re
 from typing import NamedTuple
 
 from docs_checker.frontmatter import DocMeta, FrontMatterError, parse_front_matter
-from docs_checker.repo import ReadResult, RepoReader
+from docs_checker.repo import ReadResult, RepoReader, clean_path
 from docs_checker.tools import ToolEvent
 
 DEFAULT_ROOTS = ("base-apps", "docs", "recovery")
@@ -146,12 +146,14 @@ async def expand_sources(
     events: list[ToolEvent] | None = None,
 ) -> tuple[dict[str, ReadResult], list[str]]:
     """What the doc cites, read at the reader's commit, and what was skipped. Each
-    read's tool event is appended to ``events`` when a list is given."""
+    read's tool event is appended to ``events`` when a list is given. The result is
+    keyed by ``clean_path`` (one spelling per path, as the reader names it), and
+    ``graph_doc.load`` looks a source up the same way (review M2)."""
     read: dict[str, ReadResult] = {}
     skipped: list[str] = []
 
     async def fetch(path: str) -> None:
-        path = path.rstrip("/")
+        path = clean_path(path)
         if path in read:
             return
         result = await reader.read(path, node="load", events=events)
@@ -166,7 +168,7 @@ async def expand_sources(
         elif source.kind == "dir" or source.value.endswith("/"):
             listing = await reader.list_dir(source.value, node="load", events=events)
             if not listing.found:
-                read[listing.path] = listing
+                read[clean_path(source.value)] = listing
                 continue
             entries = (listing.text or "").splitlines()
             files = [e for e in entries if not e.endswith("/")]

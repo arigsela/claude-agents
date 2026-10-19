@@ -64,7 +64,7 @@ from docs_checker.nodes import (
     propose_fix,
 )
 from docs_checker.prompts import AGENT_DESCRIPTION, CHECKER_VERSION
-from docs_checker.repo import ReadResult, RepoReader
+from docs_checker.repo import ReadResult, RepoReader, clean_path
 from docs_checker.scope import expand_sources
 from docs_checker.state import (
     Claim,
@@ -261,7 +261,7 @@ async def load(state: DocState, runtime: Runtime[RunDeps]) -> dict:
     for source in meta.sources:
         if source.kind == "url":
             continue
-        result = sources.get(source.value.rstrip("/"))
+        result = sources.get(clean_path(source.value))
         if result is None or result.found:
             continue
         if result.status == "absent":

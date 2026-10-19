@@ -125,6 +125,24 @@ async def test_expand_reads_paths_maps_and_dirs_and_never_urls(tmp_path):
     assert skipped == ["dir/sub: subdirectory", "https://example.com/x: url"]
 
 
+async def test_sources_are_keyed_by_their_one_spelling(tmp_path):
+    # Review M2: a source written ./dir/, /dir/ or ./a.yaml is keyed as the reader names
+    # it, so the load stage finds an absent directory's listing under the same key.
+    repo, commit = make_tree(tmp_path, {"a.yaml": "a: 1\n", "dir/c.yaml": "c: 3\n"})
+    text = "---\nsources:\n  - ./a.yaml\n  - /dir/\n  - ./nothere/\n  - /gone.yaml\n---\n"
+    meta = parse_front_matter("docs/x.md", text)
+    read, skipped = await expand_sources(
+        reader_of(repo, commit), meta, max_dir_files=50, max_file_bytes=1000
+    )
+    assert {p: r.status for p, r in read.items()} == {
+        "a.yaml": "found",
+        "dir/c.yaml": "found",
+        "nothere": "absent",
+        "gone.yaml": "absent",
+    }
+    assert skipped == []
+
+
 async def test_dir_source_overflow_is_reported_not_read(tmp_path):
     repo, commit = make_tree(tmp_path, {f"dir/f{i}.yaml": f"v: {i}\n" for i in range(5)})
     belt = local_belt(commit, clone=repo)

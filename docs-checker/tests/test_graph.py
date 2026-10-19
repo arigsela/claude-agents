@@ -376,6 +376,27 @@ async def test_absent_source_is_missing_on_its_front_matter_line(fixture_repo):
     assert f"`{RUNBOOK}:{line}`" in result["report"]
 
 
+async def test_an_absent_dir_source_is_missing_however_it_is_spelt(tmp_path):
+    # Review M2: "./base-apps/gone/" and "/base-apps/gone/" name the same absent directory
+    # as "base-apps/gone/"; each is a missing finding on its own front-matter line.
+    doc = "docs/x.md"
+    files = {
+        "base-apps/vault/values.yaml": "chart: vault\n",
+        doc: (
+            "---\nsources:\n  - base-apps/vault/values.yaml\n  - ./base-apps/gone/\n"
+            "  - /base-apps/lost/\n---\n# X\n"
+        ),
+    }
+    repo, commit = make_tree(tmp_path, files)
+    result = await Harness(repo, commit, claims={doc: []}).run(RunRequest(scope=[doc]))
+    outcome = result["outcomes"][doc]
+    assert outcome.status == "checked"
+    assert [(f.verdict, f.line_start, f.claim.values) for f in outcome.findings] == [
+        ("missing", 4, ["./base-apps/gone/"]),
+        ("missing", 5, ["/base-apps/lost/"]),
+    ]
+
+
 @pytest.mark.parametrize("levers", [Levers.all_on(), Levers.without("shrink_results")])
 async def test_doc_text_elsewhere_never_supports_a_claim(tmp_path, levers):
     # C#16: a .md file that states the claimed value is not evidence, whatever it says.

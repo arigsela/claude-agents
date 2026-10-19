@@ -80,7 +80,7 @@ class RefError(Exception):
         super().__init__(f"cannot resolve {ref!r} to a commit ({status}): {detail}".rstrip(": "))
 
 
-def _clean(path: str) -> str:
+def clean_path(path: str) -> str:
     """One spelling per path: no leading ``/`` or ``./``, no trailing ``/``."""
     return normalize_source(path).rstrip("/")
 
@@ -185,7 +185,7 @@ class RepoReader:
         self, path: str, *, node: str = "load", events: list[ToolEvent] | None = None
     ) -> ReadResult:
         """The file at ``path``, without the server's status line."""
-        path = _clean(path)
+        path = clean_path(path)
         result = await self._call(
             "get_file_contents", {"path": path, "sha": self.commit}, node, events
         )
@@ -201,7 +201,7 @@ class RepoReader:
         self, path: str, *, node: str = "load", events: list[ToolEvent] | None = None
     ) -> ReadResult:
         """The entries of the directory at ``path`` (``""`` is the root), in git's order."""
-        path = _clean(path)
+        path = clean_path(path)
         result = await self._call(
             "get_file_contents", {"path": path, "sha": self.commit}, node, events
         )
@@ -221,7 +221,10 @@ class RepoReader:
         """The last commit up to the reader's that touched ``path``; None if none
         did or the server could not say."""
         result = await self._call(
-            "list_commits", {"sha": self.commit, "path": _clean(path), "perPage": 1}, node, events
+            "list_commits",
+            {"sha": self.commit, "path": clean_path(path), "perPage": 1},
+            node,
+            events,
         )
         if not result.ok:
             return None

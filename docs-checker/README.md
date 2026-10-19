@@ -151,6 +151,8 @@ rewrites the cassettes from hand-written answers (no API, no key).
 
 The agent has no database. The weekly trigger holds a JSON memory snapshot, sends it with each run and gets back the full updated snapshot. Trust model: the trigger is the only caller that sends memory, and it is the one that receives the report. Memory is honoured only in `scheduled` mode; any other mode starts with an empty store. A snapshot that is oversize, garbled or the wrong version is ignored with a warning. The graph marks findings carried from memory as `carried: true` in the report.
 
+Size: the snapshot is capped at 960 KiB (`memory.MAX_INPUT_BYTES`) on both sides, under the trigger's ConfigMap budget of 1 MiB − 16 KiB. On the way out, decisions unused for four runs go first, then the oldest decisions down to the 512 KiB soft target, then whole doc entries (largest first) until it fits; a dropped doc is re-checked next run. A doc entry's `run` (the run that last checked it) also orders the next run: docs with no entry go first, then the longest unchecked, so a budget that runs out reaches every doc eventually.
+
 ## Results
 
 Dry run only. No priced eval has run yet (the eval key was not set), so there are no
