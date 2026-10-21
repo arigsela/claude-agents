@@ -185,14 +185,15 @@ def load_docs(text: str) -> list[dict]:
     return docs
 
 
-def find_applications(root: Path) -> list[tuple[str, str, dict]]:
-    """(name, repo-relative file, doc) for every Argo CD Application manifest in a worktree.
+def find_applications(root: Path, repo: str) -> list[tuple[str, str, dict]]:
+    """(name, repo-relative file, doc) for every Argo CD Application in a worktree: each Application
+    manifest, then each Application an ApplicationSet here generates (appset_applications).
 
     Repos keep Applications in different places (base-apps/, argo/<env>/, ...), so the whole tree
     is searched. Helm templates/ and vendored charts/ are skipped: Applications there are
     templated, not applied as written.
     """
-    found = []
+    found, appsets = [], []
     for f in sorted(root.rglob("*")):
         rel = f.relative_to(root)
         if f.suffix not in (".yaml", ".yml") or not f.is_file() or APP_SKIP_DIRS & set(rel.parts[:-1]):
@@ -209,10 +210,146 @@ def find_applications(root: Path) -> list[tuple[str, str, dict]]:
             continue
         for d in docs:
             md, spec = d.get("metadata"), d.get("spec")
-            if (d.get("kind") == "Application" and str(d.get("apiVersion", "")).startswith("argoproj.io/")
-                    and isinstance(md, dict) and md.get("name") and isinstance(spec, dict)):
+            if not (str(d.get("apiVersion", "")).startswith("argoproj.io/") and isinstance(md, dict)
+                    and md.get("name") and isinstance(spec, dict)):
+                continue
+            if d.get("kind") == "Application":
                 found.append((str(md["name"]), str(rel), d))
+            elif d.get("kind") == "ApplicationSet":
+                appsets.append((str(rel), d))
+    for afile, aset in appsets:
+        found += appset_applications(root, afile, aset, repo)
     return found
+
+
+# A template action, with optional "-" trims: {{ .a.b }} under goTemplate, {{a.b}} or {{path[0]}} without.
+APPSET_ACTION_RE = re.compile(r"\{\{-?\s*(.*?)\s*-?\}\}")
+GO_FIELD_RE = re.compile(r"\.\w+(?:\.\w+)*")
+FAST_FIELD_RE = re.compile(r"[\w-]+(?:\.[\w-]+|\[\d+\])*")
+
+
+def appset_applications(root: Path, afile: str, aset: dict, repo: str) -> list[tuple[str, str, dict]]:
+    """(name, file, doc) for each Application an ApplicationSet generates from this repo at this ref.
+
+    Only top-level list and git-files generators are expanded: a git-files element's file is the
+    config file it came from, a list element's is the ApplicationSet's own. Matrix, merge, cluster,
+    directory, SCM and pull-request generators, per-generator templates and selectors, and
+    templatePatch are not. An element whose template needs more than plain field references
+    (fill_template) is skipped rather than guessed. The doc carries the ownerReference Argo CD sets
+    on what it generates.
+    """
+    spec = aset["spec"]
+    template, go = spec.get("template"), bool(spec.get("goTemplate"))
+    if not isinstance(template, dict):
+        return []
+    owner = {"apiVersion": str(aset["apiVersion"]), "kind": "ApplicationSet", "name": str(aset["metadata"]["name"])}
+    out = []
+    for gen in spec.get("generators") or []:
+        for file, params in generator_params(root, afile, gen, repo, go):
+            try:
+                filled = fill_template(template, params, go)
+            except KeyError:
+                continue
+            md, app_spec = filled.get("metadata"), filled.get("spec")
+            if not isinstance(md, dict) or not md.get("name") or not isinstance(app_spec, dict):
+                continue
+            md["ownerReferences"] = [owner]
+            out.append((str(md["name"]), file, {"apiVersion": owner["apiVersion"], "kind": "Application",
+                                                "metadata": md, "spec": app_spec}))
+    return out
+
+
+def generator_params(root: Path, afile: str, gen, repo: str, go: bool) -> list[tuple[str, dict]]:
+    """(file, parameters) for each element of one top-level list or git-files generator."""
+    if not isinstance(gen, dict) or gen.get("selector"):
+        return []
+    lst, git = gen.get("list"), gen.get("git")
+    if isinstance(lst, dict) and not lst.get("template"):
+        return [(afile, e if go else flat_params(e)) for e in lst.get("elements") or [] if isinstance(e, dict)]
+    if not isinstance(git, dict) or git.get("template") or not same_repo(git.get("repoURL"), repo):
+        return []
+    globs = [g for g in git.get("files") or [] if isinstance(g, dict) and g.get("path")]
+    exclude = [str(g["path"]) for g in globs if g.get("exclude")]
+    files: set[Path] = set()
+    for g in globs:
+        if g.get("exclude"):
+            continue
+        try:
+            files |= {f for f in root.glob(str(g["path"]).lstrip("/"))
+                      if f.is_file() and f.resolve().is_relative_to(root.resolve())}
+        except (ValueError, NotImplementedError):  # an empty or otherwise unusable pattern
+            continue
+    out = []
+    for f in sorted(files):
+        rel = str(f.relative_to(root))
+        if any(fnmatch.fnmatch(rel, p) for p in exclude):
+            continue
+        try:
+            content = yaml.safe_load(f.read_text())
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            continue
+        d = Path(rel).parent
+        segments = list(d.parts)
+        for item in content if isinstance(content, list) else [content]:
+            if not isinstance(item, dict):
+                continue
+            if go:
+                out.append((rel, {**item, "path": {"path": str(d), "basename": d.name, "filename": f.name,
+                                                   "segments": segments}}))
+            else:
+                out.append((rel, {**flat_params(item), "path": str(d), "path.basename": d.name, "path.filename": f.name,
+                                  **{f"path[{i}]": s for i, s in enumerate(segments)}}))
+    return out
+
+
+def flat_params(item: dict, prefix: str = "") -> dict:
+    """A generator element's keys as a template without goTemplate sees them: nested keys joined with dots."""
+    out = {}
+    for k, v in item.items():
+        if isinstance(v, dict):
+            out.update(flat_params(v, f"{prefix}{k}."))
+        else:
+            out[f"{prefix}{k}"] = v
+    return out
+
+
+def fill_template(value, params: dict, go: bool):
+    """An ApplicationSet template with each {{ }} action replaced by its parameter.
+
+    Only plain field references resolve. Anything else (a function, pipeline, control action or
+    missing key), or a reference to a map or list, raises KeyError, so no caller keeps a
+    half-filled Application."""
+    if isinstance(value, dict):
+        return {k: fill_template(v, params, go) for k, v in value.items()}
+    if isinstance(value, list):
+        return [fill_template(v, params, go) for v in value]
+    if isinstance(value, str):
+        return APPSET_ACTION_RE.sub(lambda m: template_value(m.group(1), params, go), value)
+    return value
+
+
+def template_value(expr: str, params: dict, go: bool) -> str:
+    if go and GO_FIELD_RE.fullmatch(expr):
+        v = params
+        for part in expr[1:].split("."):
+            if not isinstance(v, dict) or part not in v:
+                raise KeyError(expr)
+            v = v[part]
+    elif not go and FAST_FIELD_RE.fullmatch(expr) and expr in params:
+        v = params[expr]
+    else:
+        raise KeyError(expr)
+    if v is None or isinstance(v, (dict, list)):
+        raise KeyError(expr)
+    return str(v).lower() if isinstance(v, bool) else str(v)
+
+
+def appset_owner(app: dict) -> str | None:
+    """The ApplicationSet that generated an Application (appset_applications), or None."""
+    md = app.get("metadata")
+    refs = md.get("ownerReferences") if isinstance(md, dict) else None
+    return next((str(r["name"]) for r in refs or [] if isinstance(r, dict) and r.get("kind") == "ApplicationSet"
+                 and r.get("name")), None)
 
 
 MATCH_FIELDS = ("name", "directory", "source-path")
@@ -1108,7 +1245,7 @@ def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees:
     read_kinds, read_globs = set(read.get("kinds") or []), read.get("paths") or []
     callouts = policy.get("risk_callouts") or {}
 
-    found_base, found_head = find_applications(trees.base), find_applications(trees.head)
+    found_base, found_head = find_applications(trees.base, repo), find_applications(trees.head, repo)
     apps_base, apps_head, scoped = applications(found_base, found_head)
     changed = [f["filename"] for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
     watched = {name: watched_files(trees.head if name in apps_head else trees.base, doc, repo)
@@ -1676,7 +1813,7 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     Terraform, workflow and file searches use the plan's backticked identifiers plus `terms`."""
     policy = read_policy(trees) or {}
     callouts = policy.get("risk_callouts") or {}
-    found = find_applications(trees.head)
+    found = find_applications(trees.head, repo)
     jira, prs, ticket_notes, inferred = None, [], [], False
     if ticket_key:
         jira, jira_notes = jira_facts_for_key(ticket_key)
@@ -1705,6 +1842,8 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
             scope = str(Path(afile).parent) if scoped else ""
             entry = {"app": name, "application_file": afile, "scope": scope,
                      "source_kind": "unknown", "render": "rendered", "render_note": ""}
+            if aset := appset_owner(adoc):
+                entry["generated_by"] = aset
             k = res_key(adoc, "argo-cd", scope)  # the Application object itself is always a fact
             universe[k], owner[k], where[k] = adoc, name, afile
             try:
@@ -1754,6 +1893,14 @@ def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], t
     tf, tf_edges = terraform_mentions(trees.head, search) if search else ([], [])
     wf, wf_edges = workflow_mentions(trees.head, search) if search else ([], [])
     notes = ticket_notes + notes
+    from_sets = sorted({f"{e['app']} ({e['generated_by']})" for e in apps_out if e.get("generated_by")})
+    if from_sets:
+        notes.append({"key": "applicationset", "text": "These Applications are generated by the ApplicationSet in brackets, "
+                                                       f"not written as manifests: {', '.join(from_sets)}. Each is that "
+                                                       "ApplicationSet's template filled from one generator element at this "
+                                                       "ref; its file is the config file (or the ApplicationSet) the element "
+                                                       "comes from. templatePatch and the generator's own revision were not "
+                                                       "applied, and elements whose template computes values were skipped."})
     files: list[dict] = []
     source = "plan" if plan else "ticket"
     if plan and not doc_out:
