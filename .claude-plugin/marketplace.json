@@ -1,0 +1,108 @@
+{
+  "name": "claude-agents-marketplace",
+  "owner": {
+    "name": "Arisela"
+  },
+  "plugins": [
+    {
+      "name": "architecture-diagrams",
+      "source": "./skills/architecture-diagrams",
+      "description": "Create system architecture diagrams using Mermaid, PlantUML, C4 model, flowcharts, and sequence diagrams."
+    },
+    {
+      "name": "code-review",
+      "source": "./skills/code-review",
+      "description": "AI-powered code review for pull requests using parallel specialized agents with confidence-based scoring."
+    },
+    {
+      "name": "feature-builder",
+      "source": "./skills/feature-builder",
+      "description": "Automated end-to-end feature development using Ralph Loop for iterative implementation and AI code review. Requires code-review plugin."
+    },
+    {
+      "name": "prompt-engineering-patterns",
+      "source": "./skills/prompt-engineering-patterns",
+      "description": "Master advanced prompt engineering techniques to maximize LLM performance, reliability, and controllability in production."
+    },
+    {
+      "name": "aws-well-architected",
+      "source": "./skills/aws-well-architected",
+      "description": "AWS Well-Architected Framework expert for architecture reviews, design guidance, and best practices across all six pillars."
+    },
+    {
+      "name": "devops-architect",
+      "source": "./skills/devops-architect",
+      "description": "DevOps and infrastructure best practices architect using 12-Factor App methodology and DevOps Best Practices Checklist."
+    },
+    {
+      "name": "cloud-design-patterns",
+      "source": "./skills/cloud-design-patterns",
+      "description": "AWS Cloud Design Patterns expert for microservices architecture and distributed systems based on AWS Prescriptive Guidance."
+    },
+    {
+      "name": "platform-engineering-architect",
+      "source": "./skills/platform-engineering-architect",
+      "description": "Platform Engineering architecture decision support using industry frameworks (CNPA, Microsoft, Team Topologies, DORA, SRE)."
+    },
+    {
+      "name": "git-commit-pr",
+      "source": "./skills/git-commit-pr",
+      "description": "Automatically handles the full git workflow — branch, commit, push, and PR creation via gh CLI."
+    },
+    {
+      "name": "creating-implementation-plans",
+      "source": "./skills/creating-implementation-plans",
+      "description": "Create detailed implementation plans for features or tasks with codebase research and phased task breakdown."
+    },
+    {
+      "name": "executing-implementation-plans",
+      "source": "./skills/executing-implementation-plans",
+      "description": "Execute approved implementation plans with phase-based checkpoints, testing, and progress tracking."
+    },
+    {
+      "name": "olympus-customer-deletion",
+      "source": "./skills/olympus-customer-deletion",
+      "description": "Standardized workflow for Olympus customer data termination — Excel-to-CSV, dry-run, live deletion, JIRA update, certificate of destruction."
+    },
+    {
+      "name": "crewai-agent-design",
+      "source": "./skills/crewai-agent-design",
+      "description": "Master the art of designing effective CrewAI agents with the Role-Goal-Backstory framework, context window management, reasoning mode, and best practices."
+    },
+    {
+      "name": "crewai-crew-orchestration",
+      "source": "./skills/crewai-crew-orchestration",
+      "description": "Build and orchestrate multi-agent CrewAI systems with crews, tasks, flows, processes, and production architecture patterns."
+    },
+    {
+      "name": "crewai-tool-development",
+      "source": "./skills/crewai-tool-development",
+      "description": "Extend CrewAI agent capabilities with custom tools (BaseTool, @tool decorator), async tools, MCP server integration, and the built-in tools catalog."
+    },
+    {
+      "name": "crewai-testing-observability",
+      "source": "./skills/crewai-testing-observability",
+      "description": "Test, monitor, and customize CrewAI applications with CLI testing, event listeners, fingerprinting, prompt customization, and multimodal file handling."
+    },
+    {
+      "name": "crewai-memory-knowledge",
+      "source": "./skills/crewai-memory-knowledge",
+      "description": "Give CrewAI agents persistent context with unified memory (scopes, slices, composite scoring) and domain knowledge (RAG sources, embedders, custom sources)."
+    },
+    {
+      "name": "codex-judge",
+      "source": "./skills/codex-judge",
+      "description": "Codex-as-judge Stop hook + /judge command: runs the Codex CLI as an adversarial code reviewer against your working-tree diff, blocking the stop with REWORK feedback until the diff passes a per-repo .judge/rubric.md."
+    },
+    {
+      "name": "explainer",
+      "source": "./skills/explainer",
+      "description": "Teaching pages for a GitOps PR, a service under discovery, a ticket or a plan such as a one-pager: deterministic resource maps, background, scenarios, a literate walkthrough and an optional quiz, as a private HTML page."
+    },
+    {
+      "name": "review-retro",
+      "source": "./skills/review-retro",
+      "description": "Retro of a /code-review session: misses versus later fixes, cited causes, token cost, and proposed reviewer edits."
+    }
+  ]
+}

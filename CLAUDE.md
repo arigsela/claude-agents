@@ -1,40 +1,86 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for Claude Code when working with this repository.
 
-## docs-checker
+## Repository Overview
 
-Read-only LangGraph agent in `docs-checker/` that finds lines in the `arigsela/kubernetes` docs that no longer match the manifests they describe and proposes the corrected line. Built as a kagent 1.0 BYO runtime, with a second AgentCore entrypoint and a per-run cost ledger.
+**AI Agent Learning Lab** - A collection of production-ready AI agents demonstrating different Anthropic integration patterns for Kubernetes automation.
 
-## Commands
+## Projects
 
-Run from `docs-checker/`; it has its own uv venv. Tests use scripted fake models and fake tools, make no Anthropic calls and need no key.
+| Project | Architecture | Key Features |
+|---------|--------------|--------------|
+| **cluster-scanner/** | Ralph Orchestrator (3 hats) | Scans via oncall-agent-api, severity analysis, Slack alerts |
+| **k8s-monitor/** | Multi-Agent + Claude SDK | Long-context monitoring, trend detection, Slack alerts |
+| **oncall-agent-api/** | FastAPI + Anthropic API | HTTP API, Slack /oncall, GitOps PRs, incident memory |
+| **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
+| **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
+| **skills/explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact), with service, ticket and plan (one-pager) explainers sharing its scripts; retro of /code-review sessions |
+
+## Quick Commands
 
 ```bash
-uv sync --extra dev
-.venv/bin/pytest -q
-.venv/bin/pytest tests/test_gate.py -q -k <name>        # single test
-.venv/bin/black --check src tests && .venv/bin/ruff check src tests
-.venv/bin/python -m tests.smoke_stack record            # re-record smoke cassettes after changing a model request
+# Cluster Scanner (replaces k8s-monitor)
+cd cluster-scanner && ./test-local.sh  # Local test (needs port-forwarded oncall-api)
 
-# From the repo root
-docker build --platform linux/amd64 -t docs-checker:dev docs-checker
-bash docs-checker/scripts/smoke.sh                      # DOCKER_CONTEXT=<context> to pick a docker context
+# K8s Monitor (legacy)
+cd k8s-monitor && ./run_once.sh       # Single monitoring cycle
+cd k8s-monitor && ./start.sh          # Continuous monitoring
+
+# OnCall Agent API
+cd oncall-agent-api && source venv/bin/activate && uvicorn src.api.api_server:app --reload --port 8000
+curl http://localhost:8000/docs       # Interactive docs
+
+# PR Triage (needs TYPESAFE_API_KEY and ANTHROPIC_API_KEY)
+uv run --project pr-triage python -m pr_triage features --repo arigsela/kubernetes --pr 650
+uv run --project pr-triage python -m pr_triage run --repo arigsela/kubernetes --pr 650 --dry-run
+uv run --project pr-triage python -m pr_triage calibrate --repo arigsela/kubernetes --limit 200 --out pr-triage/calibration/<name>.md
+
+# Tests
+pytest tests/ -v                      # Run tests
 ```
 
-## Architecture
+## Architecture Patterns Demonstrated
 
-- **Runtime contract:** targets kagent v1.0.0-alpha14 (commit `673d181e`): A2A v1 over gRPC on 80, `GET /readyz` on 8081 bound after A2A, controller TaskStore `kagent.runtime.v1`, config from `KAGENT_CONFIG_JSON` as an `ADKConfig`. Incompatible with alpha11.
-- **Pins:** the `kagent` extra pins `kagent-core==1.0.0a14` and installs `kagent-proto` from git at the tag's commit; bump both in lockstep with the controller. `grpcio-health-checking` stays below 1.75 because kagent-proto needs protobuf < 7. `markdown-it-py`/`linkify-it-py` are exact pins because the fix gate's render is a security check.
-- **Entrypoints:** `docs-checker` (`front.py`, kagent) and `docs-checker-agentcore` (`agentcore.py`, `Dockerfile.agentcore`, `deploy/agentcore/`: A2A JSON-RPC on 9000 for Bedrock AgentCore Runtime). The `dev` extra installs both runtime extras so their contract tests always run.
-- **Flow:** one A2A task = one graph run (`executor.py` runs `graph.py`) = one ledger (`ledger.py`). Every tool call passes `tools.py` (read-only allowlist, per-server bindings, per-node and repository scoping) then the drift gate (`gate.py`). A paused call runs only when the reply approves that call's id with boolean `True`.
-- **Persistence:** state that must survive a snapshot lives under `/data` (sqlite checkpointer, paused-task ledger and replay memo in `paused.py`).
-- **Replay:** model calls in the smoke test come from cassettes via `DOCS_CHECKER_REPLAY_DIR`; `tests/test_smoke_stack.py` runs the same task in process and fails when a change alters a model request.
+1. **Multi-Agent Orchestration** (k8s-monitor)
+   - Subagents defined in `.claude/agents/*.md`
+   - Long-context session management with smart pruning
+   - MCP servers for Kubernetes and Slack
+
+2. **Stateless API** (oncall-agent-api)
+   - Direct Anthropic API + custom tools
+   - Session-based conversations (30-min TTL)
+   - Service catalog embedded in system prompt
+   - GitOps PR creation, Slack integration
+
+3. **Ralph Orchestrator** (cluster-scanner)
+   - 3-hat event flow: scanner → analyzer → notifier
+   - Queries oncall-agent-api instead of direct kubectl
+   - Ralph memories for trend detection across cycles
+
+4. **MCP Server Development** (youtube-mcp)
+   - Custom MCP server implementations
+
+5. **Risk-Based PR Triage** (pr-triage, pr-explainer, review-retro)
+   - Deterministic policy rules first, then Jev for a calibrated decision, then Claude only when Jev is unsure
+   - The policy is read at the PR's base commit; every failure falls back to `review:read`
+   - Skills produce grounded facts with scripts; the model only writes text that is verified before use
+   - The workflow in arigsela/kubernetes pins the action by commit SHA, so bump it after changing `pr-triage/`
+
+## Code Quality
+
+```bash
+black src/                # Format
+ruff check src/           # Lint
+pytest tests/ -v          # Test
+```
 
 ## Key Files
 
-- `docs-checker/README.md` - runtime contract, plumbing, configuration, results
-- `docs-checker/HANDOFF.md` - deploy state and open items
-- `docs-checker/evals/README.md` - eval harness (record/replay, $20 spend guard, scoring)
-- `docs/superpowers/specs/2026-10-18-docs-checker-design.md` - design
-- `docs/superpowers/plans/2026-10-18-docs-checker-plan.md`, `docs/superpowers/plans/2026-10-19-docs-checker-agentcore-plan.md` - plans
+- `*/README.md` - Project documentation
+- `*/.claude/agents/*.md` - Subagent definitions
+- `*/src/` - Source code
+- `*/tests/` - Test suites
+- `pr-triage/calibration/*.md` - Triage calibration reports (re-run after changing thresholds, questions or the Jev model)
+- `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` - PR review toolkit design, with its plan under `docs/superpowers/plans/`
+- `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md` - explainer plugin (pr, service, ticket) design and plan

@@ -1,0 +1,360 @@
+# Service to Deployment Mapping
+# Maps Kubernetes service names to GitHub repositories and service metadata
+#
+# Namespace Resolution:
+# - If 'namespace' is specified, it will be used directly
+# - If 'namespace' is omitted, the /images/tags endpoint will infer it as: {service}-dev
+# - For services with non-standard namespace patterns, always specify 'namespace' explicitly
+
+service_mappings:
+  # Critical Services
+  proteus:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-dev
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  proteus-kafka:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-kafka
+    namespace: proteus-kafka-dev
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  # Proteus QA environments
+  proteus-qa1:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-qa1
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  proteus-qa2:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-qa2
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  # Proteus Preprod environment
+  proteus-preprod:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-preprod
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  # Proteus Kafka environments
+  proteus-kafka-qa1:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-kafka
+    namespace: proteus-kafka-qa1
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  proteus-kafka-qa2:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-kafka
+    namespace: proteus-kafka-qa2
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  proteus-kafka-preprod:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-kafka
+    namespace: proteus-kafka-preprod
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  artemis-auth:
+    github_repo: artemishealth/kleis
+    k8s_deployment_name: artemis-auth
+    namespace: artemis-dev
+    criticality: critical
+    health_check_endpoint: /health
+
+  # Hermes services - available in artemis-dev, artemis-qa1, artemis-qa2, artemis-qa3, artemis-preprod
+  # Default hermes entry points to artemis-dev
+  hermes:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-dev
+    criticality: critical
+    health_check_endpoint: /
+
+  hermes-qa1:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-qa1
+    criticality: critical
+    health_check_endpoint: /
+
+  hermes-qa2:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-qa2
+    criticality: critical
+    health_check_endpoint: /
+
+  hermes-qa3:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-qa3
+    criticality: critical
+    health_check_endpoint: /
+
+  hermes-preprod:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-preprod
+    criticality: critical
+    health_check_endpoint: /
+
+  # Zeus services - available in merlinqa, qa, merlinpreprod, preprod namespaces
+  # Default zeus entry points to merlinqa (primary QA environment)
+  zeus:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-web
+    namespace: merlinqa
+    criticality: critical
+    health_check_endpoint: /
+
+  zeus-qa:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-web
+    namespace: qa
+    criticality: critical
+    health_check_endpoint: /
+
+  zeus-merlinpreprod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-web
+    namespace: merlinpreprod
+    criticality: critical
+    health_check_endpoint: /
+
+  zeus-preprod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-web
+    namespace: preprod
+    criticality: critical
+    health_check_endpoint: /
+
+  # Zeus Mara service (only available in merlinqa)
+  zeus-mara-http:
+    github_repo: artemishealth/mara
+    k8s_deployment_name: zeus-mara-http
+    namespace: merlinqa
+    criticality: critical
+    health_check_endpoint: /
+
+  # High Priority Services
+  export-manager:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: export-manager
+    namespace: artemis-dev
+    criticality: high
+
+  plutus-kafka-worker:
+    github_repo: artemishealth/plutus
+    k8s_deployment_name: plutus-kafka-worker
+    namespace: plutus-dev
+    criticality: high
+
+  export-manager-kafka:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: export-manager-kafka
+    namespace: artemis-dev
+    criticality: medium
+
+  # Infrastructure Services
+  karpenter:
+    github_repo: kubernetes-sigs/karpenter
+    k8s_deployment_name: karpenter
+    namespace: kube-system
+    criticality: high
+
+  # Data Services
+  hermes-chartdata:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app-chartdata
+    namespace: artemis-preprod
+    criticality: high
+    service_type: data-query-service
+    datadog_metrics:
+      # Resource metrics
+      cpu_usage:
+        query: "exclude_null(sum:kubernetes.cpu.usage.total{kube_namespace:{{namespace}},kube_deployment:hermes-app-chartdata} by {kube_cluster_name,kube_namespace,kube_deployment})"
+        unit: cores
+      memory_usage:
+        query: "exclude_null(sum:kubernetes.memory.usage{kube_namespace:{{namespace}},kube_deployment:hermes-app-chartdata} by {kube_cluster_name,kube_namespace,kube_deployment})"
+        unit: bytes
+      pod_ready:
+        query: "sum:kubernetes.pods.running{kube_namespace:{{namespace}},kube_deployment:hermes-app-chartdata}"
+        alert_threshold_min: 2
+      pod_restarts:
+        query: "sum:kubernetes.containers.restarts{kube_namespace:{{namespace}},kube_deployment:hermes-app-chartdata}.as_count()"
+        time_window: 15m
+        alert_threshold_warning: 3
+        alert_threshold_critical: 5
+    log_patterns:
+      success: "Chartdata non_pii.*Took:"
+      error: "ERROR.*chartdata"
+      snowflake_duration_regex: "Snowflake: ([0-9.]+)"
+      total_duration_regex: "Took: ([0-9.]+)"
+    alerting:
+      enabled: true
+      thresholds:
+        snowflake_avg_duration_seconds: 60
+        total_query_p95_seconds: 90
+        error_rate_percent: 5
+        cpu_usage_percent: 80
+        memory_usage_percent: 85
+
+  # =========================================
+  # PRODUCTION SERVICES (prod-eks cluster)
+  # =========================================
+
+  # Hermes Production
+  hermes-prod:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app
+    namespace: artemis-prod
+    criticality: critical
+    health_check_endpoint: /
+
+  hermes-chartdata-prod:
+    github_repo: artemishealth/hermes
+    k8s_deployment_name: hermes-app-chartdata
+    namespace: artemis-prod
+    criticality: critical
+    service_type: data-query-service
+
+  # Proteus Production
+  proteus-prod:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus
+    namespace: proteus-prod
+    criticality: critical
+    health_check_endpoint: /api/proteus/.well-known/ready
+
+  proteus-celery-prod:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-celery
+    namespace: proteus-celery-prod
+    criticality: high
+
+  proteus-kafka-prod:
+    github_repo: artemishealth/proteus
+    k8s_deployment_name: proteus-kafka
+    namespace: proteus-kafka-prod
+    criticality: high
+
+  proteus-ui-prod:
+    github_repo: artemishealth/proteus-ui
+    k8s_deployment_name: proteus-ui
+    namespace: proteus-ui-prod
+    criticality: critical
+
+  # Authentication Production
+  artemis-auth-prod:
+    github_repo: artemishealth/kleis
+    k8s_deployment_name: artemis-auth
+    namespace: artemis-auth-prod
+    criticality: critical
+    health_check_endpoint: /health
+
+  artemis-auth-keycloak-prod:
+    github_repo: artemishealth/kleis
+    k8s_deployment_name: artemis-auth-keycloak
+    namespace: artemis-auth-keycloak-prod
+    criticality: critical
+
+  artemis-auth-kafka-consumer-prod:
+    github_repo: artemishealth/kleis
+    k8s_deployment_name: artemis-auth-kafka-consumer
+    namespace: artemis-auth-kafka-consumer-prod
+    criticality: high
+
+  # Vendor File Generation Production
+  delivery-prod:
+    github_repo: artemishealth/content-delivery
+    k8s_deployment_name: delivery
+    namespace: delivery-prod
+    criticality: critical
+
+  chronos-prod:
+    github_repo: artemishealth/chronos
+    k8s_deployment_name: chronos
+    namespace: chronos-prod
+    criticality: critical
+
+  export-manager-prod:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: export-manager
+    namespace: export-manager-prod
+    criticality: critical
+
+  powerpoint-writer-prod:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: powerpoint-writer
+    namespace: powerpoint-writer-prod
+    criticality: high
+
+  excel-writer-prod:
+    github_repo: artemishealth/content-export
+    k8s_deployment_name: excel-writer
+    namespace: excel-writer-prod
+    criticality: high
+
+  # Refresh Artifacts Production
+  refresh-artifacts-prod:
+    github_repo: artemishealth/refresh-artifacts
+    k8s_deployment_name: refresh-artifacts
+    namespace: refresh-artifacts-prod
+    criticality: high
+
+  refresh-artifacts-celery-prod:
+    github_repo: artemishealth/refresh-artifacts
+    k8s_deployment_name: refresh-artifacts-celery
+    namespace: refresh-artifacts-celery-prod
+    criticality: high
+
+  refresh-artifacts-kafka-prod:
+    github_repo: artemishealth/refresh-artifacts
+    k8s_deployment_name: refresh-artifacts-kafka
+    namespace: refresh-artifacts-kafka-prod
+    criticality: high
+
+  # Zeus Production (prod namespace)
+  zeus-prod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-web
+    namespace: prod
+    criticality: critical
+    health_check_endpoint: /
+
+  zeus-hcg-http-prod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-hcg-http
+    namespace: prod
+    criticality: high
+
+  zeus-hcg-master-prod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: zeus-hcg-master
+    namespace: prod
+    criticality: high
+
+  spark-prod:
+    github_repo: artemishealth/zeus
+    k8s_deployment_name: spark
+    namespace: prod
+    criticality: high
+
+  triton-prod:
+    github_repo: artemishealth/triton
+    k8s_deployment_name: triton-deployment
+    namespace: prod
+    criticality: high

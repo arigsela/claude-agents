@@ -1,0 +1,23 @@
+# K8s Diagnostics Task configuration
+# Source of truth for task templates. {query} is interpolated at runtime.
+
+diagnose:
+  description: |
+    Investigate the following Kubernetes issue and provide a diagnosis:
+
+    {query}
+
+    Use the available tools to inspect the cluster state. Follow the troubleshooting workflow:
+    1. Identify the relevant namespace
+    2. Check pod status and restart counts
+    3. Review logs and events
+    4. Check known issues before escalating
+    5. Provide actionable remediation with priority level
+  expected_output: |
+    A structured diagnosis containing:
+    - Service and namespace identified
+    - Current state (pod status, restarts, errors)
+    - Root cause analysis
+    - Priority level (P0/P1/P2)
+    - Remediation steps with exact commands where applicable
+  agent: k8s_specialist

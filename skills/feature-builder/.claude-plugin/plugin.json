@@ -1,0 +1,6 @@
+{
+  "name": "feature-builder",
+  "version": "1.0.0",
+  "description": "Automated end-to-end feature development using Ralph Loop for iterative implementation and AI code review. Requires the code-review plugin to be installed.",
+  "author": { "name": "Arisela" }
+}

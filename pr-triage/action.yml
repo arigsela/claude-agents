@@ -1,0 +1,42 @@
+name: pr-triage
+description: Label a PR review:skip|skim|read using review-policy rules, Jev (TypeSafe) and Claude
+inputs:
+  pr-number:
+    description: Pull request number
+    required: true
+  repo:
+    description: owner/name
+    required: true
+  policy-ref:
+    description: Commit to read .github/review-policy.yaml from (pass the PR base SHA)
+    required: true
+  jev-model:
+    description: Pinned Jev model
+    default: jev-1.13.0
+  claude-model:
+    description: Claude model for the uncertain band and the note
+    default: claude-haiku-4-5
+  dry-run:
+    description: Print the comment instead of writing it
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      with:
+        version: "0.12.19"
+    - shell: bash
+      env:
+        PR_TRIAGE_REF: ${{ github.action_ref }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        INPUT_POLICY_REF: ${{ inputs.policy-ref }}
+        INPUT_JEV_MODEL: ${{ inputs.jev-model }}
+        INPUT_CLAUDE_MODEL: ${{ inputs.claude-model }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        args=(run --repo "$INPUT_REPO" --pr "$INPUT_PR_NUMBER"
+              --policy-ref "$INPUT_POLICY_REF"
+              --jev-model "$INPUT_JEV_MODEL" --claude-model "$INPUT_CLAUDE_MODEL")
+        if [ "${INPUT_DRY_RUN,,}" = "true" ]; then args+=(--dry-run); fi
+        uv run --locked --project "$GITHUB_ACTION_PATH" python -m pr_triage "${args[@]}"

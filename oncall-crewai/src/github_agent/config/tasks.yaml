@@ -1,0 +1,24 @@
+# GitHub/GitOps Task configuration
+# Source of truth for task templates. {query} is interpolated at runtime.
+
+gitops_request:
+  description: |
+    Handle the following GitOps request:
+
+    {query}
+
+    Use the available tools to inspect the GitOps repository, check recent deployments,
+    or create PRs as instructed. Always follow the PR creation workflow and safety rules.
+
+    Steps to follow:
+    1. Identify what information is being requested (manifest content, deployment history, or PR creation)
+    2. Use the appropriate tool(s) to gather information
+    3. For PR creation: present proposed changes and WAIT for user approval
+    4. Provide clear findings with specific file paths and actionable next steps
+  expected_output: |
+    A response containing:
+    - Information about the requested manifests, deployments, or directory structure
+    - For PR creation: proposed changes with YAML diff, waiting for user approval
+    - Clear next steps or remediation recommendations
+    - Specific file paths and commands where applicable
+  agent: gitops_engineer

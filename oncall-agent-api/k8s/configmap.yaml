@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oncall-agent-config
+  namespace: oncall-agent
+data:
+  # Agent configuration
+  AGENT_LOG_LEVEL: "DEBUG"
+  AGENT_MAX_THINKING_TOKENS: "12000"
+
+  # Kubernetes configuration (k3s homelab - no context needed for in-cluster)
+  # K8S_CONTEXT not set - uses in-cluster auth via ServiceAccount
+
+  # GitHub configuration
+  GITHUB_ORG: "arigsela"
+
+  # GitOps PR Creation
+  GITOPS_REPO: "arigsela/kubernetes"
+  GITOPS_BASE_PATH: "base-apps/"
+  GITOPS_BASE_BRANCH: "main"
+
+  # Document PR Creation
+  DOCS_REPO: "arigsela/claude-agents"
+
+  # AWS configuration (ECR image checks, Secrets Manager verification)
+  AWS_REGION: "us-east-2"
+
+  # Safety configuration
+  ALLOWED_CLUSTERS: "default"
+  PROTECTED_CLUSTERS: ""
+
+  # API Configuration
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  SESSION_TTL_MINUTES: "30"
+  MAX_SESSIONS_PER_USER: "5"
+  SESSION_PERSIST_PATH: "/app/data/incidents"
+  RATE_LIMIT_AUTHENTICATED: "60"
+  RATE_LIMIT_UNAUTHENTICATED: "10"
+  CORS_ORIGINS: "*"
+
+  # Slack Integration
+  SLACK_ENABLED: "true"
+  SLACK_ALERT_CHANNEL: "#oncall-alerts"
+  SLACK_ALERT_MIN_SEVERITY: "high"
+
+  # Zeus Integration - disabled for k3s homelab
+  # ZEUS_NAMESPACE: "preprod"
+  # ZEUS_SERVICE: "zeus-service"
+  # ZEUS_PORT: "9000"
+  ZEUS_INTEGRATION_ENABLED: "false"

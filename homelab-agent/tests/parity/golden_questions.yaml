@@ -1,0 +1,19 @@
+# Golden questions = the example prompts from homelab-knowledge's
+# a2aConfig.skills. Parity means the new agent answers these at least as
+# well as the old one, in the required format, read-only.
+- skill: repo-knowledge
+  question: "What is cert-manager and how does it issue certs here?"
+- skill: repo-knowledge
+  question: "Who owns chores-tracker-backend and what does it depend on?"
+- skill: repo-knowledge
+  question: "Where does vault store its config and how is it unsealed?"
+- skill: cluster-troubleshooting
+  question: "cert-manager Certificates are stuck pending — walk me through the runbook."
+- skill: cluster-troubleshooting
+  question: "chores-tracker-backend is CrashLooping — what does its runbook say to check?"
+- skill: cluster-troubleshooting
+  question: "Is the argo-cd control plane healthy?"
+- skill: deployment-guidance
+  question: "I want to deploy a new service called billing-api. What's the right pattern?"
+- skill: deployment-guidance
+  question: "How do I add Vault secrets for a new namespace?"
