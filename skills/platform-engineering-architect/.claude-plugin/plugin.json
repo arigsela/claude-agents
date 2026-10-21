@@ -1,0 +1,6 @@
+{
+  "name": "platform-engineering-architect",
+  "version": "1.0.0",
+  "description": "Platform Engineering architecture decision support using industry frameworks (CNPA, Microsoft, Team Topologies, DORA, SRE).",
+  "author": { "name": "Arisela" }
+}

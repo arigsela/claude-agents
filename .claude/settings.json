@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_parser_debug.py)",
+      "Bash(./run_once.sh)",
+      "Bash(python test_parser_summary.py)",
+      "Bash(python test_numbering_regex.py)",
+      "Bash(python test_parser.py)",
+      "Bash(docker compose logs)",
+      "Bash(kubectl create:*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(__NEW_LINE__ cd /Users/arisela/git/claude-agents/k8s-monitor)",
+      "Bash(docker build:*)",
+      "WebSearch",
+      "Bash(python test_full_cycle.py:*)",
+      "Bash(python -m src.main:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(git push:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(marp:*)",
+      "Bash(__NEW_LINE__ echo \"✅ Custom CSS added\")",
+      "Bash(open:*)",
+      "Bash(curl:*)",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

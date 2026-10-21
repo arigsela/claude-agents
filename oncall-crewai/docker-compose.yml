@@ -1,0 +1,85 @@
+services:
+  k8s-agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.k8s-agent
+    ports:
+      - "8081:8080"
+    env_file: .env
+    environment:
+      - K8S_AGENT_HOST=0.0.0.0
+      - K8S_AGENT_PORT=8080
+      - K8S_AGENT_URL=http://k8s-agent:8080
+      - AGENT_LOG_LEVEL=INFO
+    volumes:
+      - ${HOME}/.kube/config:/root/.kube/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  github-agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.github-agent
+    ports:
+      - "8082:8080"
+    env_file: .env
+    environment:
+      - GITHUB_AGENT_HOST=0.0.0.0
+      - GITHUB_AGENT_PORT=8080
+      - GITHUB_AGENT_URL=http://github-agent:8080
+      - AGENT_LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.orchestrator
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - ORCHESTRATOR_HOST=0.0.0.0
+      - ORCHESTRATOR_PORT=8000
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - K8S_AGENT_URL=http://k8s-agent:8080
+      - GITHUB_AGENT_URL=http://github-agent:8080
+      - AGENT_LOG_LEVEL=INFO
+    depends_on:
+      k8s-agent:
+        condition: service_healthy
+      github-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - ORCHESTRATOR_API_KEY=${API_KEYS:-}
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

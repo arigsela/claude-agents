@@ -1,0 +1,1792 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6", "pathspec>=0.12,<1"]
+# ///
+"""explainer: the shared facts library (spec 2026-10-15 §4).
+
+Everything deterministic the explainer skills need: finding and rendering Argo CD Applications,
+resource keys and edges, Terraform blocks and plan comments, GitHub Actions workflows, Jira
+tickets, and the PR collector `collect()`. The mains live in collect_pr.py and collect_system.py.
+Needs gh and git. Uses helm for Helm-sourced apps and `kubectl kustomize` for kustomize apps;
+when either is missing or fails, that app falls back to render=source-diff.
+"""
+from __future__ import annotations
+
+import fnmatch
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import difflib
+from collections import Counter
+from pathlib import Path
+
+import pathspec
+import yaml
+
+POLICY_PATH = ".github/review-policy.yaml"
+# Applications under these directories are templated (Helm templates/, vendored charts/), not applied as written.
+APP_SKIP_DIRS = {".git", "node_modules", "templates", "charts", "vendor"}
+MANIFEST_SUFFIXES = (".yaml", ".yml", ".json")
+WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Rollout", "Job", "CronJob"}
+CLUSTER_SCOPED = {
+    "Namespace", "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition", "StorageClass",
+    "PersistentVolume", "PriorityClass", "ClusterIssuer", "ClusterSecretStore", "IngressClass",
+    "GatewayClass", "APIService", "RuntimeClass", "ValidatingAdmissionPolicy",
+    "ValidatingAdmissionPolicyBinding", "MutatingAdmissionPolicy", "MutatingAdmissionPolicyBinding",
+    "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
+}
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
+# A resource header in plain-text plan output. Addresses can hold spaces inside for_each keys, and
+# tainted or deposed objects carry a qualifier between the address and the action.
+PLAN_LINE_RE = re.compile(r"^\s*# (.+?)(?: \(deposed object \w+\))?(?: is tainted, so)? (will be created|"
+                          r"will be updated in-place|must be replaced|will be destroyed|will be read during apply)[ \t\r]*$", re.M)
+# chg-opentofu-workflows opentofu-pr-plan.yaml posts one comment per environment, edited in place.
+IAC_PLAN_MARKER_RE = re.compile(r"<!-- iac-pr-plan:([\w.-]+) -->")
+IAC_SUMMARY_RE = re.compile(r"\*\*Summary:\*\* (\d+) to add, (\d+) to change, (\d+) to destroy, (\d+) to replace\.")
+IAC_COMMIT_RE = re.compile(r"commit: `([0-9a-f]{7,40})`")
+IAC_RUN_RE = re.compile(r"\[workflow run\]\((https://github\.com/[^)\s]+/actions/runs/\d+)\)")
+ACTION_RANK = {"destroy": 0, "replace": 1, "create": 2, "update": 3, "read": 4}
+# IFS is the Infrastructure Services project; DX is the DevEx team's project, also part of EIP.
+JIRA_KEY_RE = re.compile(r"\b(?:IFS|DX)-\d+\b", re.I)
+JIRA_FIELDS = "summary,status,issuetype,description,parent,comment"
+JIRA_DESCRIPTION_CHARS = 6000
+JIRA_COMMENT_CHARS = 1500
+JIRA_MAX_COMMENTS = 5
+TF_ACTIONS = {"will be created": "create", "will be updated in-place": "update", "must be replaced": "replace",
+              "will be destroyed": "destroy", "will be read during apply": "read"}
+TRIAGE_RE = re.compile(r"<!-- pr-triage -->\s*\n###\s*\S+\s*(review:\w+)\s*\n\*\*Why:\*\*\s*(.*)")
+TF_SUFFIXES = (".tf", ".tfvars", ".tf.json", ".terraform.lock.hcl")
+PLAN_TOTALS_RE = re.compile(r"^Plan: (\d+) to add, (\d+) to change, (\d+) to destroy\.", re.M)
+TF_BLOCK_RE = re.compile(r'^(resource|data)\s+"([^"]+)"\s+"([^"]+)"\s*\{', re.M)
+TF_TOP_RE = re.compile(r"^(resource|data|variable|output|locals|module|provider|terraform|moved|import|removed|check)\b", re.M)
+MAX_CHANGED_PATHS = 10
+MAX_HITS_PER_APP_RULE = 5
+# GitHub runs only files directly in this directory; copies elsewhere (docs/examples/...) are text.
+WORKFLOW_DIR = ".github/workflows/"
+# Workflow-level keys that change how every job runs, compared as one element each.
+WORKFLOW_SETTINGS = ("name", "run-name", "permissions", "env", "concurrency", "defaults")
+# Events whose inputs/outputs/secrets form a caller-facing interface, compared per entry.
+WORKFLOW_INTERFACE_EVENTS = ("workflow_call", "workflow_dispatch")
+WORKFLOW_ELEMENT_ORDER = {"setting": 0, "trigger": 1, "input": 2, "output": 3, "secret": 4, "job": 5}
+
+
+def sh(*args: str, cwd: Path | None = None) -> str:
+    proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"{' '.join(args[:3])}…: {proc.stderr.strip()[:400]}")
+    return proc.stdout
+
+
+def gh_pages(path: str) -> list[dict]:
+    return [item for page in json.loads(sh("gh", "api", "--paginate", "--slurp", path)) for item in page]
+
+
+def repo_from_origin() -> str | None:
+    """owner/name of the current directory's origin, or None outside a GitHub checkout."""
+    try:
+        url = sh("git", "remote", "get-url", "origin").strip()
+    except (RuntimeError, FileNotFoundError):
+        return None
+    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
+    return m.group(1) if m else None
+
+
+def local_root() -> Path:
+    """Top level of the current checkout; a function so tests can point it at a fixture repo."""
+    return Path(sh("git", "rev-parse", "--show-toplevel").strip())
+
+
+class Trees:
+    """Detached worktrees of the PR's base and head commits, or of one ref (`Trees.at`).
+
+    Uses the current checkout when its origin is the PR's repo. Anywhere else it fetches into a
+    temporary bare repo, so the skill runs without a local clone and never fetches the wrong remote.
+    """
+
+    def __init__(self, repo: str, pr: int, base_sha: str, head_sha: str):
+        self.base: Path | None
+        self.ref: str | None = None
+        self.sha: str | None = head_sha
+        self._open(repo)
+        self.base, self.head = self.dir / "base", self.dir / "head"
+        try:
+            sh(*self.fetch, f"pull/{pr}/head", base_sha, cwd=self.git)
+            self.merge_base = sh("git", "merge-base", base_sha, head_sha, cwd=self.git).strip()
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.base), self.merge_base, cwd=self.git)
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), head_sha, cwd=self.git)
+        except BaseException:
+            self.close()
+            raise
+
+    @classmethod
+    def at(cls, repo: str, ref: str) -> "Trees":
+        """One worktree at `ref` (a branch, tag or sha); `base` is None and `merge_base` is None."""
+        self = cls.__new__(cls)
+        self.ref, self.merge_base = ref, None
+        self._open(repo)
+        self.base, self.head = None, self.dir / "head"
+        try:
+            sh(*self.fetch, ref, cwd=self.git)
+            self.sha = sh("git", "rev-parse", "FETCH_HEAD", cwd=self.git).strip()
+            sh("git", "worktree", "add", "--detach", "--quiet", str(self.head), self.sha, cwd=self.git)
+        except BaseException:
+            self.close()
+            raise
+        return self
+
+    def _open(self, repo: str) -> None:
+        """The temp dir, the git dir to fetch into (local checkout or a bare blobless repo), the fetch command."""
+        self.dir = Path(tempfile.mkdtemp(prefix="explainer-"))
+        origin = repo_from_origin()
+        if origin and origin.lower() == repo.lower():
+            self.local: Path | None = local_root()
+            self.git = self.local
+            self.fetch = ["git", "fetch", "--quiet", "origin"]
+            return
+        self.local = None
+        self.git = self.dir / "repo.git"
+        # Blobless: commits and trees for merge-base, file contents only for the checkouts.
+        self.fetch = ["git", "fetch", "--quiet", "--filter=blob:none", "origin"]
+        try:
+            sh("git", "init", "--quiet", "--bare", str(self.git))
+            sh("git", "remote", "add", "origin", f"https://github.com/{repo}.git", cwd=self.git)
+            # gh's token covers private repos, including the lazy blob fetches worktree add makes.
+            # The empty entry drops inherited helpers so a stale keychain credential cannot win.
+            sh("git", "config", "credential.helper", "", cwd=self.git)
+            sh("git", "config", "--add", "credential.helper", "!gh auth git-credential", cwd=self.git)
+        except BaseException:
+            shutil.rmtree(self.dir, ignore_errors=True)
+            raise
+
+    def close(self) -> None:
+        if self.local:
+            for tree in (getattr(self, "base", None), getattr(self, "head", None)):
+                if tree is not None:
+                    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=self.local, capture_output=True)
+        shutil.rmtree(self.dir, ignore_errors=True)
+        if self.local:
+            subprocess.run(["git", "worktree", "prune"], cwd=self.local, capture_output=True)
+
+
+def load_docs(text: str) -> list[dict]:
+    docs = []
+    for d in yaml.safe_load_all(text):
+        if not isinstance(d, dict):
+            continue
+        if d.get("kind") == "List":
+            docs += [i for i in d.get("items") or [] if isinstance(i, dict) and i.get("kind")]
+        elif d.get("kind"):
+            docs.append(d)
+    return docs
+
+
+def find_applications(root: Path) -> list[tuple[str, str, dict]]:
+    """(name, repo-relative file, doc) for every Argo CD Application manifest in a worktree.
+
+    Repos keep Applications in different places (base-apps/, argo/<env>/, ...), so the whole tree
+    is searched. Helm templates/ and vendored charts/ are skipped: Applications there are
+    templated, not applied as written.
+    """
+    found = []
+    for f in sorted(root.rglob("*")):
+        rel = f.relative_to(root)
+        if f.suffix not in (".yaml", ".yml") or not f.is_file() or APP_SKIP_DIRS & set(rel.parts[:-1]):
+            continue
+        try:
+            text = f.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "Application" not in text:
+            continue
+        try:
+            docs = load_docs(text)
+        except yaml.YAMLError:
+            continue
+        for d in docs:
+            md, spec = d.get("metadata"), d.get("spec")
+            if (d.get("kind") == "Application" and str(d.get("apiVersion", "")).startswith("argoproj.io/")
+                    and isinstance(md, dict) and md.get("name") and isinstance(spec, dict)):
+                found.append((str(md["name"]), str(rel), d))
+    return found
+
+
+MATCH_FIELDS = ("name", "directory", "source-path")
+
+
+def match_applications(found: list[tuple[str, str, dict]], names: list[str]) -> tuple[dict[str, list[tuple[str, str, dict]]], list[dict]]:
+    """Applications a service name matches, keyed by app name: every environment file of each.
+
+    A name matches case-insensitively as a substring of the Application's name, of the directory
+    its manifest sits in, or of its source path(s), in that order; `matched_by` records which.
+    """
+    apps: dict[str, list[tuple[str, str, dict]]] = {}
+    by: list[dict] = []
+    wanted = [n.strip().lower() for n in names if n and n.strip()]
+    for name, file, doc in found:
+        hay = {"name": name.lower(), "directory": str(Path(file).parent).lower(),
+               "source-path": " ".join(str(s.get("path") or "") for s in app_sources(doc)).lower()}
+        for n in wanted:
+            how = next((k for k in MATCH_FIELDS if n in hay[k]), None)
+            if how:
+                apps.setdefault(name, []).append((name, file, doc))
+                row = {"app": name, "name": n, "by": how}
+                if row not in by:
+                    by.append(row)
+                break
+    return apps, by
+
+
+def applications(base: list[tuple[str, str, dict]], head: list[tuple[str, str, dict]]) -> tuple[dict, dict, bool]:
+    """App id -> (file, doc) for base and head, and whether Applications span several directories.
+
+    The id is metadata.name, qualified with the file's directory when one name appears in several
+    files (one Application per environment directory), and with the whole path if that still
+    collides. Qualification uses both sides so an app keeps one id across base and head.
+    """
+    names = Counter(n for n, _, _ in {(n, f, "") for n, f, _ in base + head})
+    dir_ids = Counter(f"{Path(f).parent}/{n}" for n, f, _ in {(n, f, "") for n, f, _ in base + head})
+
+    def app_id(name: str, file: str) -> str:
+        if names[name] == 1:
+            return name
+        qualified = f"{Path(file).parent}/{name}"
+        return qualified if dir_ids[qualified] == 1 else f"{file}:{name}"
+
+    dirs = {str(Path(f).parent) for _, f, _ in base + head}
+    return ({app_id(n, f): (f, d) for n, f, d in base}, {app_id(n, f): (f, d) for n, f, d in head}, len(dirs) > 1)
+
+
+def app_sources(app: dict) -> list[dict]:
+    """spec.sources (multi-source) or spec.source, as a list."""
+    spec = app.get("spec") or {}
+    if isinstance(spec.get("sources"), list):
+        return [s for s in spec["sources"] if isinstance(s, dict)]
+    return [spec["source"]] if isinstance(spec.get("source"), dict) else []
+
+
+def same_repo(url: str | None, repo: str) -> bool:
+    url = (url or "").lower().rstrip("/")
+    url = url[:-4] if url.endswith(".git") else url
+    return url.endswith("/" + repo.lower()) or url.endswith(":" + repo.lower())
+
+
+def value_file(root: Path, src: dict, refs: dict[str, dict], vf: str, repo: str) -> Path | None:
+    """Worktree path of a helm valueFile, or None when it lives in another repository.
+
+    "$<ref>/path" resolves through the multi-source source named <ref>; a plain name is relative
+    to the source's own path. Raises when the path escapes the worktree.
+    """
+    if vf.startswith("$"):
+        ref, _, rest = vf[1:].partition("/")
+        if ref not in refs or not same_repo(refs[ref].get("repoURL"), repo):
+            return None
+        p = root / (refs[ref].get("path") or "") / rest
+    elif src.get("path") and not src.get("chart"):
+        p = root / src["path"] / vf
+    else:
+        return None
+    p = Path(os.path.normpath(p))
+    if not p.is_relative_to(root):
+        raise RuntimeError(f"valueFile outside the repository: {vf}")
+    return p
+
+
+def watched_files(root: Path, app: dict, repo: str) -> tuple[list[str], set[str]]:
+    """(source directories, value files) in this repo that the Application renders from."""
+    sources = app_sources(app)
+    refs = {s["ref"]: s for s in sources if s.get("ref")}
+    dirs, files = [], set()
+    for src in sources:
+        if src.get("path") and not src.get("chart") and (not src.get("repoURL") or same_repo(src["repoURL"], repo)):
+            dirs.append(src["path"].strip("/"))
+        for vf in (src.get("helm") or {}).get("valueFiles") or []:
+            try:
+                p = value_file(root, src, refs, str(vf), repo)
+            except RuntimeError:
+                continue
+            if p:
+                files.add(str(p.relative_to(root)))
+    return dirs, files
+
+
+def app_source_kind(root: Path, app: dict) -> str:
+    kinds = [source_kind(root, s) for s in app_sources(app) if s.get("chart") or s.get("path")]
+    return ", ".join(dict.fromkeys(kinds)) or "unknown"
+
+
+def source_kind(root: Path, src: dict) -> str:
+    if src.get("chart"):
+        return "helm"
+    path = src.get("path")
+    if not path:
+        return "unknown"
+    d = root / path
+    if (d / "Chart.yaml").exists():
+        return "helm-local"
+    if any((d / k).exists() for k in ("kustomization.yaml", "kustomization.yml", "Kustomization")):
+        return "kustomize"
+    return "directory"
+
+
+def expand_braces(pattern: str) -> list[str]:
+    m = re.search(r"\{([^{}]*)\}", pattern)
+    if not m:
+        return [pattern]
+    return [p for alt in m.group(1).split(",")
+            for p in expand_braces(pattern[:m.start()] + alt + pattern[m.end():])]
+
+
+def dir_manifests(root: Path, src: dict) -> tuple[list[tuple[dict, str]], set[str]]:
+    base = root / src["path"]
+    opts = src.get("directory") or {}
+    candidates = base.rglob("*") if opts.get("recurse") else base.glob("*")
+    include = expand_braces(opts["include"]) if opts.get("include") else None
+    exclude = expand_braces(opts["exclude"]) if opts.get("exclude") else []
+    out: list[tuple[dict, str]] = []
+    loaded: set[str] = set()
+    for f in sorted(candidates):
+        if not f.is_file() or f.suffix not in MANIFEST_SUFFIXES:
+            continue
+        rel = str(f.relative_to(base))
+        if include and not any(fnmatch.fnmatch(rel, p) for p in include):
+            continue
+        if any(fnmatch.fnmatch(rel, p) for p in exclude):
+            continue
+        try:
+            docs = [json.loads(f.read_text())] if f.suffix == ".json" else load_docs(f.read_text())
+        except (yaml.YAMLError, json.JSONDecodeError) as err:
+            raise RuntimeError(f"invalid YAML: {f.relative_to(root)}: {str(err).splitlines()[0]}")
+        loaded.add(str(f.relative_to(root)))
+        out += [(d, str(f.relative_to(root))) for d in docs if isinstance(d, dict) and d.get("kind")]
+    return out, loaded
+
+
+def helm_docs(root: Path, app: dict, src: dict, refs: dict[str, dict], work: Path,
+              repo: str) -> tuple[list[dict], list[str]]:
+    helm = os.environ.get("HELM_BIN", "helm")  # HELM_BIN=/nonexistent simulates a missing helm
+    if not shutil.which(helm):
+        raise RuntimeError("helm not installed (brew install helm)")
+    spec = app["spec"]
+    h = src.get("helm") or {}
+    notes = []
+    name = h.get("releaseName") or app["metadata"]["name"]
+    ns = (spec.get("destination") or {}).get("namespace") or "default"
+    if src.get("chart"):
+        chart_repo = src["repoURL"]
+        chart = ([src["chart"], "--repo", chart_repo] if chart_repo.startswith(("http://", "https://"))
+                 else [f"oci://{chart_repo.rstrip('/')}/{src['chart']}"])
+        chart += ["--version", str(src["targetRevision"])]
+    else:
+        chart_dir = root / src["path"]
+        chart = [str(chart_dir)]
+        chart_meta = yaml.safe_load((chart_dir / "Chart.yaml").read_text()) or {}
+        if chart_meta.get("dependencies") and not (chart_dir / "charts").is_dir():
+            # A wrapper chart's dependencies are not committed; Argo CD fetches them the same way.
+            sh(helm, "dependency", "build", str(chart_dir))
+    cmd = [helm, "template", name, *chart, "--namespace", ns]
+    if not h.get("skipCrds"):
+        cmd.append("--include-crds")
+    if h.get("skipSchemaValidation"):
+        cmd.append("--skip-schema-validation")
+    for vf in h.get("valueFiles") or []:
+        p = value_file(root, src, refs, str(vf), repo)
+        if p is None:
+            notes.append(f"valueFile {vf} not applied (another repository or a chart-repo source)")
+        elif p.is_file():
+            cmd += ["-f", str(p)]
+        elif not h.get("ignoreMissingValueFiles"):
+            raise RuntimeError(f"valueFile missing: {p.relative_to(root)}")
+    for key in ("values", "valuesObject"):
+        if h.get(key):
+            value = h[key] if isinstance(h[key], str) else yaml.safe_dump(h[key])
+            tmp = tempfile.NamedTemporaryFile("w", dir=work, suffix=".yaml", delete=False)
+            tmp.write(value)
+            tmp.close()
+            cmd += ["-f", tmp.name]
+    for prm in h.get("parameters") or []:
+        cmd += ["--set-string" if prm.get("forceString") else "--set", f"{prm['name']}={prm['value']}"]
+    return load_docs(sh(*cmd)), notes
+
+
+def render_source(root: Path, app_file: str, app: dict, src: dict, refs: dict[str, dict], work: Path,
+                  repo: str) -> tuple[list[tuple[dict, str]], set[str] | None, list[str]]:
+    if not src.get("chart") and src.get("path"):
+        if src.get("repoURL") and not same_repo(src["repoURL"], repo):
+            raise RuntimeError("source is another repository")
+        if not (root / src["path"]).is_dir():
+            raise RuntimeError("source path missing")
+    kind = source_kind(root, src)
+    if kind == "directory":
+        docs, loaded = dir_manifests(root, src)
+        return docs, loaded, []
+    if kind == "kustomize":
+        if not shutil.which("kubectl"):
+            raise RuntimeError("kubectl not installed")
+        return [(d, src["path"]) for d in load_docs(sh("kubectl", "kustomize", str(root / src["path"])))], None, []
+    if kind in ("helm", "helm-local"):
+        docs, notes = helm_docs(root, app, src, refs, work, repo)
+        return [(d, app_file) for d in docs], None, notes
+    raise RuntimeError(f"unsupported Application source ({kind})")
+
+
+def render_app(root: Path, app_file: str, app: dict, work: Path,
+               repo: str) -> tuple[list[tuple[dict, str]], set[str] | None, list[str]]:
+    """Returns (docs with their source file, files actually loaded or None for 'all', render notes).
+
+    Multi-source Applications render every chart or path source, as Argo CD does; a ref-only
+    source just supplies $<ref> value files.
+    """
+    sources = app_sources(app)
+    refs = {s["ref"]: s for s in sources if s.get("ref")}
+    renderable = [s for s in sources if s.get("chart") or s.get("path")]
+    if not renderable:
+        raise RuntimeError("no chart or path source")
+    docs: list[tuple[dict, str]] = []
+    loaded: set[str] | None = set()
+    notes: list[str] = []
+    for src in renderable:
+        d, ld, n = render_source(root, app_file, app, src, refs, work, repo)
+        docs += d
+        notes += n
+        loaded = None if loaded is None or ld is None else loaded | ld
+    return docs, loaded, notes
+
+
+def res_key(doc: dict, default_ns: str, scope: str = "") -> tuple[str, str, str, str]:
+    """(kind, namespace, name, scope). scope is the Application's directory when Applications span
+    several directories (one per environment), so one object in two clusters stays two resources."""
+    md = doc.get("metadata")
+    md = md if isinstance(md, dict) else {}
+    ns = "" if doc.get("kind") in CLUSTER_SCOPED else (md.get("namespace") or default_ns)
+    return (str(doc.get("kind")), ns, str(md.get("name", "?")), scope)
+
+
+def diff_paths(a, b, prefix: str = "") -> list[str]:
+    if isinstance(a, dict) and isinstance(b, dict):
+        out: list[str] = []
+        for k in sorted(set(a) | set(b), key=str):
+            out += diff_paths(a.get(k), b.get(k), f"{prefix}.{k}" if prefix else str(k))
+        return out
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        out = []
+        for i, (x, y) in enumerate(zip(a, b)):
+            out += diff_paths(x, y, f"{prefix}[{i}]")
+        return out
+    return [] if a == b else [prefix or "."]
+
+
+def find_lines(root: Path, file: str | None, kind: str, name: str) -> list[int] | None:
+    p = root / file if file else None
+    if not p or not p.is_file() or p.suffix not in (".yaml", ".yml"):
+        return None
+    lines = p.read_text().splitlines()
+    start, seen_kind, seen_name = 1, None, None
+    for i, line in enumerate(lines + ["---"], start=1):
+        if line.startswith("---"):
+            if seen_kind == kind and seen_name == name:
+                return [start, i - 1]
+            start, seen_kind, seen_name = i + 1, None, None
+        elif line.startswith("kind:"):
+            seen_kind = line.split(":", 1)[1].strip()
+        elif seen_name is None and re.match(r"^  name:\s*\S", line):
+            seen_name = line.split(":", 1)[1].strip().strip("'\"")
+    return None
+
+
+def _d(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def pod_spec(doc: dict) -> tuple[dict, dict]:
+    spec = _d(doc.get("spec"))
+    if doc.get("kind") == "CronJob":
+        spec = _d(_d(spec.get("jobTemplate")).get("spec"))
+    template = _d(spec.get("template"))
+    return _d(template.get("spec")), _d(_d(template.get("metadata")).get("labels"))
+
+
+def build_edges(docs: dict[tuple, dict]) -> list[tuple[tuple, tuple, str]]:
+    """Deterministic relationships only (spec §6.2). The model never adds edges."""
+    by_kind_name: dict[tuple[str, str], list[tuple]] = {}
+    for k in docs:
+        by_kind_name.setdefault((k[0], k[2]), []).append(k)
+
+    def find(kind, name, ns=None):
+        return [c for c in by_kind_name.get((kind, name), []) if ns is None or c[1] in (ns, "")]
+
+    def doc_edges(k, d):
+        edges = []
+        kind, ns = k[0], k[1]
+        spec = _d(d.get("spec"))
+        if kind == "Service" and spec.get("selector"):
+            for wk, wd in docs.items():
+                if wk[0] in WORKLOADS and wk[1] == ns:
+                    labels = pod_spec(wd)[1]
+                    if labels and all(labels.get(a) == b for a, b in spec["selector"].items()):
+                        edges.append((k, wk, "selects"))
+        if kind == "HTTPRoute":
+            for rule in spec.get("rules") or []:
+                for ref in rule.get("backendRefs") or []:
+                    edges += [(k, t, "routes-to") for t in find("Service", ref.get("name"), ref.get("namespace", ns))]
+        if kind == "Ingress":
+            for rule in spec.get("rules") or []:
+                for path in (rule.get("http") or {}).get("paths") or []:
+                    svc = ((path.get("backend") or {}).get("service") or {}).get("name")
+                    edges += [(k, t, "routes-to") for t in find("Service", svc, ns)]
+        if kind == "VirtualService":
+            for route in spec.get("http") or []:
+                for r in route.get("route") or []:
+                    host = ((r.get("destination") or {}).get("host") or "").split(".")[0]
+                    edges += [(k, t, "routes-to") for t in find("Service", host)]
+        if kind in ("RoleBinding", "ClusterRoleBinding"):
+            ref = d.get("roleRef") or {}
+            edges += [(k, t, "binds") for t in find(ref.get("kind"), ref.get("name"))]
+            for s in d.get("subjects") or []:
+                if s.get("kind") == "ServiceAccount":
+                    edges += [(k, t, "binds") for t in find("ServiceAccount", s.get("name"), s.get("namespace", ns))]
+        if kind == "ExternalSecret":
+            target = (spec.get("target") or {}).get("name") or k[2]
+            edges += [(k, t, "produces") for t in find("Secret", target, ns)]
+        if kind in WORKLOADS:
+            ps = pod_spec(d)[0]
+            refs = []
+            for v in ps.get("volumes") or []:
+                if v.get("secret"):
+                    refs.append(("Secret", v["secret"].get("secretName")))
+                if v.get("configMap"):
+                    refs.append(("ConfigMap", v["configMap"].get("name")))
+                if v.get("persistentVolumeClaim"):
+                    refs.append(("PersistentVolumeClaim", v["persistentVolumeClaim"].get("claimName")))
+            for c in (ps.get("containers") or []) + (ps.get("initContainers") or []):
+                for ef in c.get("envFrom") or []:
+                    if ef.get("secretRef"):
+                        refs.append(("Secret", ef["secretRef"].get("name")))
+                    if ef.get("configMapRef"):
+                        refs.append(("ConfigMap", ef["configMapRef"].get("name")))
+                for e in c.get("env") or []:
+                    vf = e.get("valueFrom") or {}
+                    if vf.get("secretKeyRef"):
+                        refs.append(("Secret", vf["secretKeyRef"].get("name")))
+                    if vf.get("configMapKeyRef"):
+                        refs.append(("ConfigMap", vf["configMapKeyRef"].get("name")))
+            for rk, rn in refs:
+                edges += [(k, t, "mounts") for t in find(rk, rn, ns)]
+        return edges
+
+    edges = []
+    for k, d in docs.items():
+        try:
+            edges += doc_edges(k, d)
+        except (AttributeError, TypeError, KeyError):
+            continue  # wrong-shaped manifest: adds no edges
+    return list(dict.fromkeys(edges))
+
+
+def hunk_ranges(patch: str) -> list[list[int]]:
+    out = []
+    for m in HUNK_RE.finditer(patch):
+        start = int(m.group(1))
+        length = int(m.group(2)) if m.group(2) is not None else 1
+        out.append([start, start + max(length, 1) - 1])
+    return out
+
+
+def matched_glob(path: str, globs: list[str]) -> str | None:
+    """gitwildmatch over the whole list (negations respected); returns the first positive pattern that hits."""
+    if Path(path).suffix not in MANIFEST_SUFFIXES:
+        path += "/_"  # a directory (e.g. a kustomize source path)
+    if not pathspec.PathSpec.from_lines("gitwildmatch", globs).match_file(path):
+        return None
+    for g in globs:
+        if not g.startswith("!") and pathspec.PathSpec.from_lines("gitwildmatch", [g]).match_file(path):
+            return g
+    return None
+
+
+def trusted_comments(comments: list[dict], login: str) -> list[dict]:
+    """Only the authenticated user's own comments and Bot comments may feed triage/plan parsing."""
+    out = []
+    for c in comments:
+        u = c.get("user") or {}
+        if u.get("type") == "Bot" or (login and u.get("login") == login):
+            out.append(c)
+    return out
+
+
+def read_policy(trees: Trees) -> dict | None:
+    """Policy from the local checkout (spec §3), else the base worktree, else the head worktree."""
+    roots = [trees.local] if trees.local else []
+    for root in (*roots, trees.base, trees.head):
+        if root is None:
+            continue
+        f = root / POLICY_PATH
+        if f.exists():
+            return yaml.safe_load(f.read_text()) or {}
+    return None
+
+
+def tf_dir(path: str | Path) -> str:
+    """The Terraform root a file belongs to: its directory, "" for the repo root."""
+    parent = str(Path(path).parent)
+    return "" if parent == "." else parent
+
+
+def tf_block_list(root: Path, dirs: set[str] | None = None) -> list[tuple[str, str, int, str]]:
+    """(address, file, line, body) for each resource/data block in the *.tf files under root.
+
+    A block runs to the next top-level block keyword; tofu fmt keeps those at column 0. Comment
+    lines are dropped so an address named only in prose does not become a dependency edge.
+    dirs, when given, limits the scan to those directories (relative to root, "" for the root).
+    """
+    out = []
+    for f in sorted(root.rglob("*.tf")):
+        rel = f.relative_to(root)
+        if ".terraform" in f.parts or (dirs is not None and tf_dir(rel) not in dirs):
+            continue
+        text = f.read_text(errors="replace")
+        starts = sorted(m.start() for m in TF_TOP_RE.finditer(text))
+        for m in TF_BLOCK_RE.finditer(text):
+            end = next((s for s in starts if s > m.start()), len(text))
+            body = "\n".join(l for l in text[m.end():end].splitlines() if not l.lstrip().startswith(("#", "//")))
+            addr = f"{m.group(2)}.{m.group(3)}" if m.group(1) == "resource" else f"data.{m.group(2)}.{m.group(3)}"
+            out.append((addr, str(rel), text.count("\n", 0, m.start()) + 1, body))
+    return out
+
+
+def tf_blocks(root: Path) -> dict[str, tuple[str, int, str]]:
+    """address -> (file, line, body); the last block wins when two roots share an address."""
+    return {addr: (file, line, body) for addr, file, line, body in tf_block_list(root)}
+
+
+def tf_reference_edges(groups: dict, bodies: dict) -> list[dict]:
+    """Edges src -> dst where src's block body names dst's address.
+
+    groups maps a key (an address, or (dir, address) when several roots are scanned) to the
+    fact IDs that share that block; bodies maps the same key to the block body. for_each and
+    count give one plan entry per instance but one block, so edges attach to every instance.
+    """
+    edges = []
+    for src, src_ids in groups.items():
+        if src not in bodies:
+            continue
+        for dst, dst_ids in groups.items():
+            same_root = not isinstance(src, tuple) or src[0] == dst[0]
+            addr = dst[1] if isinstance(dst, tuple) else dst
+            if dst != src and same_root and re.search(r"(?<![\w.])" + re.escape(addr) + r"(?![\w])", bodies[src]):
+                edges += [{"from": a, "to": b, "type": "references"} for a in src_ids for b in dst_ids]
+    return edges
+
+
+def terraform_source_facts(tf_files: list[dict], trees: Trees) -> tuple[list[dict], list[dict], list[dict]]:
+    """Resources from comparing resource/data blocks at base and head, for PRs without a plan comment.
+
+    Only the root directories that hold a changed .tf file are compared, keyed by (dir, address)
+    so a block moved between files in one root is not reported. Actions are source-level
+    (added | modified | removed), never plan results.
+    """
+    dirs = {tf_dir(f["filename"]) for f in tf_files if f["filename"].endswith(".tf")}
+    note = {"key": "terraform", "text": "No plan comment was found, so Terraform resources come from comparing "
+                                        "resource and data blocks at base and head. Their actions are source-level "
+                                        "(added, modified, removed), not plan results: count/for_each instances, module "
+                                        "internals, moved/import/removed blocks, variable/local-driven changes and "
+                                        "forced replacements are not resolved."}
+    if not dirs:
+        return [], [], [{"key": "terraform", "text": "No plan comment was found and only .tfvars, .tf.json or lock "
+                                                     "files changed; no Terraform resources were derived."}]
+
+    def norm(body: str) -> str:
+        return "\n".join(l.strip() for l in body.splitlines() if l.strip())
+
+    def index(root: Path) -> dict:
+        return {(tf_dir(file), addr): (file, line, body) for addr, file, line, body in tf_block_list(root, dirs)}
+
+    base, head = index(trees.base), index(trees.head)
+    tf = []
+    for key in sorted(base.keys() | head.keys(), key=lambda k: (head.get(k) or base[k])[:2]):
+        if key not in base:
+            action, side = "added", head
+        elif key not in head:
+            action, side = "removed", base
+        elif norm(base[key][2]) != norm(head[key][2]):
+            action, side = "modified", head
+        else:
+            continue
+        file, line, _ = side[key]
+        address = key[1]
+        rtype, _, rname = address.removeprefix("data.").partition(".")
+        tf.append({"id": f"t{len(tf) + 1}", "address": address, "action": action, "source": "source-diff",
+                   "type": rtype, "name": rname, "file": file, "lines": [line]})
+    groups = {(tf_dir(t["file"]), t["address"]): [t["id"]] for t in tf}
+    bodies = {k: v[2] for k, v in head.items()}
+    return tf, tf_reference_edges(groups, bodies), [note]
+
+
+def parse_plan(body: str, environment: str | None, source: str) -> dict:
+    """One plan comment: resource entries, totals, and the commit and run it came from."""
+    entries: dict[str, str] = {}  # a comment can repeat the plan (one block per workspace); first wins
+    for m in PLAN_LINE_RE.finditer(body):
+        entries.setdefault(m.group(1), TF_ACTIONS[m.group(2)])
+    totals = None
+    if m := IAC_SUMMARY_RE.search(body):
+        totals = dict(zip(("add", "change", "destroy", "replace"), map(int, m.groups())))
+    elif m := list(PLAN_TOTALS_RE.finditer(body))[-1:]:
+        totals = dict(zip(("add", "change", "destroy"), map(int, m[0].groups())))
+    commit, run = IAC_COMMIT_RE.search(body), IAC_RUN_RE.search(body)
+    failed = "plan **failed**" in body
+    return {"environment": environment, "source": source, "entries": entries, "totals": totals,
+            "status": "failed" if failed else "no-changes" if totals and not any(totals.values()) else "changes",
+            "commit": commit.group(1) if commit else None, "run_url": run.group(1) if run else None}
+
+
+def plan_comments(comments: list[dict]) -> list[dict]:
+    """Every environment's iac-pr-plan comment, or else the newest Atlantis-style plan comment."""
+    by_env: dict[str, str] = {}
+    for c in comments:
+        if m := IAC_PLAN_MARKER_RE.search(c.get("body") or ""):
+            by_env[m.group(1)] = c["body"]
+    if by_env:
+        return [parse_plan(body, env, "iac-pr-plan") for env, body in sorted(by_env.items())]
+    legacy = [c["body"] for c in comments if PLAN_LINE_RE.search(c.get("body") or "")]
+    return [parse_plan(legacy[-1], None, "atlantis")] if legacy else []
+
+
+def listed(plan: dict) -> int:
+    """Changed resources a plan comment names, counted the way its totals count them.
+
+    A "Plan: N to add, ..., N to destroy" line counts a replacement once in add and once in
+    destroy; the iac-pr-plan summary counts it once, under replace.
+    """
+    twice = plan["totals"] is not None and "replace" not in plan["totals"]
+    return sum(2 if twice and a == "replace" else 1 for a in plan["entries"].values() if a != "read")
+
+
+def plan_notes(plans: list[dict], head_sha: str) -> list[dict]:
+    """Stale, failed, and truncated plans, so the page never presents a partial plan as whole."""
+    def name(p: dict) -> str:
+        return p["environment"] or "the plan comment"
+    notes = []
+    stale = [p for p in plans if p["commit"] and not head_sha.startswith(p["commit"])]
+    if stale:
+        notes.append({"key": "plan-stale", "text": "Plan is older than the PR head (" + head_sha[:7] + ") for: "
+                      + ", ".join(f"{name(p)} at {p['commit']}" for p in stale) + ". Re-run the plan workflow."})
+    failed = [p for p in plans if p["status"] == "failed"]
+    if failed:
+        notes.append({"key": "plan-failed", "text": "Plan failed for: " + ", ".join(
+            f"{name(p)} ({p['run_url'] or 'no run link'})" for p in failed) + "; its resources are not mapped."})
+    truncated = [p for p in plans if p["status"] == "changes" and p["totals"]
+                 and listed(p) < sum(p["totals"].values())]
+    if truncated:
+        # opentofu-pr-plan.yaml keeps only the last 60000 characters of the plan text.
+        notes.append({"key": "plan-truncated", "text": "Plan comment text is cut off, so only some changed resources "
+                      "are mapped: " + ", ".join(f"{name(p)} lists {listed(p)} of "
+                                                 f"{sum(p['totals'].values())}" for p in truncated)
+                      + ". The summary totals are complete."})
+    return notes
+
+
+def terraform_facts(files: list[dict], comments: list[dict], trees: Trees,
+                    head_sha: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Resources from plan comments, edges from head-side references, and one summary per plan.
+
+    Detection is by file suffix, not directory, because OpenTofu roots often sit at the repo root.
+    Without a plan comment, resources fall back to a base/head block comparison.
+    """
+    tf_files = [f for f in files if f["filename"].endswith(TF_SUFFIXES)]
+    if not tf_files:
+        return [], [], [], []
+    plans = plan_comments(comments)
+    if not plans:
+        tf, edges, notes = terraform_source_facts(tf_files, trees)
+        return tf, edges, [], notes
+    # One node per address across environments, carrying the most destructive action any plan shows.
+    merged: dict[str, dict[str, str]] = {}
+    for p in plans:
+        for address, action in p["entries"].items():
+            merged.setdefault(address, {})[p["environment"] or "default"] = action
+    blocks = tf_blocks(trees.head)
+    tf = []
+    for i, (address, envs) in enumerate(merged.items(), start=1):
+        base = re.sub(r"\[[^\]]*\]", "", address)
+        file, line, _ = blocks.get(base, (None, None, ""))
+        rtype, _, rname = base.removeprefix("data.").partition(".")
+        tf.append({"id": f"t{i}", "address": address, "action": min(envs.values(), key=ACTION_RANK.__getitem__),
+                   "environments": envs, "source": "plan-comment", "type": rtype, "name": rname,
+                   "file": file, "lines": [line] if line else None})
+    by_base: dict[str, list[str]] = {}
+    for t in tf:
+        by_base.setdefault(re.sub(r"\[[^\]]*\]", "", t["address"]), []).append(t["id"])
+    edges = tf_reference_edges(by_base, {addr: body for addr, (_, _, body) in blocks.items()})
+    summaries = [{"environment": p["environment"], "source": p["source"], "status": p["status"],
+                  "totals": p["totals"], "listed": listed(p),
+                  "commit": p["commit"], "stale": bool(p["commit"]) and not head_sha.startswith(p["commit"]),
+                  "run_url": p["run_url"]} for p in plans]
+    return tf, edges, summaries, plan_notes(plans, head_sha)
+
+
+def is_workflow(path: str) -> bool:
+    rest = path.removeprefix(WORKFLOW_DIR)
+    return path.startswith(WORKFLOW_DIR) and "/" not in rest and rest.endswith((".yml", ".yaml"))
+
+
+def workflow_triggers(doc: dict) -> dict:
+    """event -> config. PyYAML reads a bare `on:` key as True; `on` may be a string, list or map."""
+    on = doc.get("on", doc.get(True))
+    if isinstance(on, str):
+        return {on: {}}
+    if isinstance(on, list):
+        return {str(e): {} for e in on}
+    return {str(k): (v if isinstance(v, dict) else {}) for k, v in (on or {}).items()} if isinstance(on, dict) else {}
+
+
+def step_map(steps) -> dict:
+    """Steps keyed by id, name or uses, so inserting one step does not mark every later step changed."""
+    out: dict[str, object] = {}
+    for i, step in enumerate(steps if isinstance(steps, list) else []):
+        s = step if isinstance(step, dict) else {}
+        key = str(s.get("id") or s.get("name") or s.get("uses") or f"step {i + 1}")
+        n, base = 2, key
+        while key in out:
+            key, n = f"{base} #{n}", n + 1
+        out[key] = step
+    return out
+
+
+def workflow_elements(doc: dict) -> dict[tuple[str, str, str], tuple[object, list[str]]]:
+    """(element, event, name) -> (value, key path for the line lookup)."""
+    out: dict[tuple[str, str, str], tuple[object, list[str]]] = {}
+    for key in WORKFLOW_SETTINGS:
+        if key in doc:
+            out[("setting", "", key)] = (doc[key], [key])
+    for event, cfg in workflow_triggers(doc).items():
+        interface = {"inputs", "outputs", "secrets"} if event in WORKFLOW_INTERFACE_EVENTS else set()
+        out[("trigger", event, event)] = ({k: v for k, v in cfg.items() if k not in interface}, ["on", event])
+        for section in sorted(interface):
+            for name, spec in (cfg.get(section) or {}).items():
+                out[(section[:-1], event, str(name))] = (spec, ["on", event, section, str(name)])
+    for name, job in (doc.get("jobs") or {}).items():
+        j = dict(job) if isinstance(job, dict) else {}
+        if "steps" in j:
+            j["steps"] = step_map(j["steps"])
+        out[("job", "", str(name))] = (j, ["jobs", str(name)])
+    return out
+
+
+def key_line(text: str, path: list[str]) -> int | None:
+    """1-based line of the last key in path, each key found nested under the one before it."""
+    lines, start, parent, found = text.splitlines(), 0, -1, None
+    for key in path:
+        pat = re.compile(r"^\s*[\"']?" + re.escape(key) + r"[\"']?\s*:")
+        for i in range(start, len(lines)):
+            stripped = lines[i].lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            depth = len(lines[i]) - len(stripped)
+            if depth <= parent:
+                return found  # left the parent block without finding the key
+            if pat.match(lines[i]):
+                found, start, parent = i + 1, i + 1, depth
+                break
+        else:
+            return found
+    return found
+
+
+def job_needs(job) -> list[str]:
+    needs = job.get("needs") if isinstance(job, dict) else None
+    return [needs] if isinstance(needs, str) else [str(n) for n in needs or []]
+
+
+def workflow_facts(files: list[dict], trees: Trees) -> tuple[list[dict], list[dict], list[dict]]:
+    """Jobs, triggers, settings and workflow_call/workflow_dispatch interface entries from comparing
+    each changed workflow at base and head, plus `needs` edges between jobs.
+
+    Unchanged jobs one `needs` hop from a changed job come along as context so the graph shows
+    what a removed or rewired job sat between.
+    """
+    out, edges, notes, failed = [], [], [], []
+    for f in files:
+        path = f["filename"]
+        if not is_workflow(path):
+            continue
+        sides = {}
+        for side, root in (("base", trees.base), ("head", trees.head)):
+            p = root / path
+            try:
+                doc = yaml.safe_load(p.read_text(errors="replace")) if p.is_file() else None
+            except yaml.YAMLError:
+                failed.append(path)
+                break
+            sides[side] = (doc if isinstance(doc, dict) else {}, p.read_text(errors="replace") if p.is_file() else "")
+        else:
+            (bdoc, btext), (hdoc, htext) = sides["base"], sides["head"]
+            base, head = workflow_elements(bdoc), workflow_elements(hdoc)
+            changed: dict[tuple, tuple[str, list[str]]] = {}
+            for k in base.keys() | head.keys():
+                if k not in base:
+                    changed[k] = ("added", [])
+                elif k not in head:
+                    changed[k] = ("removed", [])
+                elif paths := diff_paths(base[k][0], head[k][0]):
+                    changed[k] = ("modified", sorted(paths)[:MAX_CHANGED_PATHS])
+            job_edges = {(src, dst) for doc in (bdoc, hdoc) for src, job in (doc.get("jobs") or {}).items()
+                         for dst in job_needs(job)}
+            changed_jobs = {k[2] for k in changed if k[0] == "job"}
+            context = {n for a, b in job_edges for n in (a, b)
+                       if (a in changed_jobs) != (b in changed_jobs) and n not in changed_jobs}
+            keys = list(changed) + [("job", "", n) for n in sorted(context) if ("job", "", n) in head]
+
+            def line(k):
+                action = changed.get(k, ("context",))[0]
+                text, elems = (btext, base) if action == "removed" else (htext, head)
+                return key_line(text, elems[k][1]) or 0
+
+            ids = {}
+            for k in sorted(keys, key=lambda k: (WORKFLOW_ELEMENT_ORDER[k[0]], line(k), k)):
+                action, paths = changed.get(k, ("context", []))
+                value = (base if action == "removed" else head)[k][0]
+                entry = {"id": f"w{len(out) + 1}", "workflow": path, "element": k[0], "event": k[1], "name": k[2],
+                         "action": action, "changed_paths": paths, "file": path, "lines": [line(k)] if line(k) else []}
+                if k[0] == "job" and isinstance(value, dict) and value.get("uses"):
+                    entry["uses"] = str(value["uses"])
+                if k[0] == "input" and isinstance(value, dict):
+                    entry["required"] = bool(value.get("required"))
+                    entry["has_default"] = "default" in value
+                ids[k] = entry["id"]
+                out.append(entry)
+            edges += [{"from": ids[("job", "", a)], "to": ids[("job", "", b)], "type": "needs"}
+                      for a, b in sorted(job_edges) if ("job", "", a) in ids and ("job", "", b) in ids]
+    if failed:
+        notes.append({"key": "workflows", "text": "These workflow files did not parse as YAML, so their jobs were "
+                                                  "not mapped: " + ", ".join(sorted(failed)) + "."})
+    if out:
+        notes.append({"key": "actions", "text": "GitHub Actions entries come from comparing workflow YAML at base and "
+                                                "head. Expressions, matrix expansion, reusable workflows the jobs call, "
+                                                "composite actions and callers in other repositories are not resolved."})
+    return out, edges, notes
+
+
+def workflow_hit(w: dict) -> tuple[str, str] | None:
+    """(rule, callout) for an entry that always needs a human: a caller-facing interface break, or a
+    change to the GITHUB_TOKEN permissions."""
+    if w["element"] in ("input", "output", "secret") and w["event"] == "workflow_call":
+        if w["action"] == "removed":
+            return f"workflow_call {w['element']} removed", "caller interface change"
+        if w["element"] == "input" and w.get("required") and not w.get("has_default") and (
+                w["action"] == "added" or "required" in w["changed_paths"]):
+            return "workflow_call input now required", "caller interface change"
+    if w["element"] == "setting" and w["name"] == "permissions" and w["action"] != "context":
+        return "workflow permissions changed", "token permissions"
+    if w["element"] == "job" and any(p == "permissions" or p.startswith("permissions.") for p in w["changed_paths"]):
+        return "job permissions changed", "token permissions"
+    return None
+
+
+def adf_text(node, limit: int) -> str:
+    """Plain text from a Jira ADF document (or a plain string), capped at limit characters."""
+    if isinstance(node, str):
+        text = node
+    else:
+        out: list[str] = []
+
+        def walk(n) -> None:
+            if isinstance(n, list):
+                for child in n:
+                    walk(child)
+            elif isinstance(n, dict):
+                kind = n.get("type")
+                if kind == "text":
+                    # Keep inline code as backticks: plan and ticket term search reads them.
+                    code = any(isinstance(m, dict) and m.get("type") == "code" for m in n.get("marks") or [])
+                    out.append(f"`{n.get('text', '')}`" if code else n.get("text", ""))
+                elif kind == "hardBreak":
+                    out.append("\n")
+                elif kind == "listItem":
+                    out.append("- ")
+                walk(n.get("content", []))
+                if kind in ("paragraph", "heading", "codeBlock", "blockquote", "rule"):
+                    out.append("\n")
+        walk(node)
+        text = "".join(out)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + " [...]"
+
+
+def adf_links(node) -> list[str]:
+    """Every URL a Jira ADF document links to: link marks, and inline, block and embed cards."""
+    out: list[str] = []
+
+    def walk(n) -> None:
+        if isinstance(n, list):
+            for child in n:
+                walk(child)
+        elif isinstance(n, dict):
+            if n.get("type") in ("inlineCard", "blockCard", "embedCard") and (n.get("attrs") or {}).get("url"):
+                out.append(n["attrs"]["url"])
+            for mark in n.get("marks") or []:
+                if isinstance(mark, dict) and mark.get("type") == "link" and (mark.get("attrs") or {}).get("href"):
+                    out.append(mark["attrs"]["href"])
+            walk(n.get("content", []))
+    walk(node)
+    return out
+
+
+def confluence_links(urls: list[str], site: str | None) -> list[str]:
+    """The Confluence pages among `urls`, on the Jira site's own host only: ticket text is
+    untrusted, so a link to any other host is never offered for reading."""
+    out: list[str] = []
+    for url in urls:
+        m = re.match(r"^https://([^/]+)(/wiki/[^\s#?]*)", url)
+        if m and site and m.group(1).lower() == site.lower() and url not in out:
+            out.append(url)
+    return out
+
+
+def jira_facts(pr: dict) -> tuple[dict | None, list[dict]]:
+    """The IFS or DX ticket the PR names (branch, then title, then body), read through acli.
+
+    The branch wins because CHG branch names carry the ticket by convention; a body can cite
+    several tickets. Every failure degrades to a note instead of stopping the run.
+    """
+    for source, text in (("branch", pr["head"]["ref"]), ("title", pr["title"]), ("body", pr.get("body") or "")):
+        if m := JIRA_KEY_RE.search(text):
+            key = m.group(0).upper()
+            break
+    else:
+        return None, [{"key": "jira", "text": "No IFS or DX ticket key was found in the branch name, title or body."}]
+    return jira_facts_for_key(key, source)
+
+
+def jira_facts_for_key(key: str, source: str = "argument") -> tuple[dict | None, list[dict]]:
+    """The ticket `key` read through acli; every failure degrades to a note instead of stopping."""
+    key = key.upper()
+    if not shutil.which("acli"):
+        return None, [{"key": "jira", "text": f"{key} is referenced but acli is not installed, so the ticket was not read."}]
+    try:
+        data = json.loads(sh("acli", "jira", "workitem", "view", key, "--json", "--fields", JIRA_FIELDS))
+    except (RuntimeError, json.JSONDecodeError) as e:
+        return None, [{"key": "jira", "text": f"{key} is referenced but could not be read with acli ({type(e).__name__})."}]
+    try:
+        site = re.search(r"Site:\s*(\S+)", sh("acli", "jira", "auth", "status"))
+    except RuntimeError:
+        site = None
+    f = data.get("fields") or {}
+    parent = f.get("parent") or None
+    comments = ((f.get("comment") or {}).get("comments") or [])[-JIRA_MAX_COMMENTS:]
+    url = f"https://{site.group(1)}/browse/{key}" if site else None
+    links = adf_links(f.get("description")) + [u for c in comments for u in adf_links(c.get("body"))]
+    if parent and parent.get("key"):
+        # A story's one-pager and outline usually hang off its epic, not the story itself.
+        try:
+            pdata = json.loads(sh("acli", "jira", "workitem", "view", parent["key"], "--json", "--fields", "description"))
+            links += adf_links((pdata.get("fields") or {}).get("description"))
+        except (RuntimeError, json.JSONDecodeError):
+            pass
+    # j* ids let the explainer cite a comment as evidence for work done outside the PR.
+    comments_out = [{"id": f"j{i}", "author": (c.get("author") or {}).get("displayName"),
+                     "created": (c.get("created") or "")[:10],
+                     "url": f"{url}?focusedCommentId={c['id']}" if url and c.get("id") else url,
+                     "body": adf_text(c.get("body") or "", JIRA_COMMENT_CHARS)} for i, c in enumerate(comments, start=1)]
+    return {"key": key, "source": source, "url": url,
+            "summary": f.get("summary"), "status": (f.get("status") or {}).get("name"),
+            "type": (f.get("issuetype") or {}).get("name"),
+            "parent": {"key": parent.get("key"), "summary": (parent.get("fields") or {}).get("summary")} if parent else None,
+            "description": adf_text(f.get("description") or "", JIRA_DESCRIPTION_CHARS),
+            "doc_links": confluence_links(links, site.group(1) if site else None),
+            "comments": comments_out}, []
+
+
+def collect(repo: str, pr: dict, files: list[dict], comments: list[dict], trees: Trees) -> dict:
+    policy = read_policy(trees)
+    policy_found = policy is not None
+    policy = policy or {}
+    read = policy.get("always_read") or {}
+    read_kinds, read_globs = set(read.get("kinds") or []), read.get("paths") or []
+    callouts = policy.get("risk_callouts") or {}
+
+    found_base, found_head = find_applications(trees.base), find_applications(trees.head)
+    apps_base, apps_head, scoped = applications(found_base, found_head)
+    changed = [f["filename"] for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
+    watched = {name: watched_files(trees.head if name in apps_head else trees.base, doc, repo)
+               for name, (_, doc) in {**apps_base, **apps_head}.items()}
+    # A values file in a shared chart directory affects only the apps that list it, not every app
+    # rendering that chart (one values file per environment).
+    all_value_files = set().union(*(vf for _, vf in watched.values()))
+    affected: dict[str, list[str]] = {}
+    for name, (afile, doc) in {**apps_base, **apps_head}.items():
+        dirs, vfiles = watched[name]
+        hits = [p for p in changed if p == afile or p in vfiles
+                or (any(p.startswith(d + "/") for d in dirs) and p not in all_value_files)]
+        if hits:
+            affected[name] = hits
+
+    apps_out, base_univ, head_univ, owner, where = [], {}, {}, {}, {}
+    handled: set[str] = set()
+    for name in sorted(affected):
+        b, h = apps_base.get(name), apps_head.get(name)
+        afile, adoc = h or b
+        ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
+        scope = str(Path(afile).parent) if scoped else ""
+        entry = {"app": name, "application_file": afile,
+                 "source_kind": "unknown", "render": "rendered", "render_note": ""}
+        try:
+            entry["source_kind"] = app_source_kind(trees.head if h else trees.base, adoc)
+            bdocs, bload, bnotes = render_app(trees.base, b[0], b[1], trees.dir, repo) if b else ([], set(), [])
+            hdocs, hload, hnotes = render_app(trees.head, h[0], h[1], trees.dir, repo) if h else ([], set(), [])
+        except Exception as err:
+            entry["render"], entry["render_note"] = "source-diff", f"{type(err).__name__}: {err}"
+            apps_out.append(entry)
+            continue  # this app's files fall through to non_manifest_changes
+        entry["render_note"] = "; ".join(dict.fromkeys(bnotes + hnotes))
+        if bload is None or hload is None:
+            handled.update(affected[name])
+        else:  # directory app: only files that were actually loaded (plus the Application file) are covered
+            handled.update(p for p in affected[name] if p in bload | hload or p == afile)
+        for side, docs, univ in (("base", bdocs, base_univ), ("head", hdocs, head_univ)):
+            for d, f in docs:
+                k = res_key(d, ns, scope)
+                univ[k], owner[k] = d, name
+                where.setdefault(k, {})[side] = f
+        for side, pair, univ in (("base", b, base_univ), ("head", h, head_univ)):
+            if pair:  # the Application object itself, so spec-only edits (syncPolicy, ...) show up
+                k = res_key(pair[1], "argo-cd", scope)
+                univ[k], owner[k] = pair[1], name
+                where.setdefault(k, {})[side] = pair[0]
+        apps_out.append(entry)
+
+    changes: dict[tuple, tuple[str, list[str]]] = {}
+    for k in set(base_univ) | set(head_univ):
+        a, b2 = base_univ.get(k), head_univ.get(k)
+        if a is None:
+            changes[k] = ("added", [])
+        elif b2 is None:
+            changes[k] = ("removed", [])
+        elif paths := diff_paths(a, b2):
+            changes[k] = ("modified", sorted(paths, key=lambda p: (-(p.count(".") + p.count("[")), p))[:MAX_CHANGED_PATHS])
+
+    universe = dict(head_univ)
+    universe.update({k: base_univ[k] for k, (act, _) in changes.items() if act == "removed"})
+    generated: set[tuple] = set()
+    for k, d in list(universe.items()):
+        if k[0] == "ExternalSecret":
+            target = ((d.get("spec") or {}).get("target") or {}).get("name") or k[2]
+            sk = ("Secret", k[1], target, k[3])
+            if sk not in universe:
+                universe[sk] = {"kind": "Secret", "metadata": {"name": target, "namespace": k[1]}}
+                owner[sk] = owner.get(k)
+                generated.add(sk)
+    by_scope: dict[str, dict[tuple, dict]] = {}
+    for k, d in universe.items():
+        by_scope.setdefault(k[3], {})[k] = d
+    edges = [e for part in by_scope.values() for e in build_edges(part)]
+    neighbors = {b2 for a, b2, _ in edges if a in changes} | {a for a, b2, _ in edges if b2 in changes}
+    order = sorted(changes, key=lambda k: (owner.get(k) or "", k)) + sorted(n for n in neighbors if n not in changes)
+
+    ids, resources = {}, []
+    for i, k in enumerate(order, start=1):
+        ids[k] = f"r{i}"
+        action, paths = changes.get(k, ("generated" if k in generated else "context", []))
+        loc = where.get(k, {})
+        side = "base" if action == "removed" else "head"
+        file = loc.get(side) or loc.get("head") or loc.get("base")
+        resources.append({"id": ids[k], "app": owner.get(k), "scope": k[3], "kind": k[0], "namespace": k[1], "name": k[2],
+                          "action": action, "changed_paths": paths, "file": file,
+                          "lines": find_lines(trees.base if side == "base" else trees.head, file, k[0], k[2]),
+                          "risk": callouts.get(k[0])})
+    edges_out = [{"from": ids[a], "to": ids[b2], "type": t} for a, b2, t in edges if a in ids and b2 in ids]
+
+    tf, nm, notes = [], [], []
+    if not policy_found:
+        notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no always-read checks were applied."})
+    # .tf files stay in non_manifest_changes: a plan lists only changed resources, so locals,
+    # variables and tfvars edits would otherwise vanish from the facts.
+    tf, tf_edges, tf_plans, tf_notes = terraform_facts(files, comments, trees, pr["head"]["sha"])
+    notes += tf_notes
+    # Workflow files also stay in non_manifest_changes, so a hunk the comparison cannot name
+    # (a run: script body) is still citable.
+    wf, wf_edges, wf_notes = workflow_facts(files, trees)
+    notes += wf_notes
+    jira, jira_notes = jira_facts(pr)
+    notes += jira_notes
+    for f in files:
+        if f["filename"] not in handled:
+            nm.append({"id": f"f{len(nm) + 1}", "file": f["filename"], "status": f["status"],
+                       "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
+                       "hunks": hunk_ranges(f.get("patch") or "")})
+    mapped_workflows = {w["file"] for w in wf}
+    unrendered_yaml = [n for n in nm if n["file"].endswith((".yaml", ".yml")) and n["file"] not in mapped_workflows]
+    if unrendered_yaml and not affected:
+        # Without this note an empty resource map looks like "nothing to render" instead of "nothing found".
+        where = (f"{len(apps_base | apps_head)} Argo CD Applications were found, but none deploys them"
+                 if apps_base or apps_head else "no Argo CD Application manifest was found in the repository")
+        notes.append({"key": "apps", "text": f"{len(unrendered_yaml)} changed YAML files were not rendered: {where}. "
+                                             "They are summarized from the raw diff."})
+
+    candidates: dict[tuple, list[dict]] = {}
+    for r in resources:
+        if r["action"] in ("context", "generated"):
+            continue
+        if r["kind"] in read_kinds:
+            rule = f"always_read.kinds {r['kind']}"
+        elif r["file"] and (pat := matched_glob(r["file"], read_globs)):
+            rule = f"always_read.paths ({pat})"
+        else:
+            continue
+        candidates.setdefault((r["app"], rule), []).append(
+            {"ref": r["id"], "rule": rule, "callout": callouts.get(r["kind"], "always read")})
+    for n in nm:
+        if pat := matched_glob(n["file"], read_globs):
+            rule = f"always_read.paths ({pat})"
+            candidates.setdefault(("file", n["file"], rule), []).append({"ref": n["id"], "rule": rule, "callout": "always read"})
+    for t in tf:
+        # Replacing or destroying infrastructure (a removed resource block destroys it unless a
+        # moved or removed block says otherwise) always needs a human; other entries only
+        # when the repo's own policy globs claim the file.
+        if t["action"] in ("replace", "destroy") or (t["action"] == "removed" and not t["address"].startswith("data.")) or (t["file"] and matched_glob(t["file"], read_globs)):
+            candidates.setdefault(("terraform", ""), []).append(
+                {"ref": t["id"], "rule": ("terraform plan " if t["source"] == "plan-comment" else "terraform source ")
+                 + t["action"], "callout": "infrastructure change"})
+    for w in wf:
+        if hit := workflow_hit(w):
+            candidates.setdefault(("workflow", w["file"], hit[0]), []).append(
+                {"ref": w["id"], "rule": hit[0], "callout": hit[1]})
+        elif w["action"] != "context" and (pat := matched_glob(w["file"], read_globs)):
+            rule = f"always_read.paths ({pat})"
+            candidates.setdefault(("workflow", w["file"], rule), []).append({"ref": w["id"], "rule": rule, "callout": "always read"})
+    policy_hits = []
+    for group in candidates.values():
+        kept = group[:MAX_HITS_PER_APP_RULE]
+        if len(group) > len(kept):
+            kept[-1] = {**kept[-1], "more": len(group) - len(kept)}
+        policy_hits += kept
+
+    triage = None
+    for c in comments:
+        if m := TRIAGE_RE.search(c.get("body") or ""):
+            triage = {"label": m.group(1), "why": m.group(2).strip()}
+    return {
+        "mode": "pr",
+        "pr": {"number": pr["number"], "title": pr["title"], "url": pr["html_url"], "repo": repo,
+               "base_sha": pr["base"]["sha"], "head_sha": pr["head"]["sha"],
+               "merge_base": trees.merge_base},
+        "triage": triage, "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
+        "non_manifest_changes": nm, "terraform": tf, "terraform_plans": tf_plans, "workflows": wf,
+        "jira": jira, "policy_hits": policy_hits, "notes": notes,
+    }
+
+
+# --- service and ticket modes (spec 2026-10-15 §4) -------------------------------------------
+
+MAX_MATCHED_APPS = 8
+SECRET_VALUE_RE = re.compile(
+    r"(?i)(['\"]?(?:password|passwd|token|secret|api[_-]?key|private[_-]?key|credential)s?[\w-]*['\"]?\s*[:=]\s*['\"]?)"
+    r"([^'\"\s]{8,})")
+ROUTE_KINDS = {"HTTPRoute", "GRPCRoute", "TLSRoute", "TCPRoute", "Ingress", "VirtualService"}
+
+
+def _masked(value):
+    if isinstance(value, str):
+        return SECRET_VALUE_RE.sub(r"\1[REDACTED]", value)
+    if isinstance(value, list):
+        return [_masked(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _masked(v) for k, v in value.items()}
+    return value
+
+
+def _probe(spec: dict) -> str | None:
+    spec = _d(spec)
+    if http := _d(spec.get("httpGet")):
+        return f"GET {http.get('path') or '/'}:{http.get('port', '')}"
+    if tcp := _d(spec.get("tcpSocket")):
+        return f"TCP :{tcp.get('port', '')}"
+    if grpc := _d(spec.get("grpc")):
+        return f"gRPC :{grpc.get('port', '')}"
+    if ex := _d(spec.get("exec")):
+        cmd = ex.get("command") or []
+        return "exec " + (str(cmd[0]) if cmd else "")  # the command name only: arguments can carry credentials
+    return None
+
+
+def resource_summary(doc: dict) -> dict:
+    """What the narrator needs to say concrete things about a resource, per kind, with every
+    string masked: image, replicas, ports, probes and env names for workloads; ports and selector
+    for Services; hosts, paths and backends for routes; schedule for CronJobs; store and keys for
+    ExternalSecrets; size for PVCs; keys for ConfigMaps. Never values from env, data or secrets."""
+    kind = str(doc.get("kind") or "")
+    spec = _d(doc.get("spec"))
+    out: dict = {}
+    try:
+        if kind in WORKLOADS:
+            pod, _ = pod_spec(doc)
+            containers = [c for c in (pod.get("containers") or []) if isinstance(c, dict)]
+            if containers:
+                first = containers[0]
+                out["image"] = str(first.get("image") or "")
+                ports = [p.get("containerPort") for c in containers for p in (c.get("ports") or []) if isinstance(p, dict)]
+                out["ports"] = [p for p in ports if p is not None]
+                probes = {k: _probe(first.get(f"{k}Probe")) for k in ("startup", "readiness", "liveness")}
+                out["probes"] = {k: v for k, v in probes.items() if v}
+                out["env_keys"] = sorted({str(e.get("name")) for c in containers for e in (c.get("env") or [])
+                                          if isinstance(e, dict) and e.get("name")})
+            if kind == "CronJob":
+                out["schedule"] = str(spec.get("schedule") or "")
+            elif kind != "DaemonSet" and "replicas" in spec:
+                out["replicas"] = spec.get("replicas")
+        elif kind == "Service":
+            out["ports"] = [f"{p.get('port')}->{p.get('targetPort', p.get('port'))}" for p in (spec.get("ports") or [])
+                            if isinstance(p, dict)]
+            out["selector"] = _d(spec.get("selector"))
+        elif kind in ROUTE_KINDS:
+            hosts = spec.get("hostnames") or spec.get("hosts") or [r.get("host") for r in (spec.get("rules") or []) if isinstance(r, dict)]
+            out["hosts"] = [str(h) for h in hosts if h]
+            paths, backends = [], []
+            for rule in spec.get("rules") or spec.get("http") or []:
+                if not isinstance(rule, dict):
+                    continue
+                for m in rule.get("matches") or rule.get("match") or []:
+                    if isinstance(m, dict):
+                        path = _d(m.get("path")) or _d(m.get("uri"))
+                        paths.append(str(path.get("value") or path.get("prefix") or path.get("exact") or "/"))
+                for b in rule.get("backendRefs") or rule.get("route") or []:
+                    if isinstance(b, dict):
+                        dest = _d(b.get("destination"))
+                        name = b.get("name") or dest.get("host")
+                        port = b.get("port") or _d(dest.get("port")).get("number")
+                        if name:
+                            backends.append(f"{name}:{port}" if port else str(name))
+                for p in _d(_d(rule.get("http")).get("paths")) if isinstance(rule.get("http"), dict) else []:
+                    pass
+                http = _d(rule.get("http"))
+                for pth in http.get("paths") or []:
+                    if isinstance(pth, dict):
+                        paths.append(str(pth.get("path") or "/"))
+                        svc = _d(_d(pth.get("backend")).get("service"))
+                        if svc.get("name"):
+                            backends.append(f"{svc['name']}:{_d(svc.get('port')).get('number', '')}".rstrip(":"))
+            out["paths"] = list(dict.fromkeys(paths))
+            out["backends"] = list(dict.fromkeys(backends))
+        elif kind == "ExternalSecret":
+            out["store"] = str(_d(spec.get("secretStoreRef")).get("name") or "")
+            out["keys"] = sorted({str(d.get("secretKey") or _d(d.get("remoteRef")).get("key") or "") for d in (spec.get("data") or [])
+                                  if isinstance(d, dict)} - {""})
+        elif kind == "PersistentVolumeClaim":
+            out["size"] = str(_d(_d(spec.get("resources")).get("requests")).get("storage") or "")
+        elif kind in ("ConfigMap", "Secret"):
+            out["keys"] = sorted(str(k) for k in (_d(doc.get("data")) | _d(doc.get("stringData"))).keys())
+    except (AttributeError, TypeError, KeyError):
+        return {}
+    return _masked({k: v for k, v in out.items() if v not in (None, "", [], {})})
+
+
+def _top_keys(value) -> list[str]:
+    if isinstance(value, str):
+        try:
+            value = yaml.safe_load(value)
+        except yaml.YAMLError:
+            return []
+    return sorted(str(k) for k in value.keys()) if isinstance(value, dict) else []
+
+
+def config_facts(trees: Trees, matched: dict[str, list[tuple[str, str, dict]]], repo: str) -> list[dict]:
+    """The top-level keys this repo sets for each matched app: inline helm values, valuesObject,
+    parameters, and value files in this repo. Keys only; a value file can hold anything."""
+    rows: list[dict] = []
+    scoped = any(len(v) > 1 for v in matched.values())
+    for name in sorted(matched):
+        for _, afile, adoc in sorted(matched[name], key=lambda x: x[1]):
+            scope = str(Path(afile).parent) if scoped else ""
+            sources = app_sources(adoc)
+            refs = {s["ref"]: s for s in sources if s.get("ref")}
+            for src in sources:
+                helm = _d(src.get("helm"))
+                for source, keys in (("inline-values", _top_keys(helm.get("values"))),
+                                     ("values-object", _top_keys(helm.get("valuesObject"))),
+                                     ("parameters", sorted(str(p.get("name")) for p in (helm.get("parameters") or []) if isinstance(p, dict) and p.get("name")))):
+                    if keys:
+                        rows.append({"id": f"c{len(rows) + 1}", "app": name, "scope": scope, "source": source, "file": afile, "keys": keys})
+                for vf in helm.get("valueFiles") or []:
+                    try:
+                        p = value_file(trees.head, src, refs, str(vf), repo)
+                    except RuntimeError:
+                        p = None
+                    if p and p.is_file():
+                        rel = str(p.relative_to(trees.head))
+                        rows.append({"id": f"c{len(rows) + 1}", "app": name, "scope": scope, "source": "values-file",
+                                     "file": rel, "keys": _top_keys(p.read_text(errors="replace"))})
+    return rows
+
+
+DOC_CHARS = 20000
+
+
+def doc_facts(paths: list[str]) -> tuple[list[dict], list[dict]]:
+    """Local text files (a Confluence page the session saved, pasted requirements) as untrusted
+    facts: tags stripped, control characters dropped, text capped at DOC_CHARS, one d* id each.
+    An unreadable file becomes a note instead of stopping the run."""
+    docs, notes = [], []
+    for p in paths:
+        try:
+            raw = Path(p).read_text(errors="replace")
+        except OSError as e:
+            notes.append({"key": "docs", "text": f"{p} could not be read ({type(e).__name__}), so it is not on the page."})
+            continue
+        # The skill writes a Confluence page it read with a first-line `<!-- source: URL -->`,
+        # so the page can link back to it; the tag strip below would drop the comment.
+        src = re.match(r"\A<!--\s*source:\s*(https://\S+?)\s*-->", raw)
+        text = re.sub(r"<[^>]+>", "", raw)
+        text = "".join(ch for ch in text if ch in "\n\t" or ch >= " ")
+        # Obsidian and Jekyll notes open with YAML frontmatter; the title is the first line after it.
+        body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
+        title = next((line.lstrip("# ").strip() for line in body.splitlines() if line.strip()), "") or Path(p).stem
+        title = SECRET_VALUE_RE.sub(r"\1[REDACTED]", title)  # a title reaches the page as a ref label
+        docs.append({"id": f"d{len(docs) + 1}", "title": title[:200], "source": "file", "path": str(p),
+                     "url": src.group(1) if src else None,
+                     "chars": len(text), "truncated": len(text) > DOC_CHARS, "text": text[:DOC_CHARS]})
+    return docs, notes
+
+
+def related_prs(repo: str, key: str) -> tuple[list[dict], list[dict]]:
+    """PRs that name the ticket key as a whole token in their title, body or head branch.
+    `gh pr list --search` covers titles and bodies but tokenises loosely (IFS-1 also returns
+    "step 1"), so every hit is re-checked; open PRs are also listed and filtered on their head
+    branch, where CHG branches carry the key."""
+    def rows(*args: str) -> list[dict]:
+        raw = sh("gh", "pr", "list", "-R", repo, *args, "--json", "number,title,body,state,url,headRefName")
+        data = json.loads(raw) if raw.strip() else []
+        return [r for r in data if isinstance(r, dict)]
+
+    key_re = re.compile(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![0-9])", re.I)
+
+    def names_key(r: dict) -> bool:
+        return any(key_re.search(str(r.get(f) or "")) for f in ("title", "body", "headRefName"))
+
+    try:
+        found = [r for r in rows("--search", key, "--state", "all", "--limit", "10") if names_key(r)]
+        found += [r for r in rows("--state", "open", "--limit", "100") if key_re.search(str(r.get("headRefName") or ""))]
+    except (RuntimeError, json.JSONDecodeError) as e:
+        return [], [{"key": "related_prs", "text": f"PRs naming {key} could not be listed ({type(e).__name__})."}]
+    out, seen = [], set()
+    for r in found:
+        if r.get("number") in seen:
+            continue
+        seen.add(r.get("number"))
+        out.append({"number": r.get("number"), "title": r.get("title"), "state": r.get("state"), "url": r.get("url"),
+                    "head_ref": r.get("headRefName")})
+    return out, []
+
+
+ENV_DIR_NAMES = {"argo", "apps", "base-apps", "environments", "envs", "env", "clusters", "cluster", "overlays",
+                 "prod", "production", "nonprod", "staging", "stage", "dev", "development", "test", "qa", "uat", "sandbox"}
+
+
+def infer_service(found: list[tuple[str, str, dict]], texts: list) -> list[str]:
+    """The Application the texts name: the longest Application name, or manifest directory name
+    that belongs to exactly one app, that occurs in any text as a whole word (case-insensitive).
+    Environment directories such as prod/ are never aliases. Deterministic; the model never
+    guesses the service."""
+    hay = " ".join(str(t) for t in texts if t).lower()
+    if not hay.strip():
+        return []
+    candidates: dict[str, set[str]] = {}
+    for name, file, _ in found:
+        candidates.setdefault(name.lower(), set()).add(name)
+        for part in Path(file).parent.parts:
+            if part.lower() not in ENV_DIR_NAMES and len(part) > 2:
+                candidates.setdefault(part.lower(), set()).add(name)
+    longer = sorted(candidates, key=len, reverse=True)
+    for low in longer:
+        apps = candidates[low]
+        if len(apps) != 1:
+            continue
+        for m in re.finditer(r"(?<!\w)" + re.escape(low) + r"(?!\w)", hay):
+            # "grafana-agents" names grafana-agent (misspelt), not grafana: when the hyphenated token
+            # continues into a longer candidate's name, this shorter name does not count.
+            ext = re.match(r"[\w-]*", hay[m.start():]).group(0)
+            if any(c != low and c.startswith(low + "-") and ext.startswith(c) for c in longer):
+                continue
+            return [next(iter(apps))]
+    return []
+
+
+def _mentions(text: str, names: list[str]) -> bool:
+    low = text.lower()
+    return any(n.strip().lower() in low for n in names if n and n.strip())
+
+
+def terraform_mentions(root: Path, names: list[str]) -> tuple[list[dict], list[dict]]:
+    """resource/data blocks at the ref whose address or body names the service, as `focus`
+    entries with source `source-ref`, plus reference edges between them."""
+    tf = []
+    blocks = tf_block_list(root)
+    for addr, file, line, body in blocks:
+        if _mentions(addr, names) or _mentions(body, names):
+            rtype, _, rname = addr.removeprefix("data.").partition(".")
+            tf.append({"id": f"t{len(tf) + 1}", "address": addr, "action": "focus", "source": "source-ref",
+                       "type": rtype, "name": rname, "file": file, "lines": [line]})
+    groups = {(tf_dir(t["file"]), t["address"]): [t["id"]] for t in tf}
+    bodies = {(tf_dir(file), addr): body for addr, file, line, body in blocks}
+    return tf, tf_reference_edges(groups, bodies)
+
+
+def workflow_mentions(root: Path, names: list[str]) -> tuple[list[dict], list[dict]]:
+    """Every element of each workflow file that names the service, as `focus` entries, plus
+    `needs` edges between its jobs."""
+    out, edges = [], []
+    wdir = root / WORKFLOW_DIR
+    if not wdir.is_dir():
+        return [], []
+    for f in sorted(wdir.iterdir()):
+        path = f"{WORKFLOW_DIR}{f.name}"
+        if not is_workflow(path) or not f.is_file():
+            continue
+        text = f.read_text(errors="replace")
+        if not _mentions(text, names):
+            continue
+        try:
+            doc = yaml.safe_load(text)
+        except yaml.YAMLError:
+            continue
+        doc = doc if isinstance(doc, dict) else {}
+        elems = workflow_elements(doc)
+        ids = {}
+        for k in sorted(elems, key=lambda k: (WORKFLOW_ELEMENT_ORDER[k[0]], key_line(text, elems[k][1]) or 0, k)):
+            value, keypath = elems[k]
+            line = key_line(text, keypath)
+            entry = {"id": f"w{len(out) + 1}", "workflow": path, "element": k[0], "event": k[1], "name": k[2],
+                     "action": "focus", "changed_paths": [], "file": path, "lines": [line] if line else []}
+            if k[0] == "job" and isinstance(value, dict) and value.get("uses"):
+                entry["uses"] = str(value["uses"])
+            if k[0] == "input" and isinstance(value, dict):
+                entry["required"] = bool(value.get("required"))
+                entry["has_default"] = "default" in value
+            ids[k] = entry["id"]
+            out.append(entry)
+        for src, job in (doc.get("jobs") or {}).items():
+            for dst in job_needs(job):
+                if ("job", "", str(src)) in ids and ("job", "", dst) in ids:
+                    edges.append({"from": ids[("job", "", str(src))], "to": ids[("job", "", dst)], "type": "needs"})
+    return out, edges
+
+
+PLAN_TERM_RE = re.compile(r"`([^`\n]{3,80})`")
+PLAN_VERSION_RE = re.compile(r"^v?\d+(\.\d+)+$")
+PLAN_TERM_OK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*[A-Za-z0-9]$")
+
+
+def plan_terms(docs: list[dict], repo: str) -> list[str]:
+    """The identifiers a plan names in backticks, in order of first use: a leading @ dropped and a
+    `{env}`-style placeholder reduced to the longest literal piece around it, versions, globs, prose with spaces and the repo's own name skipped.
+    A term must carry a digit, one of - _ . / : or an inner capital, so code-quoted English words
+    (`data`, `pip`) do not match half the repo. Deterministic; the model never picks the terms."""
+    own = repo.rsplit("/", 1)[-1].lower()
+    out: list[str] = []
+    for d in docs:
+        for m in PLAN_TERM_RE.finditer(d.get("text") or ""):
+            # A placeholder splits the term: `terraform-state-{region}-{env}-bidw` searches its
+            # longest literal piece, since the joined remainder would never occur in a file.
+            pieces = [x.strip("-_./:") for x in re.split(r"\{[^}]*\}", m.group(1).strip().lstrip("@"))]
+            term = max(pieces, key=len)
+            if (len(term) < 3 or not PLAN_TERM_OK_RE.match(term) or PLAN_VERSION_RE.match(term)
+                    or term.lower() == own or term.lower() in (t.lower() for t in out)):
+                continue
+            if not re.search(r"[\d\-_./:]", term) and not re.search(r"(?<=[a-z])[A-Z]", term):
+                continue
+            out.append(term)
+    return out
+
+
+MAX_FILE_MENTIONS = 40
+MAX_FILES_PER_TERM = 8
+MAX_MENTION_BYTES = 200_000
+
+
+def file_mentions(root: Path, terms: list[str], skip: set[str]) -> tuple[list[dict], list[dict]]:
+    """Tracked text files whose name or text names a plan term outside resource/data blocks and
+    workflows (locals, backends, a Justfile, CODEOWNERS, a README), as `f*` entries with the terms
+    and the lines they are on. Files in `skip` are already facts; binary and large files are left
+    out. Each term keeps its first MAX_FILES_PER_TERM files, in path order, so a broad term (a
+    state bucket every backend names) cannot crowd out a narrow one."""
+    try:
+        tracked = sorted(p for p in sh("git", "ls-files", cwd=root).splitlines() if p)
+    except RuntimeError:
+        tracked = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and ".git" not in p.parts)
+    out, notes = [], []
+    named_in: dict[str, int] = {t: 0 for t in terms}
+    full = False
+    for rel in tracked:
+        f = root / rel
+        if rel in skip or not f.is_file() or f.stat().st_size > MAX_MENTION_BYTES:
+            continue
+        raw = f.read_bytes()
+        if b"\0" in raw:
+            continue
+        lines = raw.decode(errors="replace").splitlines()
+        named = [t for t in terms if _mentions(Path(rel).name, [t]) or any(_mentions(line, [t]) for line in lines)]
+        for t in named:
+            named_in[t] += 1
+        if not named or full or all(named_in[t] > MAX_FILES_PER_TERM for t in named):
+            continue
+        if len(out) == MAX_FILE_MENTIONS:
+            full = True
+            continue
+        at = [i for i, line in enumerate(lines, start=1) if _mentions(line, named)]
+        out.append({"id": f"f{len(out) + 1}", "file": rel, "status": "mentions", "lines": at[:10],
+                    "terms": named, "summary": {"names": named, "lines": at[:10]}})
+    broad = {t: n for t, n in named_in.items() if n > MAX_FILES_PER_TERM}
+    if broad:
+        notes.append({"key": "mentions", "text": "Some terms are named in more files than the page lists (first "
+                                                 f"{MAX_FILES_PER_TERM} each, by path): "
+                                                 + ", ".join(f"{t} ({n} files)" for t, n in broad.items()) + "."})
+    if full:
+        notes.append({"key": "mentions", "text": f"More than {MAX_FILE_MENTIONS} files name the plan's terms; the rest "
+                                                 "are not on the page. Pass fewer, narrower --term values."})
+    return out, notes
+
+
+def term_hits(root: Path, terms: list[str], tf: list[dict], wf: list[dict], files: list[dict]) -> dict[str, list[str]]:
+    """term -> the t* ids whose block names it, the first w* id of each workflow file that names
+    it (entries are per element, the match is per file) and the f* files that name it; [] when
+    the repo has nothing for it yet, which is what the plan would add."""
+    bodies = {(file, line): f"{addr}\n{body}" for addr, file, line, body in tf_block_list(root)}
+    first: dict[str, str] = {}
+    for w in wf:
+        first.setdefault(w["workflow"], w["id"])
+    texts = {path: (root / path).read_text(errors="replace") for path in first}
+    hits: dict[str, list[str]] = {}
+    for term in terms:
+        ids = [t["id"] for t in tf if _mentions(bodies.get((t["file"], t["lines"][0]), ""), [term])]
+        ids += [wid for path, wid in first.items() if _mentions(texts[path], [term])]
+        ids += [f["id"] for f in files if term in f["terms"]]
+        hits[term] = ids
+    return hits
+
+
+def collect_system(repo: str, trees: Trees, names: list[str], docs: list[str], ticket_key: str | None,
+                   all_apps: bool, plan: bool = False, terms: list[str] | None = None) -> dict:
+    """Facts for a service (or a ticket's system) at one ref: the matched Applications in every
+    environment, their rendered resources as `focus`, generated Secrets, edges, and the shared keys
+    the PR collector fills, empty. Exits with a message when nothing matches or too much does.
+
+    plan=True reads a plan (a one-pager) from docs instead: Applications are optional, and the
+    Terraform, workflow and file searches use the plan's backticked identifiers plus `terms`."""
+    policy = read_policy(trees) or {}
+    callouts = policy.get("risk_callouts") or {}
+    found = find_applications(trees.head)
+    jira, prs, ticket_notes, inferred = None, [], [], False
+    if ticket_key:
+        jira, jira_notes = jira_facts_for_key(ticket_key)
+        prs, pr_notes = related_prs(repo, ticket_key)
+        ticket_notes = jira_notes + pr_notes
+        if not names:
+            texts = [(jira or {}).get("summary"), (jira or {}).get("description")] + [p.get("head_ref") for p in prs] + [p.get("title") for p in prs]
+            names, inferred = infer_service(found, texts), True
+            if not names:
+                ticket_notes.append({"key": "match", "text": f"No Application name appears in {ticket_key.upper()}'s summary, "
+                                                             "description or related PR branches, so no service was mapped; "
+                                                             "pass --service to name one."})
+    matched, matched_by = match_applications(found, names)
+    if names and not matched:
+        close = sorted({n for n, _, _ in found},
+                       key=lambda n: difflib.SequenceMatcher(None, n.lower(), names[0].lower()).ratio(), reverse=True)[:10]
+        sys.exit(f"collect: no Application matches {names}; closest names: {', '.join(close) or 'none'}")
+    if len(matched) > MAX_MATCHED_APPS and not all_apps:
+        sys.exit(f"collect: {len(matched)} Applications match {names}: {', '.join(sorted(matched))}. "
+                 "Narrow the name or pass --all.")
+    scoped = any(len(v) > 1 for v in matched.values())
+    apps_out, universe, owner, where = [], {}, {}, {}
+    for name in sorted(matched):
+        for _, afile, adoc in sorted(matched[name], key=lambda x: x[1]):
+            ns = (adoc["spec"].get("destination") or {}).get("namespace") or ""
+            scope = str(Path(afile).parent) if scoped else ""
+            entry = {"app": name, "application_file": afile, "scope": scope,
+                     "source_kind": "unknown", "render": "rendered", "render_note": ""}
+            k = res_key(adoc, "argo-cd", scope)  # the Application object itself is always a fact
+            universe[k], owner[k], where[k] = adoc, name, afile
+            try:
+                entry["source_kind"] = app_source_kind(trees.head, adoc)
+                hdocs, _, hnotes = render_app(trees.head, afile, adoc, trees.dir, repo)
+            except Exception as err:
+                entry["render"], entry["render_note"] = "source-diff", f"{type(err).__name__}: {err}"
+                apps_out.append(entry)
+                continue
+            entry["render_note"] = "; ".join(dict.fromkeys(hnotes))
+            for d, f in hdocs:
+                k = res_key(d, ns, scope)
+                universe[k], owner[k], where[k] = d, name, f
+            apps_out.append(entry)
+    generated: set[tuple] = set()
+    for k, d in list(universe.items()):
+        if k[0] == "ExternalSecret":
+            target = ((d.get("spec") or {}).get("target") or {}).get("name") or k[2]
+            sk = ("Secret", k[1], target, k[3])
+            if sk not in universe:
+                universe[sk] = {"kind": "Secret", "metadata": {"name": target, "namespace": k[1]}}
+                owner[sk] = owner.get(k)
+                generated.add(sk)
+    by_scope: dict[str, dict[tuple, dict]] = {}
+    for k, d in universe.items():
+        by_scope.setdefault(k[3], {})[k] = d
+    edges = [e for part in by_scope.values() for e in build_edges(part)]
+    order = sorted(universe, key=lambda k: (owner.get(k) or "", k[3], k))
+    ids, resources = {}, []
+    for i, k in enumerate(order, start=1):
+        ids[k] = f"r{i}"
+        file = where.get(k)
+        resources.append({"id": ids[k], "app": owner.get(k), "scope": k[3], "kind": k[0], "namespace": k[1], "name": k[2],
+                          "action": "generated" if k in generated else "focus", "changed_paths": [], "file": file,
+                          "lines": find_lines(trees.head, file, k[0], k[2]), "risk": callouts.get(k[0]),
+                          "summary": resource_summary(universe[k])})
+    edges_out = [{"from": ids[a], "to": ids[b], "type": t} for a, b, t in edges if a in ids and b in ids]
+    config = config_facts(trees, matched, repo)
+    doc_out, notes = doc_facts(docs)
+    search, hits = names, {}
+    # Plan and ticket pages search the identifiers their text quotes in backticks, so greenfield
+    # work with no Application still gets the repo's backends, providers and tags as facts.
+    by_terms = plan or bool(ticket_key)
+    if by_terms:
+        quoted = doc_out + ([{"text": f"{jira.get('summary') or ''}\n{jira.get('description') or ''}"}] if jira else [])
+        search = list(dict.fromkeys(names + plan_terms(quoted, repo) + list(terms or [])))
+    tf, tf_edges = terraform_mentions(trees.head, search) if search else ([], [])
+    wf, wf_edges = workflow_mentions(trees.head, search) if search else ([], [])
+    notes = ticket_notes + notes
+    files: list[dict] = []
+    source = "plan" if plan else "ticket"
+    if plan and not doc_out:
+        notes.append({"key": "plan", "text": "No plan document could be read, so the page has nothing to map."})
+    if by_terms and search:
+        files, file_notes = file_mentions(trees.head, search, {w["workflow"] for w in wf})
+        notes += file_notes
+        hits = term_hits(trees.head, search, tf, wf, files)
+        notes.append({"key": "plan" if plan else "search",
+                      "text": f"The {source}'s terms were matched as case-insensitive substrings in resource and data "
+                              "blocks, workflows and tracked text files at this ref. A hit means the repo names the "
+                              f"term, not that what the {source} asks for is already there; other repos the {source} "
+                              "names were not read."})
+        missing = [t for t, ids in hits.items() if not ids]
+        if missing:
+            notes.append({"key": "terms", "text": f"These {source} terms name nothing in this repo's Terraform, workflows or files "
+                                                  f"at this ref: {', '.join(missing)}. Each is something the {source} "
+                                                  "adds, or lives in another repo."})
+    if wf:
+        notes.append({"key": "actions", "text": f"GitHub Actions entries are the workflows that name the {source + ' terms' if by_terms else 'service'} at this "
+                                                "ref. Expressions, matrix expansion, reusable workflows the jobs call, "
+                                                "composite actions and callers in other repositories are not resolved."})
+    if tf:
+        notes.append({"key": "terraform", "text": "Terraform blocks are the resource and data blocks whose address or "
+                                                  f"body names the {source + ' terms' if by_terms else 'service'} at this ref; no plan was run, so counts, "
+                                                  "for_each instances and module internals are not resolved."})
+    if not policy:
+        notes.append({"key": "policy", "text": "No .github/review-policy.yaml found; no risk callouts were applied."})
+    return {
+        "mode": "plan" if plan else "ticket" if ticket_key else "service", "pr": None, "triage": None,
+        "query": {"service": names, "matched_by": matched_by, "inferred": inferred, "ref": trees.ref, "sha": trees.sha, "repo": repo,
+                  **({"terms": search, "term_hits": hits} if by_terms else {})},
+        "apps": apps_out, "resources": resources, "edges": edges_out + tf_edges + wf_edges,
+        "config": config, "terraform": tf, "terraform_plans": [], "workflows": wf, "non_manifest_changes": files,
+        "docs": doc_out, "related_prs": prs, "jira": jira, "policy_hits": [], "notes": notes,
+    }

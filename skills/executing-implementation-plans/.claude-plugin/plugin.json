@@ -1,0 +1,6 @@
+{
+  "name": "executing-implementation-plans",
+  "version": "1.0.0",
+  "description": "Execute approved implementation plans with phase-based checkpoints, testing, and progress tracking.",
+  "author": { "name": "Arisela" }
+}

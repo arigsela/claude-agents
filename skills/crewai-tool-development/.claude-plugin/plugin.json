@@ -1,0 +1,6 @@
+{
+  "name": "crewai-tool-development",
+  "version": "1.0.0",
+  "description": "Extend CrewAI agent capabilities with custom tools (BaseTool, @tool decorator), async tools, MCP server integration, and the built-in tools catalog.",
+  "author": { "name": "Arisela" }
+}

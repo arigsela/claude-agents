@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "name": "Rocket Building Kit",
+    "price": 29.99,
+    "category": "Building Sets",
+    "in_stock": true
+  },
+  {
+    "id": 2,
+    "name": "Astronaut Plush Toy",
+    "price": 19.99,
+    "category": "Plush",
+    "in_stock": true
+  },
+  {
+    "id": 3,
+    "name": "Solar System Puzzle",
+    "price": 16.99,
+    "category": "Puzzles",
+    "in_stock": true
+  },
+  {
+    "id": 4,
+    "name": "Kids Telescope",
+    "price": 59.99,
+    "category": "Telescopes",
+    "in_stock": true
+  },
+  {
+    "id": 5,
+    "name": "Mars Rover RC Car",
+    "price": 49.99,
+    "category": "RC Vehicles",
+    "in_stock": false
+  },
+  {
+    "id": 6,
+    "name": "Glow-in-Dark Stars Pack",
+    "price": 12.99,
+    "category": "Room Decor",
+    "in_stock": true
+  },
+  {
+    "id": 7,
+    "name": "Planetarium Projector",
+    "price": 69.99,
+    "category": "Electronics",
+    "in_stock": true
+  },
+  {
+    "id": 8,
+    "name": "Space Slime Kit",
+    "price": 24.99,
+    "category": "Science Kits",
+    "in_stock": true
+  },
+  {
+    "id": 9,
+    "name": "Astronomy Flashcards",
+    "price": 14.99,
+    "category": "Educational",
+    "in_stock": true
+  },
+  {
+    "id": 10,
+    "name": "Space Coloring Set",
+    "price": 17.99,
+    "category": "Arts & Crafts",
+    "in_stock": true
+  }
+]

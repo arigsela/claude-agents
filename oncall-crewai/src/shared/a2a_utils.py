@@ -1,0 +1,33 @@
+"""Shared A2A protocol utilities.
+
+Extracted from duplicated code across executor modules.
+"""
+
+from __future__ import annotations
+
+from a2a.types import TextPart
+
+
+def extract_user_input(message, default: str = "Perform a general cluster health check") -> str:
+    """Extract the user's text input from an A2A message.
+
+    Handles both direct TextPart instances and wrapped Part objects
+    (where the TextPart is nested under .root).
+
+    Args:
+        message: The A2A Message object from RequestContext.
+        default: Fallback text if no user input is found.
+
+    Returns:
+        The extracted text, or the default.
+    """
+    if message and message.parts:
+        text_parts = []
+        for part in message.parts:
+            if isinstance(part, TextPart):
+                text_parts.append(part.text)
+            elif hasattr(part, "root") and isinstance(part.root, TextPart):
+                text_parts.append(part.root.text)
+        if text_parts:
+            return " ".join(text_parts)
+    return default

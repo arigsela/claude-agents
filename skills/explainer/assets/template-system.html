@@ -1,0 +1,161 @@
+<title>{{TITLE}}</title>
+<style>
+  :root { --bg:#ffffff; --fg:#0f172a; --muted:#475569; --card:#f8fafc; --border:#e2e8f0;
+          --accent:#2563eb; --high:#dc2626; --med:#b45309; --info:#2563eb; --banner:#fef2f2;
+          --ok:#15803d; --okbg:#dcfce7; --badbg:#fee2e2; --addbg:#dcfce7; --delbg:#fee2e2; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827;
+      --border:#1f2937; --accent:#60a5fa; --high:#f87171; --med:#fbbf24; --info:#60a5fa; --banner:#3f1d1d;
+      --ok:#4ade80; --okbg:#14532d; --badbg:#3f1d1d; --addbg:#14532d; --delbg:#3f1d1d;
+      color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827;
+    --border:#1f2937; --accent:#60a5fa; --high:#f87171; --med:#fbbf24; --info:#60a5fa; --banner:#3f1d1d;
+    --ok:#4ade80; --okbg:#14532d; --badbg:#3f1d1d; --addbg:#14532d; --delbg:#3f1d1d;
+    color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:24px 16px 48px; overflow-wrap:anywhere; }
+  h1 { font-size:1.35rem; margin:0 0 4px; text-wrap:balance; }
+  h2 { font-size:1.05rem; margin:28px 0 8px; display:flex; align-items:baseline; gap:10px; }
+  h3 { font-size:.95rem; margin:14px 0 4px; }
+  .meta { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .card p:first-child { margin-top:0; } .card p:last-child { margin-bottom:0; }
+  .card + .card { margin-top:10px; }
+  .slides { display:grid; gap:12px; } .slides img { width:100%; height:auto; border-radius:6px; display:block; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; }
+  th, td { border-bottom:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
+  th, td { overflow-wrap:normal; }
+  td a { overflow-wrap:anywhere; }
+  td .ref { display:block; } td .ref + .ref { margin-top:4px; }
+  li .ref, p .ref { margin-left:.4em; }
+  a { color:var(--accent); }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .pill { border:1px solid var(--border); border-radius:999px; padding:1px 8px; }
+  .banner { background:var(--banner); border:1px solid var(--high); border-radius:10px; padding:10px 14px; margin:12px 0; }
+  ul.callouts { list-style:none; padding:0; }
+  ul.callouts li { padding:6px 0; border-bottom:1px solid var(--border); }
+  .sev { display:inline-block; min-width:64px; font-weight:600; text-transform:uppercase; font-size:.75rem; }
+  .sev-high .sev { color:var(--high); } .sev-med .sev { color:var(--med); } .sev-info .sev { color:var(--info); }
+  pre.mermaid { margin:0; background:transparent; }
+  ol.walk > li { margin:0 0 10px; }
+  ol.walk summary { cursor:pointer; }
+  pre.hunk, pre.facts { margin:8px 0 0; padding:10px 12px; background:var(--card); border:1px solid var(--border);
+             border-radius:8px; font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+             white-space:pre; overflow-x:auto; }
+  pre.hunk .add { background:var(--addbg); display:inline-block; min-width:100%; }
+  pre.hunk .del { background:var(--delbg); display:inline-block; min-width:100%; }
+  pre.hunk .hdr { color:var(--muted); }
+  ol.quiz > li { margin:0 0 18px; }
+  ol.quiz .opts { display:flex; flex-direction:column; gap:6px; margin:6px 0; }
+  .opt { text-align:left; font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--border);
+         border-radius:8px; padding:8px 12px; cursor:pointer; }
+  .opt:hover { border-color:var(--accent); }
+  .q.done .opt { cursor:default; opacity:.75; }
+  .q.done .opt.right { background:var(--okbg); border-color:var(--ok); opacity:1; }
+  .q.done .opt.wrong { background:var(--badbg); border-color:var(--high); opacity:1; }
+  .why { margin:6px 0 0; padding:8px 12px; border-left:3px solid var(--border); }
+  .why.right { border-color:var(--ok); } .why.wrong { border-color:var(--high); }
+  .score { font-weight:600; }
+  button.ask { font:inherit; font-size:.78rem; color:var(--muted); background:transparent;
+               border:1px solid var(--border); border-radius:999px; padding:1px 9px; cursor:pointer; }
+  button.ask:hover { color:var(--accent); border-color:var(--accent); }
+  ul.questions li { margin:4px 0; }
+</style>
+<main>
+  <h1>{{PR_TITLE}}</h1>
+  <div class="meta">{{HEADER}}</div>
+  {{BANNER}}
+  <h2>TL;DR <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="card">{{TLDR}}</div>
+  {{PRIMER}}
+  {{INFOGRAPHIC}}
+  <h2>Background <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="card">{{BACKGROUND}}</div>
+  {{PLAN}}
+  <h2>Components <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="scroll"><table>
+    <thead><tr><th>App</th><th>Role</th><th>Refs</th></tr></thead>
+    <tbody>{{COMPONENTS}}</tbody>
+  </table></div>
+  <h2>How it works <button type="button" class="ask" hidden>Comment</button></h2>
+  {{HOW_IT_WORKS}}
+  <h2>Resource map <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="card scroll"><pre class="mermaid">{{MERMAID}}</pre></div>
+  <p class="meta">blue this service · grey a generated Secret or unchanged context</p>
+  <h2>Where it runs <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Environment</th><th>What differs</th><th>Refs</th></tr></thead>
+    <tbody>{{WHERE_IT_RUNS}}</tbody>
+  </table></div>
+  <h2>Config that matters <button type="button" class="ask" hidden>Comment</button></h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Key</th><th>Why it matters</th><th>Refs</th></tr></thead>
+    <tbody>{{CONFIG}}</tbody>
+  </table></div>
+  {{TICKET}}
+  {{DOCS}}
+  <h2>Risk callouts <button type="button" class="ask" hidden>Comment</button></h2>
+  <ul class="callouts">{{CALLOUTS}}</ul>
+  <h2>Open these files first <button type="button" class="ask" hidden>Comment</button></h2>
+  <ol>{{MUST_READ}}</ol>
+  <h2>{{OPEN_QUESTIONS_TITLE}} <button type="button" class="ask" hidden>Comment</button></h2>
+  <p class="meta">Prompts, not findings: what the repo cannot answer, or what looks worth a decision.{{OPEN_QUESTIONS_DOCS}}</p>
+  <ul class="questions">{{OPEN_QUESTIONS}}</ul>
+  <h2>Walkthrough, in reading order <button type="button" class="ask" hidden>Comment</button></h2>
+  <p class="meta">Each step shows the facts the scripts collected for that item. Click a step to fold or unfold it.</p>
+  <ol class="walk">{{WALKTHROUGH}}</ol>
+  <h2>Not covered by this page <button type="button" class="ask" hidden>Comment</button></h2>
+  <ul>{{NOT_COVERED}}</ul>
+  {{QUIZ_SECTION}}
+</main>
+<script>
+  (function () {
+    var quiz = document.querySelector("ol.quiz");
+    var score = document.querySelector("p.score");
+    if (!quiz) return;
+    quiz.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("button.opt");
+      if (!btn) return;
+      var q = btn.closest("li.q");
+      if (!q || q.classList.contains("done")) return;
+      q.classList.add("done");
+      var right = btn.dataset.correct === "1";
+      q.dataset.right = right ? "1" : "0";
+      btn.classList.add(right ? "right" : "wrong");
+      btn.setAttribute("aria-pressed", "true");
+      q.querySelectorAll("button.opt").forEach(function (b) {
+        b.disabled = true;
+        if (b.dataset.correct === "1") b.classList.add("right");
+      });
+      var why = q.querySelector(".why");
+      why.textContent = (right ? "Correct. " : "Not quite. ") + (btn.dataset.why || "");
+      why.classList.add(right ? "right" : "wrong");
+      why.hidden = false;
+      var all = quiz.querySelectorAll("li.q");
+      var done = quiz.querySelectorAll("li.q.done");
+      if (all.length && done.length === all.length && score) {
+        var n = quiz.querySelectorAll('li.q[data-right="1"]').length;
+        score.textContent = "You got " + n + " of " + all.length + "." +
+          (n === all.length ? " You know this system." : " Re-read the sections cited next to the questions you missed.");
+        score.hidden = false;
+      }
+    });
+  })();
+  (function () {
+    var c = window.claude;
+    if (!c || typeof c.use !== "function") return;
+    Promise.resolve(c.use("comments")).then(function (comments) {
+      if (!comments || typeof comments.openComposer !== "function") return;
+      document.querySelectorAll("button.ask").forEach(function (b) {
+        b.hidden = false;
+        b.addEventListener("click", function () {
+          comments.openComposer({ element: b.parentElement }).catch(function () { b.hidden = true; });
+        });
+      });
+    }, function () {});
+  })();
+</script>
