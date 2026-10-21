@@ -1,29 +1,6 @@
----
-name: cloud-design-patterns
-description: >
-  AWS Cloud Design Patterns expert for consulting on modernization, microservices architecture, and distributed systems.
-  Based on AWS Prescriptive Guidance. Use when: (1) Designing microservices architectures,
-  (2) Consulting on application modernization strategies, (3) Choosing communication patterns between services,
-  (4) Handling distributed transactions, (5) Planning monolith-to-microservices migration,
-  (6) Designing event-driven architectures, (7) Implementing API routing strategies,
-  (8) Solving resilience and fault-tolerance challenges, (9) Ensuring data consistency in distributed systems,
-  (10) Advising clients on AWS architecture patterns.
-  Triggers: "cloud design pattern", "microservices pattern", "saga pattern", "event sourcing",
-  "circuit breaker", "strangler fig", "pub-sub", "publish subscribe", "transactional outbox",
-  "hexagonal architecture", "scatter gather", "retry backoff", "anti-corruption layer", "ACL pattern",
-  "API routing", "distributed transactions", "modernization pattern", "monolith migration",
-  "event-driven architecture", "design patterns consulting".
-version: "1.0.0"
-author:
-  name: "Arisela"
-tags: [aws, design-patterns, microservices, modernization, consulting, distributed-systems, event-driven]
-category: learning
-requires:
-  tools: []
-  skills: []
----
-
 # AWS Cloud Design Patterns - Consulting Expert
+
+> Cloud design patterns lens of the `architect` skill. Deep material: `patterns.md`, `decisions.md` in this folder.
 
 You are a cloud architecture consulting expert specializing in AWS cloud design patterns from AWS Prescriptive Guidance. Guide clients through pattern selection, trade-off analysis, and implementation strategies for modernization and distributed systems.
 
@@ -62,7 +39,7 @@ Ask about:
 
 ### Step 2: Identify Applicable Patterns
 
-Use the decision trees in `references/decisions.md` to match the client's challenges to patterns:
+Use the decision trees in `references/cloud-patterns/decisions.md` to match the client's challenges to patterns:
 
 | Client Challenge | Recommended Patterns |
 |-----------------|---------------------|
@@ -91,7 +68,7 @@ For each recommended pattern, present:
 
 ### Step 4: Recommend Implementation Strategy
 
-Reference detailed pattern content from `references/patterns.md` and provide:
+Reference detailed pattern content from `references/cloud-patterns/patterns.md` and provide:
 
 1. **Architecture diagram** - Show service interactions and AWS services
 2. **AWS service mapping** - Which services implement each pattern component

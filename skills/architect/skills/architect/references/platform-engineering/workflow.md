@@ -1,16 +1,6 @@
----
-name: platform-engineering-architect
-description: |
-  Platform Engineering architecture decision support using industry frameworks (CNPA, Microsoft, Team Topologies, DORA, SRE).
-  Use when: (1) Designing Internal Developer Platforms (IDPs), (2) Making platform architecture decisions,
-  (3) Evaluating platform capabilities or maturity, (4) Planning platform team structure,
-  (5) Defining golden paths or paved roads, (6) Assessing cognitive load reduction strategies,
-  (7) Preparing for platform engineering interviews, (8) Creating platform roadmaps.
-  Triggers: "platform engineering", "IDP", "developer platform", "golden path", "cognitive load",
-  "DORA metrics", "platform team", "thinnest viable platform", "self-service", "developer experience".
----
-
 # Platform Engineering Architect
+
+> Platform engineering lens of the `architect` skill. Deep material: `frameworks.md`, `decisions.md`, `patterns.md` in this folder.
 
 Decision support for Internal Developer Platform (IDP) architecture using industry-standard frameworks.
 
@@ -18,13 +8,13 @@ Decision support for Internal Developer Platform (IDP) architecture using indust
 
 | Framework | Use For | Reference |
 |-----------|---------|-----------|
-| **Microsoft 4 Areas** | Organizing platform scope | [frameworks.md](references/frameworks.md#microsoft-four-areas) |
-| **Microsoft 6 Capabilities** | Maturity assessment | [frameworks.md](references/frameworks.md#microsoft-capability-model) |
-| **CNPA 8 Capabilities** | IDP feature completeness | [frameworks.md](references/frameworks.md#cnpa-eight-capabilities) |
-| **Team Topologies** | Team structure decisions | [frameworks.md](references/frameworks.md#team-topologies) |
-| **DORA Metrics** | Measuring platform success | [frameworks.md](references/frameworks.md#dora-metrics) |
-| **SRE Principles** | Reliability architecture | [frameworks.md](references/frameworks.md#sre-principles) |
-| **Three Ways** | DevOps culture alignment | [frameworks.md](references/frameworks.md#the-three-ways) |
+| **Microsoft 4 Areas** | Organizing platform scope | [frameworks.md](frameworks.md#microsoft-four-areas) |
+| **Microsoft 6 Capabilities** | Maturity assessment | [frameworks.md](frameworks.md#microsoft-capability-model) |
+| **CNPA 8 Capabilities** | IDP feature completeness | [frameworks.md](frameworks.md#cnpa-eight-capabilities) |
+| **Team Topologies** | Team structure decisions | [frameworks.md](frameworks.md#team-topologies) |
+| **DORA Metrics** | Measuring platform success | [frameworks.md](frameworks.md#dora-metrics) |
+| **SRE Principles** | Reliability architecture | [frameworks.md](frameworks.md#sre-principles) |
+| **Three Ways** | DevOps culture alignment | [frameworks.md](frameworks.md#the-three-ways) |
 
 ## Decision Workflow
 
@@ -65,7 +55,7 @@ Before recommending, identify what type of decision:
 
 ### 3. Common Architecture Decisions
 
-For detailed decision trees and patterns, see [decisions.md](references/decisions.md).
+For detailed decision trees and patterns, see [decisions.md](decisions.md).
 
 **CI/CD Architecture:**
 - Push-based (Jenkins-style) vs Pull-based (GitOps)
@@ -135,6 +125,6 @@ When providing architecture recommendations:
 
 ## Reference Files
 
-- [frameworks.md](references/frameworks.md) - Complete framework details (CNPA, Microsoft, Team Topologies, DORA, SRE, Three Ways)
-- [decisions.md](references/decisions.md) - Decision trees for common architecture choices
-- [patterns.md](references/patterns.md) - Implementation patterns and anti-patterns
+- [frameworks.md](frameworks.md) - Complete framework details (CNPA, Microsoft, Team Topologies, DORA, SRE, Three Ways)
+- [decisions.md](decisions.md) - Decision trees for common architecture choices
+- [patterns.md](patterns.md) - Implementation patterns and anti-patterns

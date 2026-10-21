@@ -1,7 +1,17 @@
 {
   "version": 1,
-  "lastUpdated": "2026-09-30T00:00:00Z",
+  "lastUpdated": "2026-10-21T00:00:00Z",
   "skills": {
+    "architect": {
+      "name": "architect",
+      "version": "1.0.0",
+      "path": "./architect",
+      "installedAt": "2026-10-21T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/architect"
+      }
+    },
     "architecture-diagrams": {
       "name": "architecture-diagrams",
       "version": "1.0.0",
@@ -10,26 +20,6 @@
       "source": {
         "type": "local",
         "ref": "skills/architecture-diagrams"
-      }
-    },
-    "aws-well-architected": {
-      "name": "aws-well-architected",
-      "version": "1.0.0",
-      "path": "./aws-well-architected",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/aws-well-architected"
-      }
-    },
-    "cloud-design-patterns": {
-      "name": "cloud-design-patterns",
-      "version": "1.0.0",
-      "path": "./cloud-design-patterns",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/cloud-design-patterns"
       }
     },
     "code-review": {
@@ -102,16 +92,6 @@
         "ref": "skills/crewai-tool-development"
       }
     },
-    "devops-architect": {
-      "name": "devops-architect",
-      "version": "1.0.0",
-      "path": "./devops-architect",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/devops-architect"
-      }
-    },
     "executing-implementation-plans": {
       "name": "executing-implementation-plans",
       "version": "1.0.0",
@@ -160,16 +140,6 @@
       "source": {
         "type": "local",
         "ref": "skills/olympus-customer-deletion"
-      }
-    },
-    "platform-engineering-architect": {
-      "name": "platform-engineering-architect",
-      "version": "1.0.0",
-      "path": "./platform-engineering-architect",
-      "installedAt": "2026-02-09T00:00:00Z",
-      "source": {
-        "type": "local",
-        "ref": "skills/platform-engineering-architect"
       }
     },
     "prompt-engineering-patterns": {

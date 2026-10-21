@@ -111,17 +111,14 @@ skills/review-retro/          # /review-retro <PR> | --since 14d
 
 **Technologies**: `Claude Code Plugins` `Bash` `jq` `YAML Frontmatter` `ZIP Bundles`
 
-**Available Skills (19)**:
+**Available Skills (16)**:
 | Skill | Category | Description |
 |-------|----------|-------------|
 | architecture-diagrams | documentation | Mermaid, PlantUML, C4 system diagrams |
 | code-review | development | Parallel agent PR review with confidence scoring |
 | feature-builder | development | Ralph Loop automated feature development |
 | prompt-engineering-patterns | learning | LLM prompt optimization techniques |
-| aws-well-architected | architecture | AWS Well-Architected Framework reviews |
-| devops-architect | architecture | DevOps best practices with maturity scoring |
-| cloud-design-patterns | architecture | AWS cloud patterns for microservices |
-| platform-engineering-architect | architecture | IDP design (CNPA, Team Topologies, DORA) |
+| architect | architecture | Architecture consulting in five lenses: Well-Architected, cloud patterns, DevOps/12-Factor, platform engineering, agentic platforms |
 | git-commit-pr | development | Automated git workflow: branch, commit, push, PR |
 | creating-implementation-plans | development | Phase-based implementation planning |
 | executing-implementation-plans | development | Phase-based execution with checkpoints |
@@ -148,12 +145,11 @@ claude plugin add --from-github arigsela/claude-agents/skills/<skill-name>
 
 **Available skill names for installation:**
 ```
-architecture-diagrams           aws-well-architected            cloud-design-patterns
-code-review                     creating-implementation-plans   crewai-agent-design
-crewai-crew-orchestration       crewai-memory-knowledge         crewai-testing-observability
-crewai-tool-development         devops-architect                executing-implementation-plans
-feature-builder                 git-commit-pr                   olympus-customer-deletion
-platform-engineering-architect  prompt-engineering-patterns
+architect                       architecture-diagrams           code-review
+creating-implementation-plans   crewai-agent-design             crewai-crew-orchestration
+crewai-memory-knowledge         crewai-testing-observability    crewai-tool-development
+executing-implementation-plans  feature-builder                 git-commit-pr
+olympus-customer-deletion       prompt-engineering-patterns
 ```
 
 #### Legacy CLI (local use)
@@ -173,7 +169,7 @@ skills/
 ├── architecture-diagrams/ # System diagrams
 ├── code-review/           # Parallel agent PR review
 ├── feature-builder/       # Ralph Loop development
-├── devops-architect/      # DevOps best practices
+├── architect/             # Architecture consulting (five lenses)
 └── ...                    # 7 more skills
 ```
 

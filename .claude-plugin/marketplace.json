@@ -25,24 +25,9 @@
       "description": "Master advanced prompt engineering techniques to maximize LLM performance, reliability, and controllability in production."
     },
     {
-      "name": "aws-well-architected",
-      "source": "./skills/aws-well-architected",
-      "description": "AWS Well-Architected Framework expert for architecture reviews, design guidance, and best practices across all six pillars."
-    },
-    {
-      "name": "devops-architect",
-      "source": "./skills/devops-architect",
-      "description": "DevOps and infrastructure best practices architect using 12-Factor App methodology and DevOps Best Practices Checklist."
-    },
-    {
-      "name": "cloud-design-patterns",
-      "source": "./skills/cloud-design-patterns",
-      "description": "AWS Cloud Design Patterns expert for microservices architecture and distributed systems based on AWS Prescriptive Guidance."
-    },
-    {
-      "name": "platform-engineering-architect",
-      "source": "./skills/platform-engineering-architect",
-      "description": "Platform Engineering architecture decision support using industry frameworks (CNPA, Microsoft, Team Topologies, DORA, SRE)."
+      "name": "architect",
+      "source": "./skills/architect",
+      "description": "Architecture consulting in five lenses: AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms."
     },
     {
       "name": "git-commit-pr",

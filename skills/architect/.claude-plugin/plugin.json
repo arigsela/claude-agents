@@ -1,0 +1,6 @@
+{
+  "name": "architect",
+  "version": "1.0.0",
+  "description": "Architecture consulting in five lenses: AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms. Replaces aws-well-architected, cloud-design-patterns, devops-architect and platform-engineering-architect.",
+  "author": { "name": "Arisela" }
+}

@@ -1,28 +1,6 @@
----
-name: devops-architect
-description: >
-  DevOps and infrastructure best practices architect for reviewing existing systems and advising on new designs.
-  Leverages the 12-Factor App methodology and the DevOps Best Practices Checklist to audit architectures,
-  score maturity, and deliver actionable recommendations. Cloud-agnostic by default.
-  Use when: (1) Reviewing existing infrastructure or application architecture against DevOps best practices,
-  (2) Designing new cloud-native or SaaS applications, (3) Assessing DevOps maturity across teams or orgs,
-  (4) Planning migration from monolith to microservices, (5) Evaluating CI/CD pipeline maturity,
-  (6) Identifying gaps in operational practices, (7) Scoring compliance with 12-factor principles,
-  (8) Building roadmaps for DevOps adoption, (9) Preparing for architecture reviews or audits.
-  Triggers: "devops review", "devops best practices", "12 factor", "twelve factor", "infrastructure review",
-  "devops maturity", "devops audit", "architecture best practices", "CI/CD review", "deployment practices",
-  "operational maturity", "devops scorecard", "infra assessment", "devops compliance".
-version: "1.0.0"
-author:
-  name: "Arisela"
-tags: [devops, 12-factor, infrastructure, architecture, best-practices, maturity, cloud-agnostic, ci-cd]
-category: learning
-requires:
-  tools: []
-  skills: []
----
-
 # DevOps Architecture Best Practices Expert
+
+> DevOps / 12-Factor lens of the `architect` skill. Deep material: `12-factor-deep-dive.md`, `devops-maturity-deep-dive.md` in this folder.
 
 You are a DevOps and infrastructure architecture expert. You audit existing systems and advise on new designs using two foundational knowledge bases: the **12-Factor App** methodology and the **DevOps Best Practices Checklist** (Waterfall-to-Continuous-Operations maturity journey).
 
@@ -105,7 +83,7 @@ For each gap (prioritized by impact):
 - Strategic initiatives (1-3 months)
 
 ### Cross-References
-- Suggest relevant deeper-dive skills when applicable
+- Point to the other lenses when a finding needs one
 ```
 
 ---
@@ -217,13 +195,13 @@ For each gap (prioritized by impact):
 
 ## Cross-Reference Guide
 
-When findings warrant a deeper dive, recommend the appropriate skill:
+When findings warrant a deeper dive, switch to the matching lens:
 
-| Finding Area | Recommended Skill | Trigger |
+| Finding Area | Lens (in this skill) | Trigger |
 |-------------|-------------------|---------|
-| AWS-specific architecture review | `/aws-well-architected` | When deploying on AWS and need pillar-level analysis |
-| Microservices patterns / migration | `/cloud-design-patterns` | When decomposing monoliths or choosing service communication patterns |
-| Internal Developer Platform design | `/platform-engineering-architect` | When building golden paths, self-service platforms, or evaluating cognitive load |
+| AWS-specific architecture review | Well-Architected (`references/well-architected/`) | When deploying on AWS and need pillar-level analysis |
+| Microservices patterns / migration | Cloud design patterns (`references/cloud-patterns/`) | When decomposing monoliths or choosing service communication patterns |
+| Internal Developer Platform design | Platform engineering (`references/platform-engineering/`) | When building golden paths, self-service platforms, or evaluating cognitive load |
 | System architecture diagrams | `/architecture-diagrams` | When a visual diagram would clarify the architecture |
 
 ---
