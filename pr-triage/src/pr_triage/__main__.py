@@ -9,7 +9,7 @@ import sys
 from dataclasses import asdict
 
 from . import gh
-from .claude import ClaudeError, claude_note, make_client
+from .claude import DEFAULT_MODEL, ClaudeError, claude_note, make_client
 from .comment import apply_label, render_comment, upsert_comment
 from .features import extract_features
 from .pipeline import make_fetch, policy_text, triage_pr
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--policy-ref", help="commit to read the policy from (default: PR base SHA)")
         p.add_argument("--policy-file", help="local policy file (before it is merged)")
         p.add_argument("--jev-model", default="jev-1.13.0")
-        p.add_argument("--claude-model", default="claude-haiku-4-5")
+        p.add_argument("--claude-model", default=DEFAULT_MODEL)
         p.add_argument("--dry-run", action="store_true", help="print the comment; write nothing")
     c = sub.add_parser("calibrate", help="replay triage on merged PRs vs the follow-up heuristic")
     c.add_argument("--repo", required=True)
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--compare", choices=["haiku"])
     c.add_argument("--out", default="calibration.md")
     c.add_argument("--jev-model", default="jev-1.13.0")
-    c.add_argument("--claude-model", default="claude-haiku-4-5")
+    c.add_argument("--claude-model", default=DEFAULT_MODEL)
     args = ap.parse_args(argv)
     if args.cmd == "features":
         return cmd_features(args)
