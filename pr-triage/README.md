@@ -34,7 +34,12 @@ and the comment says `triage degraded: …`.
 uv run --project pr-triage python -m pr_triage features --repo owner/name --pr 123 [--policy-file path]
 uv run --project pr-triage python -m pr_triage run --repo owner/name --pr 123 --dry-run [--policy-file path]
 uv run --project pr-triage python -m pr_triage calibrate --repo owner/name --limit 200 [--compare haiku] --out calibration.md
+uv run --project pr-triage --with pytest pytest pr-triage/tests -q   # the Claude request shape
 ```
+
+Claude is `claude-haiku-5-5` unless the `claude-model` input (or `--claude-model`) says otherwise.
+It thinks by default, so a response can start with thinking blocks and `MAX_TOKENS` leaves room for
+them; `claude-haiku-4-5` still works through the same input.
 
 Re-run `calibrate` whenever the Jev model, the question text, the criteria or the thresholds change.
 They are versioned as one unit.

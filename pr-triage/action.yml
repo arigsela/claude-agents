@@ -15,7 +15,7 @@ inputs:
     default: jev-1.13.0
   claude-model:
     description: Claude model for the uncertain band and the note
-    default: claude-haiku-4-5
+    default: claude-haiku-5-5
   dry-run:
     description: Print the comment instead of writing it
     default: "false"
