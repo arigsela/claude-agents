@@ -22,6 +22,32 @@ TEXT_CAP = 20000
 QUERY_CAP = 300
 HOST_CAP = 10
 _NS_MATCHER = re.compile(r'namespace\s*=~?\s*"')
+_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}\b")
+_MATCHER = re.compile(r'([A-Za-z_]\w*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _value_matches(op: str, pattern: str, name: str) -> bool:
+    if op == "=":
+        return pattern == name
+    try:
+        return re.fullmatch(pattern, name) is not None
+    except re.error:
+        return False
+
+
+def _rule_match(exprs: list[str], namespace: str | None, names: list[str]) -> tuple[bool, bool, bool]:
+    """(mentions the app, namespace-filtered, namespace matched). Only positive matchers on quoted values count."""
+    ns_seen = ns_hit = value_hit = False
+    for e in exprs:
+        for key, op, val in _MATCHER.findall(e):
+            if op not in ("=", "=~"):
+                continue
+            if key == "namespace":
+                ns_seen = True
+                ns_hit = ns_hit or bool(namespace and _value_matches(op, val, namespace))
+            else:
+                value_hit = value_hit or any(_value_matches(op, val, n) for n in names)
+    return ns_hit or value_hit, ns_seen, ns_hit
 
 
 def _d(v) -> dict:
@@ -47,15 +73,22 @@ def find_application(root: Path, repo: str, folder: str) -> tuple[str, dict] | N
 
 
 def _evidence(root: Path, file: str, kind: str, name: str) -> str:
-    lines = fl.find_lines(root, file, kind, name)
+    try:
+        lines = fl.find_lines(root, file, kind, name)
+    except (OSError, UnicodeDecodeError):
+        lines = None
     return f"{file}:{lines[0]}-{lines[1]}" if lines else file
 
 
 def _comment_on_replicas(root: Path, file: str, kind: str, name: str) -> str | None:
-    lines = fl.find_lines(root, file, kind, name)
-    if not lines:
+    try:
+        lines = fl.find_lines(root, file, kind, name)
+        if not lines:
+            return None
+        body = (root / file).read_text().splitlines()[lines[0] - 1:lines[1]]
+    except (OSError, UnicodeDecodeError):
         return None
-    for text in (root / file).read_text().splitlines()[lines[0] - 1:lines[1]]:
+    for text in body:
         m = re.match(r"^\s*replicas:\s*[^#\s]*\s*#\s*(.*\S)", text)
         if m:
             return m.group(1)
@@ -72,7 +105,7 @@ def _container_fact(ref: str, c: dict, init: bool, evidence: str) -> dict:
     image = str(c.get("image", ""))
     res = _d(c.get("resources"))
     value = {
-        "workload": ref, "init": init, "image": image, "image_pinned": "@sha256:" in image,
+        "workload": ref, "init": init, "image": image, "image_pinned": bool(_DIGEST.search(image)),
         "probes": {k: bool(c.get(f"{k}Probe")) for k in ("readiness", "liveness", "startup")},
         "resources": {"requests": _res(res.get("requests")), "limits": _res(res.get("limits"))},
         "security": {
@@ -155,16 +188,18 @@ def _alert_facts(root: Path, namespace: str | None, names: list[str]) -> list[di
         p = root / file
         if not p.is_file():
             continue
-        text = p.read_text()
         try:
+            text = p.read_text()
             docs = fl.load_docs(text)
-        except yaml.YAMLError:
+        except (yaml.YAMLError, OSError, UnicodeDecodeError):
             continue
         lines = text.splitlines()
         for doc in docs:
-            if doc.get("kind") != "ConfigMap":
+            if not isinstance(doc, dict) or doc.get("kind") != "ConfigMap":
                 continue
             for blob in _d(doc.get("data")).values():
+                if not isinstance(blob, str):
+                    continue
                 try:
                     parsed = yaml.safe_load(blob)
                 except yaml.YAMLError:
@@ -173,13 +208,9 @@ def _alert_facts(root: Path, namespace: str | None, names: list[str]) -> list[di
                     for rule in map(_d, _l(_d(group).get("rules"))):
                         exprs = [str(_d(_d(d).get("model")).get("expr")) for d in _l(rule.get("data"))
                                  if _d(_d(d).get("model")).get("expr")]
-                        mentions = any(
-                            (namespace and re.search(rf'namespace\s*=~?\s*"[^"]*{_word(namespace)}', e))
-                            or any(re.search(_word(n), e) for n in names)
-                            for e in exprs)
-                        filtered = any(_NS_MATCHER.search(e) for e in exprs)
-                        if not rule.get("uid") or (filtered and not mentions):
-                            continue  # a rule scoped to some other namespace says nothing about this app
+                        mentions, filtered, ns_hit = _rule_match(exprs, namespace, names)
+                        if not rule.get("uid") or (filtered and not ns_hit):
+                            continue  # a rule scoped only to other namespaces says nothing about this app
                         uid = str(rule["uid"])
                         line = next((i for i, t in enumerate(lines, 1)
                                      if re.search(rf"uid:\s*{re.escape(uid)}\s*$", t)), 1)
@@ -255,7 +286,7 @@ def deploy_facts(root: Path, repo: str, folder: str, work: Path) -> list[dict]:
             docs, _loaded, rnotes = fl.render_app(root, file, app, work, repo)
             notes += rnotes
             render = "rendered"
-        except RuntimeError as err:
+        except Exception as err:  # any render failure (yaml, os, helm subprocess) falls back to the raw folder
             notes.append(f"render failed: {err}")
             render = "raw-fallback"
     if render != "rendered":
@@ -281,6 +312,8 @@ def deploy_facts(root: Path, repo: str, folder: str, work: Path) -> list[dict]:
     seen: set[str] = set()
     hosts: list[str] = []
     for doc, file in docs:
+        if not isinstance(doc, dict) or not isinstance(doc.get("kind"), str):
+            continue
         kind, name = doc["kind"], str(_d(doc.get("metadata")).get("name", "?"))
         if f"{kind}/{name}" in seen:
             continue

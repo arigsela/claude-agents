@@ -304,6 +304,71 @@ class DeployFactsTest(unittest.TestCase):
         self.assertEqual(m[0]["line"], 7)
 
 
+def rules_tree(exprs):
+    """FILES with an alert ConfigMap holding one rule per expr (uid r0, r1, ...)."""
+    rules = "".join(f"      - uid: r{i}\n        title: t{i}\n        data:\n          - refId: A\n"
+                    f"            model:\n              expr: {json.dumps(e)}\n" for i, e in enumerate(exprs))
+    body = "apiVersion: 1\ngroups:\n  - name: g\n    rules:\n" + rules
+    cm = ("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: grafana-alerting\ndata:\n  rules.yaml: |\n"
+          + "".join("    " + line + "\n" for line in body.splitlines()))
+    return {**FILES, "base-apps/logging/grafana-alerting.yaml": cm}
+
+
+def alerts(files):
+    by, _ = run(files)
+    return {i.split(".", 2)[2]: f["value"] for i, f in by.items() if i.startswith("deploy.alert_rule.")}
+
+
+class HardeningTest(unittest.TestCase):
+    def test_short_digest_not_pinned(self):
+        for bad in ("@sha256:abc", "@sha256:" + "z" * 64):
+            files = dict(FILES)
+            files["base-apps/demo/deployment.yaml"] = DEPLOY.replace("@sha256:" + "a" * 64, bad)
+            by, _ = run(files)
+            self.assertFalse(by["deploy.container.Deployment/demo/oauth2-proxy"]["value"]["image_pinned"], bad)
+
+    def test_workload_name_only_in_label_values(self):
+        got = alerts(rules_tree(['up{app="valkey"}', 'up{valkey="x"}', 'valkey_up', 'up{job="demo-x"}']))
+        self.assertEqual(sorted(got), ["r0", "r1", "r2", "r3"])  # r1..r3 are generic, kept
+        self.assertTrue(got["r0"]["mentions_app"])
+        for k in ("r1", "r2", "r3"):
+            self.assertFalse(got[k]["mentions_app"], k)
+            self.assertFalse(got[k]["namespace_filtered"], k)
+
+    def test_regex_namespace_matcher(self):
+        got = alerts(rules_tree(['up{namespace=~"de.*"}', 'up{namespace=~"hk-.*"}']))
+        self.assertEqual(sorted(got), ["r0"])
+        self.assertTrue(got["r0"]["mentions_app"] and got["r0"]["namespace_filtered"])
+
+    def test_other_namespace_excluded_despite_workload_value(self):
+        self.assertEqual(alerts(rules_tree(['up{namespace="postgresql", app="valkey"}'])), {})
+
+    def test_negative_matcher_stays_generic(self):
+        got = alerts(rules_tree(['container_memory_working_set_bytes{container!=""}']))
+        self.assertFalse(got["r0"]["namespace_filtered"])
+        self.assertFalse(got["r0"]["mentions_app"])
+
+    def test_malformed_manifests_and_data(self):
+        files = dict(FILES)
+        files["base-apps/demo/bad.yaml"] = ("- a\n- b\n---\nmetadata:\n  name: nokind\n---\n"
+                                            "kind: [x]\nmetadata: {name: y}\n---\n42\n")
+        files["base-apps/logging/grafana-alerting.yaml"] = (
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: grafana-alerting\n"
+            "data:\n  n: 5\n  l: [1]\n  x: null\n")
+        by, _ = run(files)
+        self.assertIn("deploy.workload.Deployment/demo", by)
+        self.assertEqual(by["deploy.application"]["value"]["render"], "rendered")
+
+    def test_other_render_errors_fall_back(self):
+        import yaml
+        with mock.patch.object(facts_lib, "render_app", side_effect=yaml.YAMLError("boom")):
+            by, _ = run()
+        a = by["deploy.application"]["value"]
+        self.assertEqual(a["render"], "raw-fallback")
+        self.assertTrue(any("boom" in n for n in a["notes"]))
+        self.assertIn("deploy.workload.Deployment/demo", by)
+
+
 class FallbackTest(unittest.TestCase):
     def test_helm_missing_falls_back(self):
         files = dict(FILES)
