@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/readiness/s
 
 import collect as c  # noqa: E402
 import deploy_facts as df  # noqa: E402
-from readiness_model import SOURCES  # noqa: E402
+from readiness_model import SOURCES, Facts  # noqa: E402
 from tests.readiness import fixtures as fx  # noqa: E402
 from tests.readiness.test_app_facts import DOCKERFILE  # noqa: E402
 from tests.readiness.test_deploy_facts import APP as DEPLOY_APP, FILES as DEPLOY_FILES  # noqa: E402
@@ -167,8 +167,20 @@ class ParseManagedByTest(unittest.TestCase):
         for loc in ("", "file:/tmp/catalog-info.yaml", "url:https://github.com/o/r",
                     "url:https://gitlab.com/o/r/-/blob/main/catalog-info.yaml",
                     "url:https://github.com/o/r/edit/main/x/catalog-info.yaml",
-                    "url:https://evilgithub.com/o/r/tree/main/x/catalog-info.yaml"):
+                    "url:https://evilgithub.com/o/r/tree/main/x/catalog-info.yaml",
+                    # catalog data must not steer reads outside the deploy clone
+                    "url:https://github.com/o/r/tree/main/../../../../etc/catalog-info.yaml",
+                    "url:https://github.com/o/r/tree/main/a/../../b/catalog-info.yaml",
+                    "url:https://github.com/o/r/blob/main/a/..",
+                    "url:https://github.com/o/r/tree/main/./a/catalog-info.yaml",
+                    "url:https://github.com/o/r/tree/main/a/./catalog-info.yaml",
+                    "url:https://github.com/o/r/tree/main/a//b/catalog-info.yaml",
+                    "url:https://github.com/o/r/tree/main//a/catalog-info.yaml"):
             self.assertIsNone(c.parse_managed_by(loc), loc)
+
+    def test_dotted_names_are_not_traversal(self):
+        self.assertEqual(c.parse_managed_by("url:https://github.com/o/r/tree/main/a/...b/.x/catalog-info.yaml"),
+                         ("o/r", "a/...b/.x"))
 
 
 class HappyPathTest(unittest.TestCase):
@@ -197,6 +209,12 @@ class HappyPathTest(unittest.TestCase):
 
     def test_every_source_ok(self):
         self.assertEqual(self.d["meta"]["sources"], {s: "ok" for s in SOURCES})
+
+    def test_facts_accessor_reads_collect_doc(self):
+        f = Facts(self.d)
+        self.assertIs(f.ok("app"), True)
+        self.assertTrue(all(f.ok(s) for s in SOURCES))
+        self.assertEqual(f.value("backstage.entity")["ref"], "component:demo/demo")
 
     def test_meta(self):
         meta = self.d["meta"]
@@ -416,6 +434,50 @@ class DeployRevisionTest(Case):
         self.assertIsNone(d["meta"]["deploy"]["sha"])
         self.assertEqual(s["cluster"], "unavailable: no rendered workloads")
         self.assertEqual((s["app"], s["backstage"], s["github"]), ("ok", "ok", "ok"))
+
+    def test_folder_escaping_the_clone(self):
+        """A deploy folder that resolves outside the clone (a committed symlink) is never read."""
+        w = self.world(entities=[entity(location=LOCATION.replace("base-apps/demo/", "base-apps/evil/"))])
+        outside = w.tmp / "outside"
+        fx.write_tree(outside, {"runbook.md": "OUTSIDE-CANARY\n",
+                                "deployment.yaml": DEPLOY_FILES["base-apps/demo/deployment.yaml"]})
+        src = fx.git_repo(w.tmp, DEPLOY_FILES)
+        (src / "base-apps" / "evil").symlink_to(outside, target_is_directory=True)
+        fx.commit_files(src, {}, "link")
+        bare = w.tmp / "evil-remote.git"
+        fx.git(w.tmp, "clone", "--quiet", "--bare", str(src), str(bare))
+        w.repo_urls = {DEPLOY_REPO: bare.as_uri()}
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"], "unavailable: unsafe folder")
+        self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+        self.assertNotIn("OUTSIDE-CANARY", (w.out / "facts.json").read_text())
+
+    def test_symlink_inside_folder_escaping_the_clone(self):
+        """deploy.text would copy a runbook.md -> <outside file> link's target into facts.json."""
+        w = self.world()
+        secret = w.tmp / "secret.txt"
+        secret.write_text("OUTSIDE-CANARY\n")
+        src = fx.git_repo(w.tmp, {k: v for k, v in DEPLOY_FILES.items() if k != "base-apps/demo/runbook.md"})
+        (src / "base-apps" / "demo" / "runbook.md").symlink_to(secret)
+        fx.commit_files(src, {}, "link")
+        bare = w.tmp / "evil-remote.git"
+        fx.git(w.tmp, "clone", "--quiet", "--bare", str(src), str(bare))
+        w.repo_urls = {DEPLOY_REPO: bare.as_uri()}
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"], "unavailable: unsafe folder")
+        self.assertNotIn("OUTSIDE-CANARY", (w.out / "facts.json").read_text())
+
+    def test_entity_namespace_reaches_alert_rules(self):
+        """ApplicationSet apps have no hand-written Application: the entity's namespace scopes the alert rules."""
+        w = self.world(deploy_files={k: v for k, v in DEPLOY_FILES.items() if k != "base-apps/demo.yaml"})
+        d = w.collect()
+        by = by_id(d)
+        self.assertEqual(by["deploy.application"]["value"]["render"], "no-application")
+        self.assertEqual(sorted(i for i in by if i.startswith("deploy.alert_rule.")),
+                         ["deploy.alert_rule.demo-up", "deploy.alert_rule.generic-mem"])
+        with mock.patch.object(c.df, "deploy_facts", wraps=c.df.deploy_facts) as spy:
+            w.collect()
+        self.assertEqual(spy.call_args.kwargs.get("namespace"), "demo")
 
     def test_missing_target_revision(self):
         app = DEPLOY_APP.replace("targetRevision: main", "targetRevision: gone")

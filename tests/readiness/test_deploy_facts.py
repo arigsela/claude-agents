@@ -201,13 +201,13 @@ FILES = {
 }
 
 
-def run(files=None, folder="base-apps/demo"):
+def run(files=None, folder="base-apps/demo", **kw):
     with tempfile.TemporaryDirectory() as d:
         root = Path(d) / "tree"
         write_tree(root, files or FILES)
         work = Path(d) / "work"
         work.mkdir()
-        facts = df.deploy_facts(root, REPO, folder, work)
+        facts = df.deploy_facts(root, REPO, folder, work, **kw)
         return {f["id"]: f for f in facts}, facts
 
 
@@ -367,6 +367,27 @@ class HardeningTest(unittest.TestCase):
         self.assertEqual(a["render"], "raw-fallback")
         self.assertTrue(any("boom" in n for n in a["notes"]))
         self.assertIn("deploy.workload.Deployment/demo", by)
+
+
+class NamespaceFallbackTest(unittest.TestCase):
+    """ApplicationSet-generated apps have no hand-written Application, so the caller supplies the namespace."""
+
+    NO_APP = {k: v for k, v in FILES.items() if k != "base-apps/demo.yaml"}
+
+    def rules(self, files, **kw):
+        by, facts = run(files, **kw)
+        return sorted(i.split(".", 2)[2] for i in by if i.startswith("deploy.alert_rule.")), facts
+
+    def test_no_application_uses_given_namespace(self):
+        got, facts = self.rules(self.NO_APP, namespace="demo")
+        self.assertEqual(got, ["demo-up", "generic-mem"])
+        self.assertIsNone(df.namespace_of(facts))  # deploy.application still describes the (missing) Application
+
+    def test_no_application_no_namespace_drops_namespaced_rules(self):
+        self.assertEqual(self.rules(self.NO_APP)[0], ["generic-mem"])
+
+    def test_application_namespace_wins(self):
+        self.assertEqual(self.rules(FILES, namespace="other")[0], ["demo-up", "generic-mem"])
 
 
 class FallbackTest(unittest.TestCase):

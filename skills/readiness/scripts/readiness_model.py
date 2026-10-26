@@ -26,7 +26,8 @@ def fact(id: str, source: str, value, evidence: str) -> dict:
 
 
 class Facts:
-    """Read access to a facts document: {"facts": [fact, ...], "sources": {source: status}}."""
+    """Read access to a facts document (collect.py's facts.json): {"meta": {"sources": {source: status}, ...},
+    "facts": [fact, ...]}."""
 
     def __init__(self, doc: dict):
         self.doc = doc
@@ -48,7 +49,9 @@ class Facts:
         return [f["id"] for f in self._facts if any(fnmatch.fnmatchcase(f["id"], g) for g in globs)]
 
     def status(self, source: str) -> str:
-        return self.doc.get("sources", {}).get(source, "absent")
+        meta = self.doc.get("meta")
+        sources = meta.get("sources") if isinstance(meta, dict) else None
+        return sources.get(source, "absent") if isinstance(sources, dict) else "absent"
 
     def ok(self, source: str) -> bool:
         return self.status(source) == "ok"

@@ -269,7 +269,9 @@ def _host_facts(root: Path, folder: str, hosts: list[str]) -> list[dict]:
     return out
 
 
-def deploy_facts(root: Path, repo: str, folder: str, work: Path) -> list[dict]:
+def deploy_facts(root: Path, repo: str, folder: str, work: Path, namespace: str | None = None) -> list[dict]:
+    """`namespace` scopes the alert rules when no Application gives one (ApplicationSet-generated apps have no
+    hand-written Application); the Application's destination namespace wins when present."""
     folder = folder.rstrip("/")
     found = find_application(root, repo, folder)
     notes: list[str] = []
@@ -335,7 +337,7 @@ def deploy_facts(root: Path, repo: str, folder: str, work: Path) -> list[dict]:
             text = (root / rel).read_text(errors="replace")[:TEXT_CAP]
             out.append(fact(f"deploy.text.{rel}", "deploy", {"text": text}, rel))
 
-    out += _alert_facts(root, namespace_of(out), [r.split("/", 1)[1] for r in workload_refs(out)])
+    out += _alert_facts(root, namespace_of(out) or namespace, [r.split("/", 1)[1] for r in workload_refs(out)])
     out += _registry_facts(root, image_refs(out))
     out += _host_facts(root, folder, hosts)
     return out

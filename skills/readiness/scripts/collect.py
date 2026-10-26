@@ -74,7 +74,10 @@ def parse_managed_by(location: str) -> tuple[str, str] | None:
     m = _MANAGED.match((location or "").strip())
     if not m:
         return None
-    return f"{m.group(1)}/{m.group(2)}", (m.group(3) or "").strip("/")
+    folder = m.group(3) or ""
+    if folder and any(seg in ("", ".", "..") for seg in folder.split("/")):
+        return None  # catalog data must not steer reads outside the deploy clone
+    return f"{m.group(1)}/{m.group(2)}", folder
 
 
 def _log(msg: str) -> None:
@@ -206,10 +209,25 @@ def _target_revision(found: tuple[str, dict] | None, repo: str, folder: str) -> 
     return None
 
 
+def _escapes(root: Path, folder: str) -> bool:
+    """True when `folder`, or a symlink inside it, resolves outside the checkout at `root`."""
+    base = root.resolve()
+    top = root / folder
+    if not top.resolve().is_relative_to(base):
+        return True
+    if top.is_dir():
+        for p in top.rglob("*"):
+            if p.is_symlink() and not p.resolve().is_relative_to(base):
+                return True
+    return False
+
+
 def _deploy_step(ent: dict, app_slug: str | None, deploy_ref: str | None, deps: Deps,
                  tmp: Path) -> tuple[list[dict], str, dict | None]:
     """(deploy facts, deploy status, meta.deploy)."""
-    location = _d(_d(ent.get("metadata")).get("annotations")).get(MANAGED_BY)
+    annotations = _d(_d(ent.get("metadata")).get("annotations"))
+    location = annotations.get(MANAGED_BY)
+    namespace = annotations.get(K8S_NAMESPACE)
     if not location:
         return [], "unavailable: no managed-by-location", None
     target = parse_managed_by(str(location))
@@ -238,9 +256,12 @@ def _deploy_step(ent: dict, app_slug: str | None, deploy_ref: str | None, deps: 
             sha = gs.remote_checkout(url, rev, root)
         meta.update(ref=rev or dflt or "HEAD", sha=sha)
         stage = "deploy facts failed"
+        if _escapes(root, folder):
+            return [], "unavailable: unsafe folder", meta
         work = tmp / "render"
         work.mkdir(exist_ok=True)
-        return df.deploy_facts(root, repo, folder, work), "ok", meta
+        return (df.deploy_facts(root, repo, folder, work, namespace=str(namespace) if namespace else None),
+                "ok", meta)
     except Exception as err:
         return [], f"unavailable: {stage} ({_why(err)})", meta
 

@@ -19,7 +19,7 @@ def doc():
             m.fact("deploy.container.sidecar", "deploy", {"image": "y"}, "app.yaml:9"),
             m.fact("app.file.readme", "app", True, "README.md"),
         ],
-        "sources": {"deploy": "ok", "cluster": "skipped: --no-live", "app": "ok"},
+        "meta": {"sources": {"deploy": "ok", "cluster": "skipped: --no-live", "app": "ok"}},
     }
 
 
@@ -58,6 +58,12 @@ class ModelTest(unittest.TestCase):
         self.assertTrue(f.ok("deploy"))
         self.assertEqual(f.status("github"), "absent")
         self.assertFalse(f.ok("github"))
+
+    def test_status_reads_meta_sources_only(self):
+        # facts.json keeps statuses under meta.sources (plan, Task 7); a top-level "sources" is not read.
+        self.assertEqual(m.Facts({"facts": [], "sources": {"app": "ok"}}).status("app"), "absent")
+        self.assertEqual(m.Facts({"facts": []}).status("app"), "absent")
+        self.assertEqual(m.Facts({"facts": [], "meta": {}}).status("app"), "absent")
 
     def test_json_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
