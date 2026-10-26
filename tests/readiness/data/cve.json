@@ -8,7 +8,9 @@
   "totals": {
     "critical": 0,
     "high": 2,
-    "actionable": 2
+    "actionable": 2,
+    "criticalNoFix": 1,
+    "kevFixable": 0
   },
   "findings": [
     {

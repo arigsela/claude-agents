@@ -439,7 +439,7 @@ change.
 | sec.hardening | Security | `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, capabilities dropped | rule | no |
 | sec.netpol | Security | A NetworkPolicy selects the pods | rule | no |
 | sec.secrets | Security | No Secret manifests with data in Git, and secrets come from ExternalSecrets | rule | yes |
-| sec.cve | Security | From `/api/cve/report`, which only keeps fixable CRITICAL/HIGH findings in images the weekly scan saw. Fail: any fixable critical. Partial: fixable highs. Unknown: any rendered image in `unmatchedRefs` (not scanned), named per image, or `ok:false`. The status is the worst of these (fail > partial > unknown > pass). Unfixable criticals aren't visible here; the report lists that under "Not checked" | rule | yes |
+| sec.cve | Security | From `/api/cve/report` (portal v1.7.0+: exact image or digest match; totals include `criticalNoFix` and `kevFixable`). Fail: any fixable critical, or any fixable CVE on CISA's actively-exploited (KEV) list at any severity. Partial: some rendered images not scanned yet (named per image). Unknown: no rendered image matched, `ok:false`, or no KEV count (a portal before v1.7.0). Highs that are not actively exploited, mediums and lows are not counted. Criticals with no fix are not counted either; the report prints them as an Awareness line under Security. Same policy as the Scorecard CVE cards (amended 2026-10-26) | rule | yes |
 | sec.dependabot | Security | Dependabot alerts are on, and the open critical/high counts are within threshold | rule | no |
 | sec.dep_updates | Security | A dependency update tool is configured (`dependabot.yml` or `renovate.json`) | rule | no |
 | sec.actions_pinned | Security | Workflow `uses:` are pinned by SHA | rule | no |
@@ -513,8 +513,10 @@ Sustainability and cost have few signals in a homelab. The report should say so,
    Valkey). Live reads are by namespace, not by the entity's label selector.
 4. **Which tree.** The deploy repo is read at the Application's `targetRevision` from a temp clone.
    The app repo is read at committed HEAD (or `--ref`), never the working tree.
-5. **`sec.cve`.** It means "no fixable critical in scanned images", and unscanned images make it
-   unknown.
+5. **`sec.cve`.** It means "no fixable critical and no fixable actively-exploited CVE in scanned images"
+   (the Scorecard CVE cards' policy, amended 2026-10-26). Some unscanned images make it partial, none scanned
+   makes it unknown. A week the scan could not reach the KEV feed reads as 0 exploited: the report
+   endpoint does not say whether KEV was checked (the Scorecard KEV card does).
 6. **Daily file check.** Filecheck runs daily at 06:00, not hourly, because each run can download
    the 105 MB kubernetes archive once per entity (§5). Superseded 2026-10-26: its first run stalled
    the portal, so v1.6.1 removes it (§5).

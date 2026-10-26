@@ -264,7 +264,7 @@ class HappyPathTest(unittest.TestCase):
         v = self.by["backstage.cve"]["value"]
         self.assertIs(v["ok"], True)
         self.assertEqual(v["scanned_at"], "2026-10-25")
-        self.assertEqual(v["totals"], {"critical": 0, "high": 2})
+        self.assertEqual(v["totals"], {"critical": 0, "high": 2, "critical_no_fix": 1, "kev_fixable": 0})
         self.assertEqual(len(v["matched"]), 1)
         self.assertEqual(v["unmatched"], [])
         self.assertEqual(v["findings"][0], {"id": "CVE-2026-1111", "severity": "HIGH", "pkg": "libssl3",
@@ -354,7 +354,17 @@ class BackstageFailureTest(Case):
         self.assertIs(v["ok"], False)
         self.assertEqual(v["error"], "HTTP 502")
         self.assertEqual(v["unmatched"], IMAGES)
+        self.assertEqual(v["totals"], {"critical": None, "high": None, "critical_no_fix": None, "kev_fixable": None})
         self.assertIn("backstage.entity", by_id(d))
+
+    def test_cve_from_a_portal_before_v1_7_0(self):
+        # No criticalNoFix / kevFixable totals: record None, so sec.cve says unknown rather than 0 exploited.
+        body = json.loads((DATA / "cve.json").read_text())
+        body["totals"] = {"critical": 0, "high": 2, "actionable": 2}
+        w = self.world()
+        w.override = {"/api/cve/": (200, json.dumps(body).encode())}
+        v = by_id(w.collect())["backstage.cve"]["value"]
+        self.assertEqual(v["totals"], {"critical": 0, "high": 2, "critical_no_fix": None, "kev_fixable": None})
 
 
 class CatalogMatchTest(Case):

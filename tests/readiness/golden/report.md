@@ -18,7 +18,7 @@ sources: app ok, deploy ok, backstage ok, scorecard ok, cluster ok, github ok
 | Pillar | pass | partial | fail | unknown | n/a |
 |---|---|---|---|---|---|
 | Operational excellence | 7 | 0 | 1 | 0 | 0 |
-| Security | 4 | 5 | 4 | 1 | 0 |
+| Security | 5 | 4 | 4 | 1 | 0 |
 | Reliability | 2 | 1 | 3 | 0 | 1 |
 | Performance efficiency | 0 | 1 | 0 | 1 | 0 |
 | Cost optimization | 2 | 0 | 0 | 0 | 0 |
@@ -42,12 +42,13 @@ Passed: ops.catalog, ops.runbook, ops.docs, ops.ci, ops.release, ops.telemetry, 
 - **fail** sec.dep_updates — A dependency update tool is configured (dependabot.yml or renovate.json): no Dependabot or Renovate config (.github/dependabot.yml, renovate.json) `.github/dependabot.yml, .github/dependabot.yaml` `renovate.json, renovate.json5, .github/renovate.json`
 - **partial** sec.hardening — readOnlyRootFilesystem, allowPrivilegeEscalation: false, capabilities dropped: Deployment/demo/init-db lacks readOnlyRootFilesystem, allowPrivilegeEscalation: false, drop ALL; Deployment/demo/oauth2-proxy lacks readOnlyRootFilesystem, allowPrivilegeEscalation: false, drop ALL; Deployment/valkey/valkey lacks readOnlyRootFilesystem, allowPrivilegeEscalation: false, drop ALL `base-apps/demo/deployment.yaml:1-49` `base-apps/demo/deployment.yaml:51-61`
 - **partial** sec.netpol — A NetworkPolicy selects the pods: no NetworkPolicy selects Deployment/valkey `base-apps/demo/deployment.yaml:51-61`
-- **partial** sec.cve — No fixable critical or high CVEs in the rendered images (from /api/cve/report): 2 fixable high: CVE-2026-1111 in libssl3 (fixed 3.0.15-1); CVE-2026-2222 in zlib1g (fixed 1.2.13-2) `POST https://backstage.test/api/cve/report`
 - **partial** sec.sa_token — The service-account token is not mounted, or a dedicated SA is used: Deployment/valkey mounts the default service account's token `base-apps/demo/deployment.yaml:51-61`
 - **partial** sec.repo_hygiene — CODEOWNERS and SECURITY.md exist; the default branch is protected: missing SECURITY.md; has CODEOWNERS, default-branch protection `.github/CODEOWNERS` `SECURITY.md, .github/SECURITY.md` `gh api -i repos/arigsela/demo/branches/main/protection`
 - **unknown** sec.dependabot — Dependabot alerts are on, and the open critical/high counts are within threshold: Dependabot alerts are on; scorecard has no dependabot critical metric; scorecard dependabot.alertsHigh errored: Failed to fetch metric: 403 Resource not accessible by integration `gh api -i repos/arigsela/demo/vulnerability-alerts` `https://backstage.test/api/scorecard/metrics/catalog/component/demo/demo`
 
-Passed: sec.base_digest, sec.actions_pinned, sec.token_perms, sec.exposure
+Passed: sec.base_digest, sec.cve, sec.actions_pinned, sec.token_perms, sec.exposure
+
+Awareness: 1 critical CVE with no fix yet in the scanned images (not counted) `POST https://backstage.test/api/cve/report`
 
 ### Reliability
 
@@ -84,4 +85,4 @@ Passed: sus.utilization
 
 ## Not checked
 
-- Unfixable critical CVEs are not visible: the CVE report keeps fixable CRITICAL/HIGH only.
+- CVEs other than fixable criticals and actively exploited (CISA KEV) ones are not counted, and a week the scan could not reach the KEV feed reads as 0 exploited.

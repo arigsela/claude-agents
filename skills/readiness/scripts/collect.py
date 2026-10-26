@@ -286,13 +286,16 @@ def _cve_fact(bs: Backstage, images: list[str]) -> dict:
         value = {"ok": r.get("ok") is True, "scanned_at": r.get("scannedAt"),
                  "matched": [str(x) for x in _l(r.get("matchedRefs"))],
                  "unmatched": [str(x) for x in _l(r.get("unmatchedRefs"))],
-                 "totals": {"critical": totals.get("critical"), "high": totals.get("high")},
+                 # criticalNoFix / kevFixable since portal v1.7.0; None (not 0) from an older portal
+                 "totals": {"critical": totals.get("critical"), "high": totals.get("high"),
+                            "critical_no_fix": totals.get("criticalNoFix"), "kev_fixable": totals.get("kevFixable")},
                  "findings": [{k: f.get(k) for k in ("id", "severity", "pkg", "fixed", "image")}
                               for f in findings[:CVE_FINDINGS_CAP]],
                  "error": None}
     except Exception as err:  # the catalog was read; only the report failed, so say so on this fact
         value = {"ok": False, "scanned_at": None, "matched": [], "unmatched": list(images),
-                 "totals": {"critical": None, "high": None}, "findings": [], "error": _why(err)}
+                 "totals": {"critical": None, "high": None, "critical_no_fix": None, "kev_fixable": None},
+                 "findings": [], "error": _why(err)}
     return fact("backstage.cve", "backstage", value, "POST " + bs.url("/api/cve/report"))
 
 

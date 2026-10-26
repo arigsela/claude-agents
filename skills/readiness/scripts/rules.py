@@ -330,27 +330,39 @@ def sec_cve(f: Facts) -> Outcome:
     cve = f.get("backstage.cve")
     if cve is None:
         return "unknown", "no CVE report: no rendered images to scan", []
+    # The Scorecard CVE cards' policy (portal v1.7.0): act on a fixable critical, or on a fixable CVE on CISA's
+    # actively-exploited (KEV) list at any severity; name criticals with no fix but do not count them; other
+    # highs, mediums and lows are not counted.
     v = _d(cve["value"])
     totals, findings = _d(v.get("totals")), _l(v.get("findings"))
+    matched, unmatched = _l(v.get("matched")), [str(x) for x in _l(v.get("unmatched"))]
     parts: list[tuple[str, str]] = []
-    for sev, status in (("critical", "fail"), ("high", "partial")):
-        n = totals.get(sev)
-        if isinstance(n, int) and n > 0:
-            listed = [f"{x.get('id')} in {x.get('pkg')} (fixed {x.get('fixed')})" for x in map(_d, findings)
-                      if str(x.get("severity", "")).lower() == sev]
-            parts.append((status, f"{n} fixable {sev}" + (": " + _names(listed) if listed else "")))
+    crit, kev, nofix = totals.get("critical"), totals.get("kev_fixable"), totals.get("critical_no_fix")
+    if isinstance(crit, int) and crit > 0:
+        listed = [f"{x.get('id')} in {x.get('pkg')} (fixed {x.get('fixed')})" for x in map(_d, findings)
+                  if str(x.get("severity", "")).lower() == "critical"]
+        parts.append(("fail", f"{crit} fixable critical" + (": " + _names(listed) if listed else "")))
+    if isinstance(kev, int) and kev > 0:
+        parts.append(("fail", f"{kev} actively exploited (CISA KEV) with a fix"))
     if v.get("ok") is not True:
         parts.append(("unknown", "the CVE report failed" + (f": {_clip(v['error'])}" if v.get("error") else "")))
-    elif _l(v.get("unmatched")):
-        parts.append(("unknown", "not scanned: " + _names([str(x) for x in v["unmatched"]])))
-    elif not _l(v.get("matched")):  # an empty report scanned nothing, so it cannot pass
-        parts.append(("unknown", "the CVE report matched none of the rendered images"))
-    elif not all(isinstance(totals.get(k), int) for k in ("critical", "high")):
-        parts.append(("unknown", "the CVE report gave no critical/high totals"))
-    if not parts:
-        return "pass", f"no fixable critical or high CVEs in {len(_l(v.get('matched')))} scanned images", [cve["id"]]
+    else:
+        if not matched:  # nothing scanned, so it cannot pass
+            parts.append(("unknown", "the CVE report matched none of the rendered images"
+                          + (f" (not scanned: {_names(unmatched)})" if unmatched else "")))
+        elif unmatched:  # deployed since the weekly scan, or never scanned
+            parts.append(("partial", "not scanned: " + _names(unmatched)))
+        if not isinstance(crit, int):
+            parts.append(("unknown", "the CVE report gave no critical total"))
+        elif not isinstance(kev, int):
+            parts.append(("unknown", "the CVE report gave no KEV count (portal older than v1.7.0)"))
+    status = worst([s for s, _ in parts]) if parts else "pass"
+    if status == "pass":
+        parts.insert(0, ("pass", f"no fixable critical or actively exploited CVEs in {len(matched)} scanned images"))
+    if isinstance(nofix, int) and nofix > 0:
+        parts.append(("pass", f"{nofix} critical with no fix yet (awareness, not counted)"))
     parts.sort(key=lambda p: _SHOW[p[0]])
-    return worst([s for s, _ in parts]), "; ".join(n for _, n in parts), [cve["id"]]
+    return status, "; ".join(n for _, n in parts), [cve["id"]]
 
 
 def sec_dependabot(f: Facts) -> Outcome:

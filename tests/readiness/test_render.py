@@ -150,6 +150,18 @@ class RenderTest(unittest.TestCase):
         self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 (Argo targetRevision main)  \n",
                       self.text)  # the same ref is named once
 
+    def test_criticals_with_no_fix_shown_for_awareness(self):  # the Scorecard CVE cards' policy, 2026-10-26
+        """Not counted against readiness, but never hidden behind a passed sec.cve."""
+        security = self.text.split("### Security")[1].split("### Reliability")[0]
+        self.assertIn("Passed: sec.base_digest, sec.cve,", security)
+        self.assertIn("Awareness: 1 critical CVE with no fix yet in the scanned images (not counted) "
+                      "`POST https://backstage.test/api/cve/report`", security)
+        facts = copy.deepcopy(self.facts)
+        for f in facts["facts"]:
+            if f["id"] == "backstage.cve":
+                f["value"]["totals"]["critical_no_fix"] = 0
+        self.assertNotIn("Awareness:", rd.render(facts, self.report))
+
     def test_na_judgment(self):  # final review M5: counted like any status, not listed as a finding
         report = copy.deepcopy(self.report)
         report["judgments"]["rel.state"] = {"status": "n/a", "reason": "stateless", "facts": []}
