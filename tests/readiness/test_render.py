@@ -141,6 +141,15 @@ class RenderTest(unittest.TestCase):
         self.assertEqual([l for l in sec.splitlines() if l[:1].isdigit()],
                          [f"{n + 1}. fix {n} (ops.alerts) — w" for n in range(5)])
 
+    def test_header_names_the_reviewed_deploy_ref(self):  # final review M1 (spec §9: every reviewed ref)
+        facts = copy.deepcopy(self.facts)
+        facts["meta"]["deploy"]["ref"] = "release"  # --deploy-ref release, while Argo deploys main
+        t = rd.render(facts, self.report)
+        self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 "
+                      "(reviewed ref release; Argo targetRevision main)  \n", t)
+        self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 (Argo targetRevision main)  \n",
+                      self.text)  # the same ref is named once
+
     def test_na_judgment(self):  # final review M5: counted like any status, not listed as a finding
         report = copy.deepcopy(self.report)
         report["judgments"]["rel.state"] = {"status": "n/a", "reason": "stateless", "facts": []}

@@ -66,8 +66,10 @@ def _header(doc: dict, f: Facts) -> list[str]:
              f"({_s(app.get('branch'), 'unknown')}, on default branch: {on_default})"]
     if deploy:
         rev = _s(_d(f.value("deploy.application")).get("target_revision"), "unknown")
+        ref = _s(deploy.get("ref"))  # what was read: --deploy-ref, else targetRevision, else the default branch
+        refs = f"reviewed ref {ref}; Argo targetRevision {rev}" if ref and ref != rev else f"Argo targetRevision {rev}"
         lines.append(f"deploy: {_s(deploy.get('repo'), 'unknown')}/{_s(deploy.get('folder'), '')}"
-                     f"@{_sha7(deploy.get('sha'))} (Argo targetRevision {rev})")
+                     f"@{_sha7(deploy.get('sha'))} ({refs})")
     else:
         reason = _one_line(f.status("deploy")).removeprefix("unavailable: ")
         lines.append(f"deploy: not found ({reason})")
