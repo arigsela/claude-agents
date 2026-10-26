@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 import facts_lib as fl
-from readiness_model import fact
+from readiness_model import CREDENTIAL_RE, SECRET_RE, fact
 
 ALERT_RULE_FILE = "base-apps/logging/grafana-alerting.yaml"
 WORKLOAD_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
@@ -24,6 +24,8 @@ HOST_CAP = 10
 _NS_MATCHER = re.compile(r'namespace\s*=~?\s*"')
 _DIGEST = re.compile(r"@sha256:[0-9a-f]{64}\b")
 _MATCHER = re.compile(r'([A-Za-z_]\w*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"')
+_SECRET_KIND = re.compile(r"""^\s*(?:-\s+)?kind:\s*["']?Secret["']?\s*(?:#.*)?$""", re.M)
+REDACTED = "<redacted>"
 
 
 def _value_matches(op: str, pattern: str, name: str) -> bool:
@@ -275,17 +277,29 @@ def _registry_facts(root: Path, images: list[str]) -> list[dict]:
 
 
 def _host_facts(root: Path, folder: str, hosts: list[str]) -> list[dict]:
+    """Up to HOST_CAP lines elsewhere in the deploy repo that name each host. A YAML file holding a Secret is
+    never read, and a line that looks like it carries a credential is kept as REDACTED (file and line only)."""
+    if not hosts:
+        return []
     prefix = folder + "/"
-    files = [f for f in sorted(root.rglob("*")) if f.suffix in TEXT_SUFFIXES and f.is_file()
-             and not SKIP_DIRS & set(f.relative_to(root).parts)
-             and not str(f.relative_to(root)).startswith(prefix)]
+    files = []
+    for f in sorted(root.rglob("*")):
+        rel = str(f.relative_to(root))
+        if (f.suffix not in TEXT_SUFFIXES or not f.is_file() or SKIP_DIRS & set(f.relative_to(root).parts)
+                or rel.startswith(prefix)):
+            continue
+        text = f.read_text(errors="replace")
+        if f.suffix in (".yaml", ".yml") and _SECRET_KIND.search(text):
+            continue
+        files.append((rel, text.splitlines()))
     out = []
     for host in hosts:
         hits: list[dict] = []
-        for f in files:
-            for i, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
+        for rel, lines in files:
+            for i, line in enumerate(lines, 1):
                 if host in line and len(hits) < HOST_CAP:
-                    hits.append({"file": str(f.relative_to(root)), "line": i, "text": line.strip()[:160]})
+                    secret = SECRET_RE.search(line) or CREDENTIAL_RE.search(line)
+                    hits.append({"file": rel, "line": i, "text": REDACTED if secret else line.strip()[:160]})
         ev = f"{hits[0]['file']}:{hits[0]['line']}" if hits else "repo scan"
         out.append(fact(f"deploy.host_mentions.{host}", "deploy", hits, ev))
     return out

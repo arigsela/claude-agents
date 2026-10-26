@@ -13,19 +13,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from evaluate import evaluate  # noqa: E402
-from readiness_model import PILLARS, Facts, load_checks, read_json  # noqa: E402
+from readiness_model import CREDENTIAL_URL_RE, PILLARS, SECRET_RE, Facts, load_checks, read_json  # noqa: E402
 
 JUDGMENT_STATUSES = ("pass", "partial", "fail", "unknown", "n/a")
 CITED = ("pass", "partial", "fail", "n/a")  # every status but unknown decides the check, so it rests on facts
 MAX_FIXES = 5
-SECRET_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[bp]-")
 
 
 def _empty(v) -> bool:
@@ -34,7 +32,7 @@ def _empty(v) -> bool:
 
 def _leaks(value, secrets: list[str]) -> bool:
     text = value if isinstance(value, str) else json.dumps(value, default=str, sort_keys=True)
-    return bool(SECRET_RE.search(text)) or any(s in text for s in secrets)
+    return bool(SECRET_RE.search(text) or CREDENTIAL_URL_RE.search(text)) or any(s in text for s in secrets)
 
 
 def _name(value, secrets: list[str]) -> str:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -17,6 +18,15 @@ PILLARS = ("Operational excellence", "Security", "Reliability",
 STATUSES = ("pass", "partial", "fail", "unknown", "n/a")
 SOURCES = ("app", "deploy", "backstage", "scorecard", "cluster", "github")
 KINDS = ("rule", "judgment", "person")
+
+# Token shapes: private keys, GitHub tokens (classic and fine-grained), AWS access key ids, Slack tokens.
+SECRET_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
+                       r"|AKIA[0-9A-Z]{16}|xox[a-z]-")
+# A password in a URL's userinfo (postgres://user:pw@host).
+CREDENTIAL_URL_RE = re.compile(r"://[^/\s:@]+:[^@\s]+@")
+# Config text that assigns a credential. verify.py does not use this part: a report that quotes a setting such
+# as `automountServiceAccountToken: false` is not a leak.
+CREDENTIAL_RE = re.compile(CREDENTIAL_URL_RE.pattern + r"|(?i:password|passwd|secret|token|api[_-]?key)\s*[:=]")
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 

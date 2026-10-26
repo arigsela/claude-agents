@@ -415,6 +415,41 @@ spec:
         self.assertIn("deploy.workload.Deployment/demo", by)
 
 
+class HostMentionsTest(unittest.TestCase):
+    """Lines elsewhere in the deploy repo that name the app's host never carry a credential (final review I7)."""
+
+    def test_secret_files_skipped_and_credential_lines_redacted(self):
+        files = dict(FILES)
+        files["base-apps/db/secret.yaml"] = ("apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\nstringData:\n"
+                                             "  note: plain line for demo.example.com\n")
+        files["base-apps/db/list.yaml"] = ("apiVersion: v1\nkind: List\nitems:\n  - kind: Secret\n"
+                                           "    stringData: {host: demo.example.com}\n")
+        files["base-apps/other/config.yaml"] = (
+            "data:\n"
+            f"  url: postgres://app:{CANARY}@demo.example.com:5432/db\n"
+            f"  password: {CANARY} # demo.example.com\n"
+            f"  api_key = {CANARY} demo.example.com\n"
+            f"  key: {'ghp_' + 'a' * 24} demo.example.com\n"
+            "  upstream: https://demo.example.com/api\n")
+        by, facts = run(files)
+        blob = json.dumps(facts)
+        self.assertNotIn(CANARY, blob)
+        self.assertNotIn("ghp_", blob)
+        hits = by["deploy.host_mentions.demo.example.com"]["value"]
+        self.assertFalse([h for h in hits if h["file"].startswith("base-apps/db/")])
+        other = [h for h in hits if h["file"] == "base-apps/other/config.yaml"]
+        self.assertEqual([(h["line"], h["text"]) for h in other],
+                         [(2, "<redacted>"), (3, "<redacted>"), (4, "<redacted>"), (5, "<redacted>"),
+                          (6, "upstream: https://demo.example.com/api")])
+
+    def test_patterns_are_shared_with_verify(self):
+        import readiness_model
+        import verify
+        self.assertIs(df.SECRET_RE, readiness_model.SECRET_RE)
+        self.assertIs(verify.SECRET_RE, readiness_model.SECRET_RE)
+        self.assertIs(df.CREDENTIAL_RE, readiness_model.CREDENTIAL_RE)
+
+
 class AlertSourceTest(unittest.TestCase):
     """A missing or unreadable rule file leaves a fact saying so, so ops.alerts can be unknown (final review I6)."""
 

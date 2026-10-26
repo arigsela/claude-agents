@@ -143,6 +143,17 @@ class VerifyTest(unittest.TestCase):
         r["pillar_notes"][PILLARS[0]] = "ghp_" + "a" * 24
         self.has(r, "contains a secret")
 
+    def test_more_secret_shapes(self):  # final review M7 (and I7's URL credential pattern)
+        for s in ("gho_" + "a" * 24, "ghu_" + "b" * 24, "ghs_" + "c" * 24, "ghr_" + "d" * 24,
+                  "github_pat_" + "A1_" * 8, "xoxa-123", "xoxe-123", "postgres://app:hunter2@db:5432/x"):
+            with self.subTest(s=s[:12]):
+                r = self.good()
+                r["pillar_notes"][PILLARS[0]] = f"see {s}"
+                self.has(r, f"pillar_notes.{PILLARS[0]}: contains a secret")
+        r = self.good()  # a reason quoting a manifest setting is not a credential
+        r["judgments"]["ops.ci"]["reason"] = "sets automountServiceAccountToken: false; see https://ci.example/x"
+        self.assertEqual(self.v(r), [])
+
     def test_garbled_shapes_never_raise(self):
         def mut(f):
             r = self.good()
