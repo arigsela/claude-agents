@@ -61,6 +61,8 @@ def _dockerfile_facts(root: Path) -> list[dict]:
     aliases: set[str] = set()
     out: list[dict] = []
     user = None
+    stage_users: dict[str, str | None] = {}
+    cur_alias = None
     seen_from = False
     n = 0
     for lineno, line in enumerate(_read(path).splitlines(), 1):
@@ -80,6 +82,10 @@ def _dockerfile_facts(root: Path) -> list[dict]:
                 alias = toks[2].lower()
             else:
                 alias = None
+            user = stage_users.get(image.lower()) if image.lower() in aliases else None
+            cur_alias = alias
+            if alias:
+                stage_users[alias] = user
             if image.lower() in aliases or image == "scratch":
                 if alias:
                     aliases.add(alias)
@@ -92,6 +98,8 @@ def _dockerfile_facts(root: Path) -> list[dict]:
         elif word == "USER":
             parts = s.split(None, 1)
             user = parts[1].strip() if len(parts) > 1 else None
+            if cur_alias:
+                stage_users[cur_alias] = user
     out.append(fact("app.dockerfile.user", "app", {"user": user}, "Dockerfile"))
     return out
 
@@ -115,8 +123,6 @@ def _pinned_use(ref: str) -> bool:
     return bool(_SHA40.search(ref))
 
 
-_USES_LINE = re.compile(r"^\s*-?\s*uses:\s*(?P<ref>\"[^\"]*\"|'[^']*'|[^\s#]+)")
-
 
 def _workflow_fact(root: Path, p: Path) -> dict:
     rel = p.relative_to(root).as_posix()
@@ -136,14 +142,28 @@ def _workflow_fact(root: Path, p: Path) -> dict:
         for step in (job.get("steps") or []) if isinstance(job, dict) else []:
             if isinstance(step, dict) and isinstance(step.get("run"), str):
                 runs.append(step["run"].strip().splitlines()[0][:RUN_CAP] if step["run"].strip() else "")
+    refs = []
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        if isinstance(job.get("uses"), str):
+            refs.append(job["uses"])
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("uses"), str):
+                refs.append(step["uses"])
+    lines = text.splitlines()
+    taken: set[int] = set()
     uses = []
-    for lineno, line in enumerate(text.splitlines(), 1):
-        m = _USES_LINE.match(line)
-        if m:
-            ref = m.group("ref").strip("\"'")
-            uses.append({"ref": ref, "pinned": _pinned_use(ref), "line": lineno})
+    for ref in refs:
+        pat = re.compile(r"(?:^\s*-?\s*|[{,]\s*)uses:\s*[\"']?" + re.escape(ref) + r"[\"']?\s*(?:[,}#]|$)")
+        line = next((n for n, t in enumerate(lines, 1) if n not in taken and pat.search(t)), 0)
+        if line:
+            taken.add(line)
+        uses.append({"ref": ref, "pinned": _pinned_use(ref), "line": line})
+    write_all = perms == "write-all" or any(
+        isinstance(j, dict) and j.get("permissions") == "write-all" for j in jobs.values())
     value = {"file": rel, "triggers": _triggers(doc), "permissions": perms,
-             "jobs_without_permissions": without, "write_all": perms == "write-all",
+             "jobs_without_permissions": without, "write_all": write_all,
              "run_steps": runs, "uses": uses}
     return fact(f"app.workflow.{p.stem}", "app", value, rel)
 

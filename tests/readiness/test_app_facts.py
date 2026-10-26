@@ -123,6 +123,34 @@ jobs:
             self.assertEqual(f["source"], "app")
             self.assertIsInstance(f["evidence"], str)
 
+    def test_user_is_final_stage(self):
+        u = lambda df: run({"Dockerfile": df})["app.dockerfile.user"]["value"]["user"]
+        self.assertIsNone(u("FROM alpine\nUSER 10001\nFROM alpine\n"))
+        self.assertEqual(u("FROM alpine AS a\nUSER 10001\nFROM a\n"), "10001")
+        self.assertIsNone(u("FROM alpine AS a\nUSER 10001\nFROM alpine AS b\nFROM b\n"))
+
+    def test_uses_from_parsed_yaml_only(self):
+        wf = """on: push
+jobs:
+  a:
+    runs-on: x
+    steps:
+      - run: |
+          echo "uses: actions/example@main"
+      - {uses: actions/checkout@v4}
+  b:
+    uses: org/repo/.github/workflows/w.yml@v1
+"""
+        v = run({".github/workflows/u.yml": wf})["app.workflow.u"]["value"]
+        self.assertEqual([u["ref"] for u in v["uses"]],
+                         ["actions/checkout@v4", "org/repo/.github/workflows/w.yml@v1"])
+        self.assertEqual([u["line"] for u in v["uses"]], [8, 10])
+
+    def test_job_level_write_all(self):
+        wf = "on: push\npermissions: {contents: read}\njobs:\n  a:\n    runs-on: x\n    permissions: write-all\n    steps: []\n"
+        v = run({".github/workflows/j.yml": wf})["app.workflow.j"]["value"]
+        self.assertTrue(v["write_all"])
+
     def test_bad_yaml_does_not_raise(self):
         facts = run({".github/workflows/x.yml": "on: [\n"})
         self.assertIn("app.workflow.x", facts)
