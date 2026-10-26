@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -73,11 +74,12 @@ class World:
     """The app checkout, a deploy remote, a fake Backstage (fetch) and fake kubectl/gh (run)."""
 
     def __init__(self, tmp: Path, entities: list[dict] | None = None, deploy_files: dict | None = None,
-                 deploy_branches: dict | None = None):
+                 deploy_branches: dict | None = None, named: list[dict] | None = None):
         self.tmp = tmp
         self.app = app_checkout(tmp, APP_FILES)
         self.deploy_url = fx.bare_remote(tmp, deploy_files or DEPLOY_FILES, deploy_branches)
-        self.entities = [entity()] if entities is None else entities
+        self.entities = [entity()] if entities is None else entities  # carry the project-slug
+        self.named = named or []  # found only by a kind=component,metadata.name=<repo> query
         self.override: dict[str, object] = {}  # path prefix -> (status, body) or an exception to raise
         self.fetches: list[tuple] = []
         self.runs: list[list[str]] = []
@@ -102,6 +104,11 @@ class World:
                     raise resp
                 return resp
         if path.startswith("/api/catalog/entities/by-query?"):
+            query = urllib.parse.parse_qs(path.split("?", 1)[1]).get("filter", [""])[0]
+            if "metadata.name=" in query:
+                name = query.split("metadata.name=", 1)[1].split(",")[0]
+                pool = self.entities + self.named
+                return 200, json.dumps({"items": [e for e in pool if e["metadata"]["name"] == name]}).encode()
             return 200, json.dumps({"items": self.entities}).encode()
         if path.startswith("/api/catalog/entities/by-name/"):
             kind, ns, name = path.split("/")[-3:]
@@ -378,6 +385,32 @@ class CatalogMatchTest(Case):
         with self.assertRaises(c.Ambiguous) as cm, contextlib.redirect_stderr(io.StringIO()):
             c.collect(w.app, w.tmp / "out2", deps=w.deps())
         self.assertEqual(sorted(cm.exception.refs), ["component:demo/demo", "component:demo/demo2"])
+
+    def test_name_match_makes_a_slug_match_ambiguous(self):
+        # arigsela/backstage, 2026-10-26: only the stock scaffold entity carried the project-slug, so the review
+        # silently used it; the real component, named after the repo, carried none.
+        scaffold = entity(name="demo-scaffold", location="file:/app/catalog-info.yaml")
+        real = entity()
+        del real["metadata"]["annotations"]["github.com/project-slug"]
+        w = self.world(entities=[scaffold], named=[real])
+        with self.assertRaises(c.Ambiguous) as cm, contextlib.redirect_stderr(io.StringIO()):
+            c.collect(w.app, w.out, deps=w.deps())
+        self.assertEqual(sorted(cm.exception.refs), ["component:demo/demo", "component:demo/demo-scaffold"])
+
+    def test_the_same_entity_by_slug_and_name_is_one_match(self):
+        d = self.world().collect()  # entity() carries the slug and is named after the repo
+        self.assertEqual(d["meta"]["entity_ref"], "component:demo/demo")
+
+    def test_a_name_match_alone_is_used_and_said(self):
+        real = entity()
+        del real["metadata"]["annotations"]["github.com/project-slug"]
+        w = self.world(entities=[], named=[real])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            d = c.collect(w.app, w.out, deps=w.deps())
+        self.assertEqual(d["meta"]["entity_ref"], "component:demo/demo")
+        self.assertIn("matched component:demo/demo by name: no entity has github.com/project-slug arigsela/demo",
+                      err.getvalue())
 
     def test_entity_flag_skips_lookup(self):
         w = self.world(entities=[entity(), entity(name="demo2")])

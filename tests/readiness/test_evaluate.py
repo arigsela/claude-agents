@@ -491,6 +491,17 @@ class RuleTableTest(unittest.TestCase):
         self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(matched=[])))[1],
                          "the CVE report matched none of the rendered images")
 
+    def test_dockerfiles_below_the_root(self):  # packages/backend/Dockerfile in a Backstage repo, 2026-10-26
+        files = F("app.dockerfile.files", {"paths": ["a/Dockerfile", "b/Dockerfile"]}, "a/Dockerfile, b/Dockerfile")
+        self.assertEqual(run("sec.base_digest", doc(files)), ("n/a", "no external base image in 2 Dockerfiles",
+                                                               ["app.dockerfile.files"]))
+        self.assertEqual(run("sec.base_digest", doc(afile("readme")))[1], "no Dockerfile")
+        d = doc(wl(pod_run_as_non_root=None), ctr(sec={"runAsNonRoot": None, "runAsUser": None}),
+                F("app.dockerfile.user", {"user": "node", "path": "packages/backend/Dockerfile"},
+                  "packages/backend/Dockerfile"))
+        d["meta"]["app"] = {"slug": "arigsela/api"}
+        self.assertIn("(packages/backend/Dockerfile USER node)", run("sec.nonroot", d)[1])
+
     def test_cve_policy_reasons(self):  # the Scorecard CVE cards' policy, 2026-10-26
         self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(high=3)))[1],
                          "no fixable critical or actively exploited CVEs in 1 scanned images")

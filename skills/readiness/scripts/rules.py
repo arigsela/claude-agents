@@ -227,6 +227,10 @@ def sec_base_digest(f: Facts) -> Outcome:
         return gate
     froms = f.prefix("app.dockerfile.from.")
     if not froms:
+        files = f.get("app.dockerfile.files")
+        paths = _l(_d(files["value"]).get("paths")) if files else []
+        if paths:
+            return "n/a", f"no external base image in {_n(len(paths), 'Dockerfile')}", [files["id"]]
         return "n/a", ("the Dockerfile has no external base image" if f.get("app.dockerfile.user")
                        else "no Dockerfile"), []
     bad = [x for x in froms if not _d(x["value"]).get("pinned")]
@@ -266,7 +270,8 @@ def sec_nonroot(f: Facts) -> Outcome:
     repo = str(_d(_d(f.doc.get("meta")).get("app")).get("slug") or "").rsplit("/", 1)[-1].lower()
     own = {c["id"] for c in bad if user and repo and _image_repo(c["value"].get("image")) == repo}
     u = _d(user["value"]).get("user") if user else None
-    tail = f" (Dockerfile USER {u})" if u else " (the Dockerfile sets no USER)"
+    where = str(_d(user["value"]).get("path") or "Dockerfile") if user else "Dockerfile"
+    tail = f" ({where} USER {u})" if u else f" ({where} sets no USER)"
     reason = _names([f"{_name(c, _C)} sets neither runAsNonRoot nor a non-zero runAsUser"
                      + (tail if c["id"] in own else "") for c in bad])
     return "fail", reason, _ids(bad) + ([user["id"]] if own else [])
