@@ -77,9 +77,9 @@ def evaluate(facts_doc: dict, checks: list[dict]) -> dict:
             ids = f.match(_l(c.get("facts")))
         elif kind == "person":
             hints, ids = person_hints(f, _l(c.get("hints")))
-        out.append({"id": c["id"], "pillar": c.get("pillar"), "title": c.get("title"), "kind": kind,
-                    "blocker": bool(c.get("blocker")), "status": status, "reason": reason, "facts": ids,
-                    "hints": hints})
+        out.append({"id": c["id"], "pillar": c.get("pillar"), "title": c.get("title"), "fix": c.get("fix"),
+                    "kind": kind, "blocker": bool(c.get("blocker")), "status": status, "reason": reason,
+                    "facts": ids, "hints": hints})
     return {"checks": out}
 
 

@@ -556,7 +556,7 @@ class EvaluateTest(unittest.TestCase):
     def test_shape_and_order(self):
         self.assertEqual([c["id"] for c in self.results["checks"]], [c["id"] for c in CHECKS])
         for c, src in zip(self.results["checks"], CHECKS):
-            self.assertEqual(set(c), {"id", "pillar", "title", "kind", "blocker", "status", "reason", "facts",
+            self.assertEqual(set(c), {"id", "pillar", "title", "fix", "kind", "blocker", "status", "reason", "facts",
                                       "hints"})
             self.assertEqual((c["pillar"], c["title"], c["kind"], c["blocker"]),
                              (src["pillar"], src["title"], src["kind"], bool(src.get("blocker"))))

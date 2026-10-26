@@ -180,6 +180,13 @@ def _prepare(facts_doc: dict, report: dict | None, checks: list[dict] | None):
     return f, checks, report, status, reason, judg, title
 
 
+def _fix(c: dict, status: str, report: dict | None) -> str:
+    """The fix shown on a failing or partial line: the report's specific one, else the catalog's generic one."""
+    if status not in ("fail", "partial"):
+        return ""
+    return _s(_d(_d(report).get("item_fixes")).get(c.get("id"))) or _s(c.get("fix"))
+
+
 def _clip(text: str, n: int) -> str:
     """One line of at most n characters, cut at a word boundary."""
     text = _one_line(text)
@@ -254,9 +261,11 @@ def render_short(facts_doc: dict, report: dict | None, unverified: bool = False,
             for c in (c for c in mine if status[c["id"]] == s):
                 cid = c["id"]
                 ids = _d(judg.get(cid)).get("facts") if c.get("kind") == "judgment" else c.get("facts")
-                text = _clip(reason[cid] or "no reason given", 140)
+                fix = _fix(c, s, report)
+                text = _clip(reason[cid] or "no reason given", 120 if fix else 140)
                 ptr = _pointer(f, ids)
-                out.append(f"- **{s}** {cid}: {text}" + (f" {_code(ptr)}" if ptr and ptr not in text else ""))
+                out.append(f"- **{s}** {cid}: {text}" + (f" {_code(ptr)}" if ptr and ptr not in text else "")
+                           + (f" → fix: {_clip(fix, 90)}" if fix else ""))
         passed = [c["id"] for c in mine if status[c["id"]] == "pass"]
         if passed:
             if out[-1].startswith("- "):
@@ -320,6 +329,9 @@ def render(facts_doc: dict, report: dict | None, unverified: bool = False, check
                 if ev:
                     line += " " + " ".join(_code(e) for e in ev)
                 out.append(line)
+                fix = _fix(c, s, report)
+                if fix:
+                    out.append(f"  - Fix: {fix}")
         passed = [c["id"] for c in mine if status[c["id"]] == "pass"]
         if passed:
             if out[-1].startswith("- "):

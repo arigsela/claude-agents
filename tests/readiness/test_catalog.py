@@ -52,6 +52,15 @@ class CatalogTest(unittest.TestCase):
             if c["kind"] == "judgment":
                 self.assertTrue(c["facts"], c["id"])
 
+    def test_every_rule_and_judgment_has_a_short_generic_fix(self):  # shown on each failing/partial line
+        for c in self.checks:
+            if c["kind"] == "person":
+                self.assertNotIn("fix", c, c["id"])
+            else:
+                self.assertIsInstance(c.get("fix"), str, c["id"])
+                self.assertTrue(0 < len(c["fix"].split()) <= 12, c["id"])
+                self.assertFalse(c["fix"].endswith("."), c["id"])
+
     def test_wa_ref_format(self):
         for c in self.checks:
             self.assertRegex(c["wa_ref"], r"^(none|[A-Z]{3,4}\d{2}-BP\d{2})$", c["id"])
