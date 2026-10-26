@@ -73,8 +73,8 @@ def app_ref_info(repo: Path, ref: str = "HEAD") -> dict:
     """Facts about `ref` in the user's checkout: slug, branch, sha, the origin's default branch name and
     whether `ref` is on it.
 
-    `on_default_branch` is True when the sha is the default branch's tip or contains it (the tip is an
-    ancestor), False when the tip is present locally and is not an ancestor, and None when it cannot be told
+    `on_default_branch` is True when the sha is the default branch's tip or is an ancestor of it (the commit is on
+    that branch), False when the tip is present locally and the sha is not reachable from it, and None when it cannot be told
     (no origin, offline, or the tip is not present locally; this never fetches)."""
     repo = Path(repo)
     sha = _git("rev-parse", "--verify", f"{ref}^{{commit}}", cwd=repo).stdout.strip()
@@ -89,7 +89,7 @@ def app_ref_info(repo: Path, ref: str = "HEAD") -> dict:
         if sha == tip:
             on_default = True
         elif _git("cat-file", "-e", f"{tip}^{{commit}}", cwd=repo, check=False).returncode == 0:
-            r = _git("merge-base", "--is-ancestor", tip, sha, cwd=repo, check=False)
+            r = _git("merge-base", "--is-ancestor", sha, tip, cwd=repo, check=False)
             on_default = r.returncode == 0
     return {"path": str(repo), "slug": slug, "branch": branch, "sha": sha,
             "on_default_branch": on_default, "default_branch": dflt}
@@ -97,6 +97,8 @@ def app_ref_info(repo: Path, ref: str = "HEAD") -> dict:
 
 def remote_checkout(url: str, ref: str, dest: Path) -> str:
     """Shallow, blobless checkout of `ref` (branch, tag, sha or HEAD) at `url` into `dest`; returns the sha."""
+    if ref.startswith("-"):
+        raise ValueError(f"unsafe ref: {ref!r}")
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     _git("init", "--quiet", cwd=dest)
@@ -104,6 +106,6 @@ def remote_checkout(url: str, ref: str, dest: Path) -> str:
     # gh's token covers private repos. The empty entry drops inherited helpers so a stale credential cannot win.
     _git("config", "credential.helper", "", cwd=dest)
     _git("config", "--add", "credential.helper", "!gh auth git-credential", cwd=dest)
-    _git("fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", ref, cwd=dest, timeout=600)
+    _git("fetch", "--quiet", "--depth", "1", "--filter=blob:none", "--", "origin", ref, cwd=dest, timeout=600)
     _git("checkout", "--quiet", "--detach", "FETCH_HEAD", cwd=dest, timeout=600)
     return _git("rev-parse", "HEAD", cwd=dest).stdout.strip()

@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/readiness/scripts"))
@@ -80,6 +81,19 @@ class RefInfoTest(TmpCase):
         self.assertIs(info["on_default_branch"], False)
         self.assertIsNone(info["slug"])  # a file:// remote is not GitHub
 
+    def test_local_commit_on_unadvanced_main_is_not_on_it(self):
+        url = fx.bare_remote(self.sub("r"), {"a": "1"})
+        c = self.clone(url)
+        fx.commit_files(c, {"b": "2"})
+        self.assertIs(g.app_ref_info(c)["on_default_branch"], False)
+
+    def test_commit_behind_main_tip_is_on_it(self):
+        url = fx.bare_remote(self.sub("r"), {"a": "1"})
+        c = self.clone(url)
+        self.advance_origin(url)
+        fx.git(c, "fetch", "--quiet", "origin")
+        self.assertIs(g.app_ref_info(c)["on_default_branch"], True)
+
     def test_default_sha_absent_locally(self):
         url = fx.bare_remote(self.sub("r"), {"a": "1"})
         c = self.clone(url)
@@ -103,6 +117,14 @@ class RemoteCheckoutTest(TmpCase):
         g.remote_checkout(url, "dev", d3)
         self.assertEqual((d3 / "a.txt").read_text(), "dev\n")
         self.assertEqual(g.default_branch(url), "main")
+
+    def test_option_like_ref_rejected_without_running_git(self):
+        d = self.sub("d")
+        with mock.patch.object(g.subprocess, "run") as run:
+            with self.assertRaises(ValueError):
+                g.remote_checkout("file:///nowhere", "--upload-pack=x", d)
+        run.assert_not_called()
+        self.assertEqual(list(d.iterdir()), [])
 
 
 if __name__ == "__main__":
