@@ -111,8 +111,7 @@ checks:
   sources:
   - app
   - deploy
-  wa_ref: SEC03-BP02
-  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_permissions_least_privileges.html
+  wa_ref: none
 - id: sec.hardening
   pillar: Security
   title: 'readOnlyRootFilesystem, allowPrivilegeEscalation: false, capabilities dropped'
@@ -195,16 +194,14 @@ checks:
   - deploy.object.Service/*
   - deploy.container.*
   - deploy.host_mentions.*
-  wa_ref: SEC05-BP01
-  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_network_protection_create_layers.html
+  wa_ref: none
 - id: sec.sa_token
   pillar: Security
   title: The service-account token is not mounted, or a dedicated SA is used
   kind: rule
   sources:
   - deploy
-  wa_ref: SEC03-BP02
-  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_permissions_least_privileges.html
+  wa_ref: none
 - id: sec.repo_hygiene
   pillar: Security
   title: CODEOWNERS and SECURITY.md exist; the default branch is protected
@@ -230,8 +227,7 @@ checks:
   blocker: true
   sources:
   - deploy
-  wa_ref: REL10-BP03
-  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_fault_isolation_use_bulkhead.html
+  wa_ref: none
 - id: rel.replicas
   pillar: Reliability
   title: Two or more replicas, or one with a stated reason
@@ -242,8 +238,7 @@ checks:
   facts:
   - deploy.workload.*
   - cluster.workload.*
-  wa_ref: REL10-BP01
-  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_fault_isolation_multiaz_region_system.html
+  wa_ref: none
 - id: rel.pdb
   pillar: Reliability
   title: A PodDisruptionBudget exists (n/a when one replica is justified)

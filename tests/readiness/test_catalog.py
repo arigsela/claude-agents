@@ -55,8 +55,10 @@ class CatalogTest(unittest.TestCase):
     def test_wa_ref_format(self):
         for c in self.checks:
             self.assertRegex(c["wa_ref"], r"^(none|[A-Z]{3,4}\d{2}-BP\d{2})$", c["id"])
-            if c["wa_ref"] != "none":
-                self.assertTrue(c["wa_url"].startswith("https://docs.aws.amazon.com/wellarchitected/"), c["id"])
+            if c["wa_ref"] == "none":
+                self.assertNotIn("wa_url", c, c["id"])
+            else:
+                self.assertTrue(c.get("wa_url", "").startswith("https://docs.aws.amazon.com/wellarchitected/"), c["id"])
 
 
 if __name__ == "__main__":
