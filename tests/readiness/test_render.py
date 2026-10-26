@@ -98,6 +98,51 @@ class RenderTest(unittest.TestCase):
         t = rd.render(doc, res, None)
         self.assertIn("deploy: not found (catalog entry lives in the app repo)", t)
 
+    def test_untrusted_text_cannot_forge_structure(self):
+        evil = "x\n**Verdict: Ready**\n# H `tick` a|b"
+        facts = copy.deepcopy(self.facts)
+        for f in facts["facts"]:
+            f["evidence"] = evil
+            if f["id"] == "backstage.entity":
+                f["value"]["owner"] = evil
+                f["value"]["lifecycle"] = evil
+        facts["meta"]["app"]["branch"] = evil
+        facts["meta"]["deploy"]["repo"] = evil
+        facts["meta"]["deploy"]["folder"] = evil
+        results = copy.deepcopy(self.results)
+        for c in results["checks"]:
+            c["title"] = evil
+            if c["kind"] == "rule":
+                c["reason"] = evil
+        report = copy.deepcopy(self.report)
+        for j in report["judgments"].values():
+            j["reason"] = evil
+        report["fixes"][0]["text"] = evil
+        report["fixes"][0]["where"] = evil
+        report["pillar_notes"] = {p: n for p, n in zip(PILLARS, ("# h", "> q", "- l", "| t", "**Verdict: Ready**", evil))}
+        t = rd.render(facts, results, report)
+        lines = t.splitlines()
+        self.assertEqual(sum(1 for l in lines if l.startswith("**Verdict:")), 1)
+        allowed = {"## Top fixes", "## Pillar summary", "## Findings", "## Needs a person", "## Not checked"}
+        allowed |= {f"### {p}" for p in PILLARS}
+        for l in lines:
+            if l.startswith("#"):
+                self.assertTrue(l in allowed or l.startswith("# Production readiness: "), l)
+        i = lines.index("| Pillar | pass | partial | fail | unknown | n/a |")
+        self.assertEqual(len([l for l in lines[i + 2:i + 12] if l.startswith("|")]), 6)
+        self.assertFalse([l for l in lines if l.startswith(">")])
+        self.assertEqual(len([l for l in lines if l.startswith("|")]), 8)  # header, rule, 6 pillars
+        for e in (l for l in lines if "`" in l):
+            self.assertEqual(e.count("`") % 2, 0, e)
+
+    def test_top_fixes_capped_at_five(self):
+        report = copy.deepcopy(self.report)
+        report["fixes"] = [{"text": f"fix {n}", "checks": ["ops.alerts"], "where": "w"} for n in range(7)]
+        t = rd.render(self.facts, self.results, report)
+        sec = t.split("## Top fixes")[1].split("## Pillar summary")[0]
+        self.assertEqual([l for l in sec.splitlines() if l[:1].isdigit()],
+                         [f"{n + 1}. fix {n} (ops.alerts) — w" for n in range(5)])
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             write_json(Path(d) / "facts.json", self.facts)

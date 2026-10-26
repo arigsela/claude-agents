@@ -28,7 +28,7 @@ sources: app ok, deploy ok, backstage ok, scorecard ok, cluster ok, github ok
 
 ### Operational excellence
 
-CI is solid; alerting is missing.
+Note: CI is solid; alerting is missing.
 
 - **fail** ops.alerts — An alert rule fires when this workload is down, crash-looping or erroring: no alert rules found `README.md` `.github/CODEOWNERS` `SECURITY.md, .github/SECURITY.md`
 
@@ -51,7 +51,7 @@ Passed: sec.base_digest, sec.actions_pinned, sec.token_perms, sec.exposure
 
 ### Reliability
 
-Single replica state.
+Note: Single replica state.
 
 - **fail** rel.probes — Readiness and liveness probes on every container: Deployment/demo/oauth2-proxy has no readiness or liveness probe; Deployment/valkey/valkey has no readiness or liveness probe `base-apps/demo/deployment.yaml:1-49` `base-apps/demo/deployment.yaml:51-61`
 - **fail** rel.resources — CPU and memory requests and limits on every container: Deployment/demo/init-db has no requests.cpu, requests.memory, limits.cpu, limits.memory; Deployment/demo/app has no limits.cpu; Deployment/demo/oauth2-proxy has no requests.cpu, requests.memory, limits.cpu, limits.memory; Deployment/valkey/valkey has no requests.cpu, requests.memory, limits.cpu, limits.memory `base-apps/demo/deployment.yaml:1-49` `base-apps/demo/deployment.yaml:51-61`

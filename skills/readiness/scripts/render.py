@@ -23,6 +23,7 @@ from readiness_model import PILLARS, STATUSES, Facts, SOURCES, read_json  # noqa
 BANNER = "> UNVERIFIED: verify.py rejected this report; read the evidence before acting on it."
 CVE_NOTE = "Unfixable critical CVEs are not visible: the CVE report keeps fixable CRITICAL/HIGH only."
 EVIDENCE_PER_CHECK = 3
+MAX_FIXES = 5
 ORDER = ("fail", "partial", "unknown")
 
 
@@ -34,16 +35,22 @@ def _l(v) -> list:
     return v if isinstance(v, list) else []
 
 
+def _one_line(v) -> str:
+    return " ".join(str(v).split())
+
+
 def _s(v, default: str = "") -> str:
-    return v if isinstance(v, str) and v else default
+    """A non-empty string from untrusted data, collapsed to one line; else the default."""
+    return _one_line(v) if isinstance(v, str) and v.strip() else default
 
 
 def _sha7(v) -> str:
     return _s(v)[:7] or "unknown"
 
 
-def _one_line(v) -> str:
-    return " ".join(str(v).split())
+def _code(v) -> str:
+    """Untrusted text as a one-line code span; backticks inside would close it early."""
+    return "`" + _one_line(v).replace("`", "'") + "`"
 
 
 def _header(doc: dict, f: Facts) -> list[str]:
@@ -60,13 +67,12 @@ def _header(doc: dict, f: Facts) -> list[str]:
         lines.append(f"deploy: {_s(deploy.get('repo'), 'unknown')}/{_s(deploy.get('folder'), '')}"
                      f"@{_sha7(deploy.get('sha'))} (Argo targetRevision {rev})")
     else:
-        st = f.status("deploy")
-        reason = st.removeprefix("unavailable: ")
+        reason = _one_line(f.status("deploy")).removeprefix("unavailable: ")
         lines.append(f"deploy: not found ({reason})")
-    stamps = sorted(str(_d(t["value"]).get("timestamp")) for t in f.prefix("scorecard.")
+    stamps = sorted(_one_line(_d(t["value"]).get("timestamp")) for t in f.prefix("scorecard.")
                     if _d(t.get("value")).get("timestamp"))
-    lines.append(f"scorecard: {stamps[-1] if stamps else f.status('scorecard')}")
-    srcs = ", ".join(f"{s} {'ok' if f.ok(s) else f.status(s)}" for s in SOURCES)
+    lines.append(f"scorecard: {stamps[-1] if stamps else _one_line(f.status('scorecard'))}")
+    srcs = ", ".join(f"{s} {'ok' if f.ok(s) else _one_line(f.status(s))}" for s in SOURCES)
     lines.append(f"sources: {srcs}")
     return lines
 
@@ -119,10 +125,10 @@ def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool
     out += [f"# Production readiness: {title}", ""]
     out += [f"{l}  " for l in _header(facts_doc, f)]
     out += ["", f"**Verdict: {verdict(checks, status)}**", "", "## Top fixes", ""]
-    fixes = [x for x in _l(_d(report).get("fixes")) if isinstance(x, dict)]
+    fixes = [x for x in _l(_d(report).get("fixes")) if isinstance(x, dict)][:MAX_FIXES]
     if fixes:
         for n, x in enumerate(fixes, 1):
-            ids = ", ".join(str(c) for c in _l(x.get("checks")))
+            ids = ", ".join(_one_line(c) for c in _l(x.get("checks")))
             out.append(f"{n}. {_one_line(x.get('text', ''))} ({ids}) — {_one_line(x.get('where', ''))}")
     else:
         out.append("None listed." if report else "None: no report.")
@@ -138,7 +144,7 @@ def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool
     for p in PILLARS:
         out += ["", f"### {p}", ""]
         if _s(notes.get(p)):
-            out += [_one_line(notes[p]), ""]
+            out += [f"Note: {_one_line(notes[p])}", ""]
         mine = [c for c in checks if c.get("pillar") == p and c.get("id") in status]
         for s in ORDER:
             for c in mine:
@@ -149,7 +155,7 @@ def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool
                 line = f"- **{s}** {cid} — {_s(c.get('title'), cid)}: {reason[cid] or 'no reason given'}"
                 ev = _evidence(f, ids)
                 if ev:
-                    line += " " + " ".join(f"`{e}`" for e in ev)
+                    line += " " + " ".join(_code(e) for e in ev)
                 out.append(line)
         passed = [c["id"] for c in mine if status[c["id"]] == "pass"]
         if passed:
@@ -165,14 +171,14 @@ def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool
         out.append(f"- {_s(c.get('title'), c.get('id'))}")
         for h in _l(c.get("hints")):
             h = _d(h)
-            out.append(f"  - `{_one_line(h.get('evidence', ''))}` {_one_line(h.get('text', ''))}")
+            out.append(f"  - {_code(h.get('evidence', ''))} {_one_line(h.get('text', ''))}")
     if not people:
         out.append("None.")
 
     out += ["", "## Not checked", ""]
     for s in SOURCES:
         if not f.ok(s):
-            out.append(f"- {s}: {f.status(s)}")
+            out.append(f"- {s}: {_one_line(f.status(s))}")
     out.append(f"- {CVE_NOTE}")
     return "\n".join(out) + "\n"
 
