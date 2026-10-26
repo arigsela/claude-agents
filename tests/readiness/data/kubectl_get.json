@@ -1,0 +1,23 @@
+{
+  "kind": "List",
+  "items": [
+    {"kind": "Deployment", "metadata": {"name": "demo"}, "spec": {"replicas": 2}, "status": {"readyReplicas": 2}},
+    {"kind": "StatefulSet", "metadata": {"name": "db"}, "spec": {"replicas": 1}, "status": {}},
+    {"kind": "Pod",
+     "metadata": {"name": "demo-7d9f8c6b5-aaaaa", "labels": {"pod-template-hash": "7d9f8c6b5"},
+                  "ownerReferences": [{"kind": "ReplicaSet", "name": "demo-7d9f8c6b5"}]},
+     "status": {"phase": "Running",
+                "containerStatuses": [{"name": "app", "restartCount": 3,
+                                       "lastState": {"terminated": {"reason": "OOMKilled"}}}]}},
+    {"kind": "Pod",
+     "metadata": {"name": "demo-7d9f8c6b5-bbbbb", "labels": {"pod-template-hash": "7d9f8c6b5"},
+                  "ownerReferences": [{"kind": "ReplicaSet", "name": "demo-7d9f8c6b5"}]},
+     "status": {"phase": "Running", "containerStatuses": [{"name": "app", "restartCount": 0}]}},
+    {"kind": "Pod",
+     "metadata": {"name": "db-0", "ownerReferences": [{"kind": "StatefulSet", "name": "db"}]},
+     "status": {"phase": "Running", "containerStatuses": [{"name": "app", "restartCount": 1}]}},
+    {"kind": "Pod",
+     "metadata": {"name": "job-xyz", "ownerReferences": [{"kind": "Job", "name": "job"}]},
+     "status": {"phase": "Succeeded"}}
+  ]
+}

@@ -1,0 +1,3 @@
+demo-7d9f8c6b5-aaaaa   app   12m   180Mi
+demo-7d9f8c6b5-bbbbb   app   5m    150Mi
+db-0                   app   1     1Gi
