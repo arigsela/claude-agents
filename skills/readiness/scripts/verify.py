@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import evaluate  # noqa: E402
 from readiness_model import PILLARS, Facts, load_checks, read_json  # noqa: E402
 
-JUDGMENT_STATUSES = ("pass", "partial", "fail", "unknown")
+JUDGMENT_STATUSES = ("pass", "partial", "fail", "unknown", "n/a")
+CITED = ("pass", "partial", "fail", "n/a")  # every status but unknown decides the check, so it rests on facts
 MAX_FIXES = 5
 SECRET_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[bp]-")
 
@@ -68,6 +69,7 @@ def verify(facts_doc: dict, results: dict, report: dict, canaries: list[str] = (
         return out + ["report: not an object"]
     facts = Facts(facts_doc)
     judgment_ids = [c["id"] for c in expected if c["kind"] == "judgment"]
+    candidates = {c["id"]: set(c["facts"]) for c in expected if c["kind"] == "judgment"}
     final = {c["id"]: c["status"] for c in expected if c["kind"] == "rule"}
 
     def text_field(path: str, value) -> None:
@@ -110,9 +112,11 @@ def verify(facts_doc: dict, results: dict, report: dict, canaries: list[str] = (
         else:
             final[jid] = status
         cited = ids(f"judgments.{jid}.facts", j.get("facts", []))
-        if status in ("pass", "partial", "fail"):
+        if status in CITED:
             if not cited:
                 out.append(f"judgments.{jid}: cites no facts")
+            elif not candidates[jid] & set(cited):
+                out.append(f"judgments.{jid}: cites no candidate fact")
             for fid in cited:
                 if _leaks(fid, secrets):
                     out.append(f"judgments.{jid}.facts: contains a secret")

@@ -141,6 +141,14 @@ class RenderTest(unittest.TestCase):
         self.assertEqual([l for l in sec.splitlines() if l[:1].isdigit()],
                          [f"{n + 1}. fix {n} (ops.alerts) — w" for n in range(5)])
 
+    def test_na_judgment(self):  # final review M5: counted like any status, not listed as a finding
+        report = copy.deepcopy(self.report)
+        report["judgments"]["rel.state"] = {"status": "n/a", "reason": "stateless", "facts": []}
+        t = rd.render(self.facts, report)
+        self.assertIn("| Reliability | 2 | 0 | 3 | 0 | 2 |", t)
+        self.assertIn("| Reliability | 2 | 1 | 3 | 0 | 1 |", self.text)
+        self.assertNotIn("rel.state", t.split("## Findings")[1].split("## Needs a person")[0])
+
     def test_rule_statuses_recomputed_from_facts(self):  # final review I1
         """A hand-edited results.json cannot change what render prints for a rule check."""
         results = copy.deepcopy(self.results)

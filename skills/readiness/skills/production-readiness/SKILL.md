@@ -85,10 +85,12 @@ given, else this session's scratchpad if the system prompt lists one, else `$(mk
     "fixes": [{"text": "...", "checks": ["sec.dependabot"], "where": "repo settings"}]}
    ```
 
-   - `judgments`: exactly one entry per judgment check, status `pass`, `partial`, `fail` or
-     `unknown`, a one-sentence `reason`, and the fact ids it rests on. Use `unknown` when the facts
-     cannot tell, and say what is missing; a `pass`, `partial` or `fail` needs at least one fact id
-     that exists, and a `pass` cannot rest on empty facts only.
+   - `judgments`: exactly one entry per judgment check, status `pass`, `partial`, `fail`,
+     `unknown` or `n/a`, a one-sentence `reason`, and the fact ids it rests on. Use `unknown` when
+     the facts cannot tell, and say what is missing. Use `n/a` only when the check does not apply
+     (for example `rel.state` for a stateless app). A `pass`, `partial`, `fail` or `n/a` needs at
+     least one fact id from that check's candidate list in `results.json` (it may cite other
+     existing facts too), and a `pass` cannot rest on empty facts only.
    - `pillar_notes`: one line for each of the six pillars (Operational excellence, Security,
      Reliability, Performance efficiency, Cost optimization, Sustainability). Sustainability and
      cost have few signals in a homelab: say so, do not pad.
@@ -114,9 +116,9 @@ given, else this session's scratchpad if the system prompt lists one, else `$(mk
      reaches a workload with none of these.
    - `rel.replicas`: pass = every workload has two or more replicas, or one with a reason stated in a manifest
      comment; partial = some workloads qualify and others do not; fail = none do.
-   - `rel.state`: pass = every stateful dependency (PVC, database) has a backup or restore path, or
-     the app is stateless; partial = a backup exists but no restore evidence; fail = state with no
-     backup at all.
+   - `rel.state`: pass = every stateful dependency (PVC, database) has a backup or restore path;
+     partial = a backup exists but no restore evidence; fail = state with no backup at all; n/a =
+     the app is stateless (no PVC, volume claim template or database dependency).
    - `perf.scaling`: pass = an HPA exists, or the fixed size is justified (comment or usage) for every workload;
      partial = justified for some; fail = fixed size, no HPA, no reason.
    - `cost.registry`: pass = the image registry has a retention rule in the deploy repo's

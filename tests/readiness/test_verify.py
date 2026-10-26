@@ -29,10 +29,14 @@ class VerifyTest(unittest.TestCase):
         cls.facts = happy_path_facts()
         cls.results = ev.evaluate(cls.facts, load_checks())
         cls.fid = next(f["id"] for f in cls.facts["facts"] if f["value"])
+        values = {f["id"]: f["value"] for f in cls.facts["facts"]}
+        # Each judgment cites the first non-empty fact from its own candidate list (final review M4).
+        cls.cand = {c["id"]: next(i for i in c["facts"] if values[i]) for c in cls.results["checks"]
+                    if c["kind"] == "judgment"}
 
     def good(self) -> dict:
         return {
-            "judgments": {j: {"status": "pass", "reason": "ok", "facts": [self.fid]} for j in JUDGMENTS},
+            "judgments": {j: {"status": "pass", "reason": "ok", "facts": [self.cand[j]]} for j in JUDGMENTS},
             "pillar_notes": {PILLARS[0]: "fine"},
             "fixes": [{"text": "Run as non-root", "checks": ["sec.nonroot"], "where": "Dockerfile"}],
         }
@@ -81,8 +85,27 @@ class VerifyTest(unittest.TestCase):
 
     def test_bad_status(self):
         r = self.good()
-        r["judgments"]["ops.ci"]["status"] = "n/a"
-        self.has(r, "judgments.ops.ci: status")
+        r["judgments"]["ops.ci"]["status"] = "great"
+        self.has(r, "judgments.ops.ci: status great is not one of pass, partial, fail, unknown, n/a")
+
+    def test_cites_no_candidate_fact(self):  # final review M4
+        r = self.good()
+        r["judgments"]["ops.alerts"]["facts"] = [self.fid]  # exists, but is not one of ops.alerts' candidates
+        self.assertNotIn(self.fid, self.cand.values())
+        self.has(r, "judgments.ops.alerts: cites no candidate fact")
+        r["judgments"]["ops.alerts"]["facts"] = [self.fid, self.cand["ops.alerts"]]  # one candidate is enough
+        self.assertEqual(self.v(r), [])
+        r["judgments"]["ops.alerts"] = {"status": "unknown", "reason": "no rules", "facts": [self.fid]}
+        self.assertEqual(self.v(r), [])  # unknown needs no candidate
+
+    def test_na_judgment(self):  # final review M5: rel.state is n/a for a stateless app (spec §8)
+        r = self.good()
+        r["judgments"]["rel.state"] = {"status": "n/a", "reason": "stateless", "facts": [self.cand["rel.state"]]}
+        self.assertEqual(self.v(r), [])
+        r["judgments"]["rel.state"]["facts"] = []  # n/a keeps a check out of the verdict, so it needs facts too
+        self.has(r, "judgments.rel.state: cites no facts")
+        r["judgments"]["rel.state"]["facts"] = [self.fid]
+        self.has(r, "judgments.rel.state: cites no candidate fact")
 
     def test_too_many_fixes(self):
         r = self.good()

@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -8,6 +9,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "skills" / "readiness"
 SKILL = PLUGIN / "skills" / "production-readiness" / "SKILL.md"
+sys.path.insert(0, str(PLUGIN / "scripts"))
+
+import verify  # noqa: E402
 
 
 def frontmatter(text):
@@ -42,6 +46,12 @@ class SkillDocTest(unittest.TestCase):
         for needle in ("facts.json", "results.json", "alert rule", "catalog", "scorecard",
                        "CVE", "never followed"):
             self.assertIn(needle, rule, needle)
+
+    def test_judgment_statuses_match_verify(self):  # final review M4, M5
+        para = re.search(r"- `judgments`:.*?(?=\n   - `pillar_notes`)", SKILL.read_text(), re.S).group(0)
+        for status in verify.JUDGMENT_STATUSES:
+            self.assertIn(f"`{status}`", para, status)
+        self.assertIn("candidate list", para)
 
     def test_marketplace_and_catalog(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
