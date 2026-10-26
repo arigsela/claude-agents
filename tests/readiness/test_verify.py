@@ -120,6 +120,76 @@ class VerifyTest(unittest.TestCase):
         r["pillar_notes"][PILLARS[0]] = "ghp_" + "a" * 24
         self.has(r, "contains a secret")
 
+    def test_garbled_shapes_never_raise(self):
+        def mut(f):
+            r = self.good()
+            f(r)
+            return r
+        shapes = {
+            "fixes int": mut(lambda r: r.update(fixes=5)),
+            "pillar_notes list": mut(lambda r: r.update(pillar_notes=["a"])),
+            "pillar_notes str": mut(lambda r: r.update(pillar_notes="a")),
+            "facts int": mut(lambda r: r["judgments"]["ops.ci"].update(facts=3)),
+            "facts nested": mut(lambda r: r["judgments"]["ops.ci"].update(facts=[[1]])),
+            "checks nested": mut(lambda r: r["fixes"][0].update(checks=[["a"]])),
+            "checks int": mut(lambda r: r["fixes"][0].update(checks=3)),
+            "judgments list": mut(lambda r: r.update(judgments=[])),
+            "judgment int": mut(lambda r: r["judgments"].update({"ops.ci": 3})),
+            "status list": mut(lambda r: r["judgments"]["ops.ci"].update(status=[])),
+        }
+        for name, r in shapes.items():
+            with self.subTest(name):
+                out = self.v(r)
+                self.assertTrue(out, name)
+        for bad in ([], "x", 3, None):
+            with self.subTest(report=bad):
+                self.assertTrue(self.v(bad))
+
+    def test_cli_non_dict_report_and_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_json(Path(d) / "facts.json", self.facts)
+            write_json(Path(d) / "results.json", self.results)
+            (Path(d) / "report.json").write_text("[1]")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(vf.main(["--out", d]), 1)
+            self.assertTrue(buf.getvalue().strip())
+            write_json(Path(d) / "report.json", self.good())
+            buf = io.StringIO()
+            with mock.patch.object(vf, "verify", side_effect=KeyError("t0k")), contextlib.redirect_stdout(buf):
+                self.assertEqual(vf.main(["--out", d]), 1)
+            self.assertIn("KeyError", buf.getvalue())
+            self.assertNotIn("t0k", buf.getvalue())
+
+    def test_non_string_fields_rejected_and_scanned(self):
+        with mock.patch.dict(os.environ, {"BACKSTAGE_TOKEN": "t0k"}):
+            r = self.good()
+            r["judgments"]["ops.ci"]["reason"] = ["t0k"]
+            out = self.v(r)
+            self.assertTrue(any("judgments.ops.ci.reason: not a string" in x for x in out), out)
+            self.assertTrue(any("judgments.ops.ci.reason: contains a secret" in x for x in out), out)
+            r = self.good()
+            r["fixes"][0]["where"] = {"a": "t0k"}
+            out = self.v(r)
+            self.assertTrue(any("fixes[0].where: not a string" in x for x in out), out)
+            self.assertTrue(any("fixes[0].where: contains a secret" in x for x in out), out)
+            r = self.good()
+            r["pillar_notes"][PILLARS[0]] = ["t0k"]
+            self.assertTrue(any("contains a secret" in x for x in self.v(r)))
+
+    def test_leaking_identifiers_are_redacted(self):
+        with mock.patch.dict(os.environ, {"BACKSTAGE_TOKEN": "t0k"}):
+            r = self.good()
+            r["judgments"]["t0k"] = {"status": "pass", "reason": "x", "facts": [self.fid]}
+            r["judgments"]["ops.ci"]["facts"] = ["t0k"]
+            r["pillar_notes"]["t0k"] = "x"
+            r["fixes"][0]["checks"].append("t0k")
+            out = self.v(r)
+            self.assertTrue(any("judgments[<redacted>]: contains a secret" in x for x in out), out)
+            self.assertTrue(any("contains a secret" in x and "pillar_notes" in x for x in out), out)
+            self.assertTrue(any("fixes[0].checks" in x and "contains a secret" in x for x in out), out)
+            self.assertFalse(any("t0k" in x for x in out), out)
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             write_json(Path(d) / "facts.json", self.facts)
