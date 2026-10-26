@@ -23,7 +23,8 @@ from evaluate import evaluate, verdict  # noqa: E402
 from readiness_model import PILLARS, STATUSES, Facts, SOURCES, load_checks, read_json  # noqa: E402
 
 BANNER = "> UNVERIFIED: verify.py rejected this report; read the evidence before acting on it."
-CVE_NOTE = "Unfixable critical CVEs are not visible: the CVE report keeps fixable CRITICAL/HIGH only."
+CVE_NOTE = ("CVEs other than fixable criticals and actively exploited (CISA KEV) ones are not counted, and a week "
+            "the scan could not reach the KEV feed reads as 0 exploited.")
 EVIDENCE_PER_CHECK = 3
 MAX_FIXES = 5
 ORDER = ("fail", "partial", "unknown")
@@ -114,6 +115,19 @@ def _evidence(f: Facts, ids) -> list[str]:
     return out
 
 
+def _awareness(f: Facts) -> dict[str, list[str]]:
+    """Lines shown under a pillar whatever the checks decided: things to know that are not counted."""
+    out: dict[str, list[str]] = {}
+    cve = f.get("backstage.cve")
+    n = _d(_d(cve["value"]).get("totals")).get("critical_no_fix") if cve else None
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        noun = "CVE" if n == 1 else "CVEs"
+        out.setdefault("Security", []).append(
+            f"Awareness: {n} critical {noun} with no fix yet in the scanned images (not counted) "
+            + _code(cve.get("evidence", "")))
+    return out
+
+
 def render(facts_doc: dict, report: dict | None, unverified: bool = False, checks: list[dict] | None = None) -> str:
     """`checks` is the catalog (default checks.yaml); the rule checks are decided here from the facts."""
     f = Facts(facts_doc)
@@ -146,6 +160,7 @@ def render(facts_doc: dict, report: dict | None, unverified: bool = False, check
 
     out += ["", "## Findings"]
     notes = _d(_d(report).get("pillar_notes"))
+    aware = _awareness(f)
     for p in PILLARS:
         out += ["", f"### {p}", ""]
         if _s(notes.get(p)):
@@ -169,6 +184,8 @@ def render(facts_doc: dict, report: dict | None, unverified: bool = False, check
             out.append(f"Passed: {', '.join(passed)}")
         if not mine:
             out.append("No checks.")
+        for line in aware.get(p, []):
+            out += ["", line]  # its own paragraph, never folded into a bullet or the Passed line
 
     out += ["", "## Needs a person", ""]
     people = [c for c in checks if c.get("kind") == "person"]

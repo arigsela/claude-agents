@@ -101,12 +101,14 @@ def dep(ref, lifecycle="production", error=None) -> dict:
     return F(f"backstage.dependency.{ref}", {"ref": ref, "lifecycle": lifecycle, "error": error})
 
 
-def cve(critical=0, high=0, ok=True, unmatched=(), error=None, matched=("reg/api" + DIGEST,)) -> dict:
+def cve(critical=0, high=0, ok=True, unmatched=(), error=None, matched=("reg/api" + DIGEST,),
+        kev=0, nofix=0) -> dict:
     findings = ([{"id": "CVE-1", "severity": "CRITICAL", "pkg": "openssl", "fixed": "3.0.15", "image": "img"}]
                 * bool(critical)
                 + [{"id": "CVE-2", "severity": "HIGH", "pkg": "zlib", "fixed": "1.2.13", "image": "img"}] * bool(high))
+    totals = {"critical": critical, "high": high, "critical_no_fix": nofix, "kev_fixable": kev}
     return F("backstage.cve", {"ok": ok, "scanned_at": "2026-10-25", "matched": list(matched),
-                               "unmatched": list(unmatched), "totals": {"critical": critical, "high": high},
+                               "unmatched": list(unmatched), "totals": totals,
                                "findings": findings, "error": error})
 
 
@@ -234,16 +236,20 @@ CASES: dict[str, list[tuple[dict, str]]] = {
     ],
     "sec.cve": [
         (doc(*DEPLOY, cve()), "pass"),
-        (doc(*DEPLOY, cve(high=2)), "partial"),
+        (doc(*DEPLOY, cve(high=2)), "pass"),  # highs count only when actively exploited (KEV)
         (doc(*DEPLOY, cve(critical=1, high=2)), "fail"),
-        (doc(*DEPLOY, cve(ok=False, critical=None, high=None, error="HTTP 500")), "unknown"),
-        (doc(*DEPLOY, cve(unmatched=["busybox:1.36"])), "unknown"),
+        (doc(*DEPLOY, cve(kev=1)), "fail"),  # actively exploited with a fix, at any severity
+        (doc(*DEPLOY, cve(nofix=2)), "pass"),  # criticals with no fix: named, not counted
+        (doc(*DEPLOY, cve(ok=False, critical=None, high=None, kev=None, nofix=None, error="HTTP 500")), "unknown"),
+        (doc(*DEPLOY, cve(unmatched=["busybox:1.36"])), "partial"),  # some images not scanned yet
         (doc(*DEPLOY, cve(critical=1, unmatched=["busybox:1.36"])), "fail"),
         (doc(*DEPLOY, cve(high=1, unmatched=["busybox:1.36"])), "partial"),
         (doc(*DEPLOY), "unknown"),  # no report
         (doc(*DEPLOY, cve(), backstage="unavailable: timeout"), "unknown"),
         (doc(*DEPLOY, cve(matched=[])), "unknown"),  # an empty report scanned nothing: no pass
+        (doc(*DEPLOY, cve(matched=[], unmatched=["reg/api:v2"])), "unknown"),  # nothing scanned yet
         (doc(*DEPLOY, cve(critical=1, matched=[])), "fail"),  # a critical in the totals still wins
+        (doc(*DEPLOY, cve(kev=None, nofix=None)), "unknown"),  # a portal before v1.7.0: no KEV count
     ],
     "sec.dependabot": [
         (doc(alerts(), metric("dependabot.alertsCritical", "success", 0), metric("dependabot.alertsHigh", "success", 0)),
@@ -372,7 +378,7 @@ NA = {"sec.base_digest", "sec.actions_pinned", "sec.token_perms", "rel.pdb", "re
 HAPPY = {
     "ops.catalog": "pass", "ops.runbook": "pass", "ops.docs": "pass", "ops.open_prs": "pass",
     "sec.image_digest": "fail", "sec.base_digest": "pass", "sec.nonroot": "fail", "sec.hardening": "partial",
-    "sec.netpol": "partial", "sec.secrets": "fail", "sec.cve": "partial", "sec.dependabot": "unknown",
+    "sec.netpol": "partial", "sec.secrets": "fail", "sec.cve": "pass", "sec.dependabot": "unknown",
     "sec.dep_updates": "fail", "sec.actions_pinned": "pass", "sec.token_perms": "pass", "sec.sa_token": "partial",
     "sec.repo_hygiene": "partial", "rel.probes": "fail", "rel.resources": "fail", "rel.pdb": "n/a",
     "rel.restarts": "fail", "rel.dependencies": "pass", "perf.rightsize": "partial", "cost.overprovision": "pass",
@@ -455,9 +461,10 @@ class RuleTableTest(unittest.TestCase):
         self.assertIn("Deployment/api/api", reason)
         self.assertIn("Dockerfile USER 10001", reason)
         self.assertIn("app.dockerfile.user", ids)
-        _, reason, _ = run("sec.cve", doc(*DEPLOY, cve(high=1, unmatched=["busybox:1.36"])))
-        self.assertIn("CVE-2 in zlib", reason)
+        _, reason, _ = run("sec.cve", doc(*DEPLOY, cve(critical=1, high=1, unmatched=["busybox:1.36"])))
+        self.assertIn("1 fixable critical: CVE-1 in openssl (fixed 3.0.15)", reason)
         self.assertIn("not scanned: busybox:1.36", reason)
+        self.assertNotIn("CVE-2", reason)  # a non-exploited high is not named
         _, reason, _ = run("perf.rightsize", doc(*DEPLOY, use(cpu=250, mem=100)))
         self.assertEqual(reason, "Deployment/api/api cpu 250m is above its 200m request")
 
@@ -483,6 +490,20 @@ class RuleTableTest(unittest.TestCase):
         self.assertEqual(run("rel.probes", doc(*CRONJOB))[1], "only Job/CronJob containers, which take no probes")
         self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(matched=[])))[1],
                          "the CVE report matched none of the rendered images")
+
+    def test_cve_policy_reasons(self):  # the Scorecard CVE cards' policy, 2026-10-26
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(high=3)))[1],
+                         "no fixable critical or actively exploited CVEs in 1 scanned images")
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(nofix=2)))[1],
+                         "no fixable critical or actively exploited CVEs in 1 scanned images; "
+                         "2 critical with no fix yet (awareness, not counted)")
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(kev=2, nofix=1)))[1],
+                         "2 actively exploited (CISA KEV) with a fix; "
+                         "1 critical with no fix yet (awareness, not counted)")
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(matched=[], unmatched=["reg/api:v2"])))[1],
+                         "the CVE report matched none of the rendered images (not scanned: reg/api:v2)")
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(kev=None)))[1],
+                         "the CVE report gave no KEV count (portal older than v1.7.0)")
         self.assertEqual(run("cost.overprovision", doc(wl(), ctr(resources=res(None, None, None, None)), use()))[1],
                          "no CPU or memory requests to compare live usage with")
         self.assertEqual(run("cost.overprovision", doc(*DEPLOY, use(), ctr("Deployment/api/proxy",

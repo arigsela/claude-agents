@@ -138,7 +138,7 @@ checks:
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_identities_secrets.html
 - id: sec.cve
   pillar: Security
-  title: No fixable critical or high CVEs in the rendered images (from /api/cve/report)
+  title: No fixable critical or actively exploited (CISA KEV) CVEs in the rendered images (from /api/cve/report)
   kind: rule
   blocker: true
   sources:
