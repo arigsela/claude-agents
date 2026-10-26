@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/readiness/scripts"))
 
 import evaluate as ev  # noqa: E402
+import rules  # noqa: E402
 from readiness_model import SOURCES, STATUSES, Facts, fact, load_checks  # noqa: E402
 from tests.readiness.test_collect import happy_path_facts  # noqa: E402
 
@@ -431,8 +432,9 @@ class RuleTableTest(unittest.TestCase):
         self.assertEqual(ev.worst(["partial", "fail", "n/a"]), "fail")
 
     def test_constants(self):
-        self.assertEqual((ev.NEAR_LIMIT, ev.OVERPROVISION_RATIO, ev.OVERPROVISION_MIN_CPU_M,
-                          ev.OVERPROVISION_MIN_MEM_MI, ev.IDLE_RATIO), (0.9, 4, 100, 128, 0.10))
+        self.assertEqual((rules.NEAR_LIMIT, rules.OVERPROVISION_RATIO, rules.OVERPROVISION_MIN_CPU_M,
+                          rules.OVERPROVISION_MIN_MEM_MI, rules.IDLE_RATIO), (0.9, 4, 100, 128, 0.10))
+        self.assertIs(ev.RULES, rules.RULES)  # evaluate re-exports the one RULES dict
 
 
 class EvaluateTest(unittest.TestCase):
