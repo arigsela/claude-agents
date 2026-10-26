@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/readiness/s
 
 import collect as c  # noqa: E402
 import deploy_facts as df  # noqa: E402
-from readiness_model import SOURCES, Facts  # noqa: E402
+import evaluate as ev  # noqa: E402
+from readiness_model import SOURCES, Facts, load_checks  # noqa: E402
 from tests.readiness import fixtures as fx  # noqa: E402
 from tests.readiness.test_app_facts import DOCKERFILE  # noqa: E402
 from tests.readiness.test_deploy_facts import APP as DEPLOY_APP, FILES as DEPLOY_FILES  # noqa: E402
@@ -469,6 +470,21 @@ class DeployRevisionTest(Case):
         self.assertEqual(by_id(d)["deploy.text.base-apps/demo/runbook.md"]["value"]["text"], str(secret))
         self.assertNotIn("OUTSIDE-CANARY", (w.out / "facts.json").read_text())
 
+    def test_missing_deploy_folder(self):  # final review I5
+        """A managed-by folder the deploy repo does not have is unavailable, not a deploy folder with no runbook."""
+        for location, folder in ((LOCATION.replace("base-apps/demo/", "base-apps/missing/"), "base-apps/missing"),
+                                 # a ref with a '/' mis-splits into a folder that does not exist
+                                 (LOCATION.replace("/tree/main/", "/tree/feat/x/"), "x/base-apps/demo")):
+            with self.subTest(folder=folder):
+                w = self.world(entities=[entity(location=location)])
+                d = w.collect()
+                self.assertEqual(d["meta"]["sources"]["deploy"], f"unavailable: folder not found ({folder})")
+                self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+                self.assertEqual(d["meta"]["deploy"]["folder"], folder)
+                runbook = next(c for c in ev.evaluate(d, load_checks())["checks"] if c["id"] == "ops.runbook")
+                self.assertNotIn("no runbook at", runbook["reason"])
+                self.assertEqual(runbook["status"], "pass")  # from the scorecard's filecheck.runbook
+
     def test_entity_namespace_reaches_alert_rules(self):
         """ApplicationSet apps have no hand-written Application: the entity's namespace scopes the alert rules."""
         w = self.world(deploy_files={k: v for k, v in DEPLOY_FILES.items() if k != "base-apps/demo.yaml"})
@@ -553,6 +569,21 @@ class TokenTest(Case):
         self.assertTrue(all(f[3].get("Authorization") == "Bearer t0k" for f in w.fetches))
         self.assertNotIn("t0k", self.files_text(w))
         self.assertNotIn("t0k", out + err)
+
+    def test_userinfo_stripped_from_backstage_url(self):  # final review M8
+        w = self.world()
+        w.env = {"BACKSTAGE_URL": "https://reader:pw-CANARY@backstage.test/"}
+        rc, out, err = w.main()
+        self.assertEqual(rc, 0)
+        d = w.doc()
+        self.assertEqual(d["meta"]["backstage_url"], BASE)
+        self.assertEqual(d["meta"]["sources"]["backstage"], "ok")
+        self.assertEqual(by_id(d)["backstage.entity"]["evidence"], BASE + "/api/catalog/entities/by-name/component/demo/demo")
+        self.assertTrue(all(f[1].startswith(BASE + "/") for f in w.fetches))
+        self.assertNotIn("pw-CANARY", self.files_text(w))
+        self.assertNotIn("pw-CANARY", out + err)
+        self.assertEqual(c._without_userinfo("http://h:8080/x"), "http://h:8080/x")
+        self.assertEqual(c._without_userinfo("https://u@h:8443"), "https://h:8443")
 
     def test_no_token_no_header(self):
         w = self.world()

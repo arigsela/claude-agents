@@ -119,6 +119,15 @@ def _qualify(ref: str, namespace: str) -> str:
     return f"{kind.lower()}:{rest}"
 
 
+def _without_userinfo(url: str) -> str:
+    """`https://user:pw@host/x` -> `https://host/x`: credentials in BACKSTAGE_URL never reach facts.json (urllib
+    cannot send them anyway)."""
+    parts = urllib.parse.urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
 def _ref_path(ref: str) -> str:
     return "/".join(urllib.parse.quote(p, safe="") for p in parse_ref(ref))
 
@@ -258,6 +267,8 @@ def _deploy_step(ent: dict, app_slug: str | None, deploy_ref: str | None, deps: 
         stage = "deploy facts failed"
         if _escapes(root, folder):
             return [], "unavailable: unsafe folder", meta
+        if not (root / folder).is_dir():  # else every deploy check reads an empty folder: no runbook, no workloads
+            return [], f"unavailable: folder not found ({folder})", meta
         work = tmp / "render"
         work.mkdir(exist_ok=True)
         return (df.deploy_facts(root, repo, folder, work, namespace=str(namespace) if namespace else None),
@@ -326,7 +337,7 @@ def collect(repo_path: Path, out: Path, ref: str = "HEAD", entity: str | None = 
     deps = deps or Deps()
     repo_path, out = Path(repo_path), Path(out)
     info = _app_info(repo_path, ref)
-    base = (deps.env.get("BACKSTAGE_URL") or DEFAULT_BACKSTAGE_URL).rstrip("/")
+    base = _without_userinfo(deps.env.get("BACKSTAGE_URL") or DEFAULT_BACKSTAGE_URL).rstrip("/")
     bs = Backstage(base, deps.env.get("BACKSTAGE_TOKEN") or None, fetch=deps.fetch)
     status: dict[str, str] = {}
     facts: list[dict] = []
