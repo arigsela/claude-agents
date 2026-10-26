@@ -63,6 +63,7 @@ checks:
   sources:
   - deploy
   facts:
+  - deploy.alert_source
   - deploy.alert_rule.*
   wa_ref: OPS08-BP04
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_workload_observability_create_alerts.html

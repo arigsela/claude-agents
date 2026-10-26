@@ -558,7 +558,8 @@ class EvaluateTest(unittest.TestCase):
     def test_judgment_stubs(self):
         alerts_check = self.by_id["ops.alerts"]
         self.assertIsNone(alerts_check["status"])
-        self.assertEqual(alerts_check["facts"], ["deploy.alert_rule.demo-up", "deploy.alert_rule.generic-mem"])
+        self.assertEqual(alerts_check["facts"], ["deploy.alert_source", "deploy.alert_rule.demo-up",
+                                                 "deploy.alert_rule.generic-mem"])
         facts = Facts(self.happy)
         for c in CHECKS:
             if c["kind"] == "judgment":

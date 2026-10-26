@@ -14,7 +14,7 @@ import yaml
 import facts_lib as fl
 from readiness_model import fact
 
-ALERT_RULE_FILES = ("base-apps/logging/grafana-alerting.yaml",)
+ALERT_RULE_FILE = "base-apps/logging/grafana-alerting.yaml"
 WORKLOAD_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
 TEXT_SUFFIXES = (".yaml", ".yml", ".md", ".tf")
 SKIP_DIRS = {".git", "node_modules", ".terraform"}
@@ -196,42 +196,51 @@ def _object_value(doc: dict) -> dict | None:
 
 
 def _alert_facts(root: Path, namespace: str | None, names: list[str]) -> list[dict]:
-    out = []
-    for file in ALERT_RULE_FILES:
-        p = root / file
-        if not p.is_file():
+    """`deploy.alert_source` (was the rule file there and readable, how many rules it held and kept), then one
+    `deploy.alert_rule.<uid>` per kept rule. `parsed` is true only when the file and every ConfigMap data blob
+    load as YAML and at least one blob holds Grafana rule `groups`: anything else is "could not read the rules",
+    never "there are no rules"."""
+    file = ALERT_RULE_FILE
+    p = root / file
+    source = {"file": file, "exists": p.is_file(), "parsed": False, "rules_total": 0, "rules_kept": 0}
+    rules: list[dict] = []
+    try:
+        text = p.read_text() if source["exists"] else ""
+        docs = fl.load_docs(text) if source["exists"] else []
+    except (yaml.YAMLError, OSError, UnicodeDecodeError):
+        docs = None
+    lines = text.splitlines() if docs else []
+    blobs_ok, groups_seen = docs is not None, False
+    for doc in docs or []:
+        if not isinstance(doc, dict) or doc.get("kind") != "ConfigMap":
             continue
-        try:
-            text = p.read_text()
-            docs = fl.load_docs(text)
-        except (yaml.YAMLError, OSError, UnicodeDecodeError):
-            continue
-        lines = text.splitlines()
-        for doc in docs:
-            if not isinstance(doc, dict) or doc.get("kind") != "ConfigMap":
+        for blob in _d(doc.get("data")).values():
+            if not isinstance(blob, str):
                 continue
-            for blob in _d(doc.get("data")).values():
-                if not isinstance(blob, str):
-                    continue
-                try:
-                    parsed = yaml.safe_load(blob)
-                except yaml.YAMLError:
-                    continue
-                for group in _l(_d(parsed).get("groups")):
-                    for rule in map(_d, _l(_d(group).get("rules"))):
-                        exprs = [str(_d(_d(d).get("model")).get("expr")) for d in _l(rule.get("data"))
-                                 if _d(_d(d).get("model")).get("expr")]
-                        mentions, filtered, ns_hit = _rule_match(exprs, namespace, names)
-                        if not rule.get("uid") or (filtered and not ns_hit):
-                            continue  # a rule scoped only to other namespaces says nothing about this app
-                        uid = str(rule["uid"])
-                        line = next((i for i, t in enumerate(lines, 1)
-                                     if re.search(rf"uid:\s*{re.escape(uid)}\s*$", t)), 1)
-                        value = {"uid": uid, "title": str(rule.get("title", "")),
-                                 "queries": [e[:QUERY_CAP] for e in exprs],
-                                 "mentions_app": mentions, "namespace_filtered": filtered}
-                        out.append(fact(f"deploy.alert_rule.{uid}", "deploy", value, f"{file}:{line}"))
-    return out
+            try:
+                parsed = yaml.safe_load(blob)
+            except yaml.YAMLError:
+                blobs_ok = False
+                continue
+            groups = _d(parsed).get("groups")
+            groups_seen = groups_seen or isinstance(groups, list)
+            for group in _l(groups):
+                for rule in map(_d, _l(_d(group).get("rules"))):
+                    source["rules_total"] += 1
+                    exprs = [str(_d(_d(d).get("model")).get("expr")) for d in _l(rule.get("data"))
+                             if _d(_d(d).get("model")).get("expr")]
+                    mentions, filtered, ns_hit = _rule_match(exprs, namespace, names)
+                    if not rule.get("uid") or (filtered and not ns_hit):
+                        continue  # a rule scoped only to other namespaces says nothing about this app
+                    uid = str(rule["uid"])
+                    line = next((i for i, t in enumerate(lines, 1)
+                                 if re.search(rf"uid:\s*{re.escape(uid)}\s*$", t)), 1)
+                    value = {"uid": uid, "title": str(rule.get("title", "")),
+                             "queries": [e[:QUERY_CAP] for e in exprs],
+                             "mentions_app": mentions, "namespace_filtered": filtered}
+                    rules.append(fact(f"deploy.alert_rule.{uid}", "deploy", value, f"{file}:{line}"))
+    source.update(parsed=bool(source["exists"] and blobs_ok and groups_seen), rules_kept=len(rules))
+    return [fact("deploy.alert_source", "deploy", source, file)] + rules
 
 
 def _repo_names(images: list[str]) -> list[str]:

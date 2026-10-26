@@ -294,6 +294,12 @@ class DeployFactsTest(unittest.TestCase):
         line = next(i for i, t in enumerate(text, 1) if "uid: demo-up" in t)
         self.assertEqual(d["evidence"], f"base-apps/logging/grafana-alerting.yaml:{line}")
 
+    def test_alert_source(self):  # final review I6
+        self.assertEqual(self.by["deploy.alert_source"]["value"],
+                         {"file": "base-apps/logging/grafana-alerting.yaml", "exists": True, "parsed": True,
+                          "rules_total": 3, "rules_kept": 2})
+        self.assertEqual(self.by["deploy.alert_source"]["evidence"], "base-apps/logging/grafana-alerting.yaml")
+
     def test_registry(self):
         r = self.by["deploy.registry.0"]
         self.assertEqual(r["value"]["repository"], "demo")
@@ -407,6 +413,39 @@ spec:
         self.assertEqual(a["render"], "raw-fallback")
         self.assertTrue(any("boom" in n for n in a["notes"]))
         self.assertIn("deploy.workload.Deployment/demo", by)
+
+
+class AlertSourceTest(unittest.TestCase):
+    """A missing or unreadable rule file leaves a fact saying so, so ops.alerts can be unknown (final review I6)."""
+
+    FILE = "base-apps/logging/grafana-alerting.yaml"
+
+    def source(self, text):
+        files = dict(FILES)
+        if text is None:
+            del files[self.FILE]
+        else:
+            files[self.FILE] = text
+        by, _ = run(files)
+        self.assertFalse([i for i in by if i.startswith("deploy.alert_rule.")])
+        return by["deploy.alert_source"]["value"]
+
+    def test_absent(self):
+        self.assertEqual(self.source(None), {"file": self.FILE, "exists": False, "parsed": False,
+                                             "rules_total": 0, "rules_kept": 0})
+
+    def test_unparsable_file(self):
+        v = self.source("kind: ConfigMap\ndata: {rules.yaml: [unclosed\n")
+        self.assertEqual((v["exists"], v["parsed"], v["rules_total"]), (True, False, 0))
+
+    def test_unparsable_rules_blob(self):
+        v = self.source("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: g\ndata:\n"
+                        "  rules.yaml: |\n    groups: [unclosed\n")
+        self.assertEqual((v["exists"], v["parsed"]), (True, False))
+
+    def test_no_rule_groups(self):  # a file in another shape holds no rules we can read: not "no rules"
+        v = self.source("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: g\ndata:\n  a.yaml: |\n    x: 1\n")
+        self.assertEqual((v["exists"], v["parsed"]), (True, False))
 
 
 class NamespaceFallbackTest(unittest.TestCase):

@@ -107,7 +107,9 @@ given, else this session's scratchpad if the system prompt lists one, else `$(mk
    - `ops.alerts` (blocker): pass = a rule fires when the workload is down, crash-looping or
      erroring, whether specific to it (like `model-gateway-down`) or generic over all namespaces;
      partial = only resource-pressure rules cover it (`pod-cpu-starved`,
-     `container-near-memory-limit`); fail = none. v1 reads Grafana rules only.
+     `container-near-memory-limit`); fail = none; unknown = the `deploy.alert_source` fact says
+     `exists: false` or `parsed: false` (the rule file is missing or unreadable), or there is no
+     such fact. v1 reads Grafana rules only.
    - `ops.telemetry`: pass = the app or its deploy emits logs, metrics or traces the platform
      collects (a metrics port or scrape annotation, an OpenTelemetry dependency); partial = logs
      only; fail = nothing beyond stdout with no collection evidence.

@@ -47,6 +47,13 @@ class SkillDocTest(unittest.TestCase):
                        "CVE", "never followed"):
             self.assertIn(needle, rule, needle)
 
+    def test_alerts_bar_names_the_alert_source(self):  # final review I6
+        bar = re.search(r"- `ops.alerts` \(blocker\):.*?(?=\n   - `)", SKILL.read_text(), re.S).group(0)
+        for needle in ("deploy.alert_source", "exists: false", "parsed: false", "unknown"):
+            self.assertIn(needle, bar, needle)
+        checks = {c["id"]: c for c in yaml.safe_load((PLUGIN / "checks.yaml").read_text())["checks"]}
+        self.assertIn("deploy.alert_source", checks["ops.alerts"]["facts"])
+
     def test_judgment_statuses_match_verify(self):  # final review M4, M5
         para = re.search(r"- `judgments`:.*?(?=\n   - `pillar_notes`)", SKILL.read_text(), re.S).group(0)
         for status in verify.JUDGMENT_STATUSES:
