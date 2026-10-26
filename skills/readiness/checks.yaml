@@ -279,9 +279,11 @@ checks:
   kind: judgment
   sources:
   - deploy
+  - cluster
   facts:
   - deploy.object.HorizontalPodAutoscaler/*
   - deploy.workload.*
+  - cluster.usage.*
   wa_ref: PERF02-BP05
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/perf_compute_hardware_scale_compute_resources_dynamically.html
 - id: perf.rightsize

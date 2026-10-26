@@ -16,7 +16,8 @@ Design: `docs/superpowers/specs/2026-10-25-production-readiness-plugin-design.md
 
 Flags: `--ref` (app commit, default HEAD, committed trees only), `--entity kind:ns/name` (when the
 repo is not or ambiguously in the catalog), `--deploy-ref` (default: what Argo CD deploys),
-`--no-live` (skip the cluster), `--out DIR` (default: a new temp directory; never the reviewed repo).
+`--no-live` (skip the cluster), `--out DIR` (default: a new temp directory; never the reviewed repo;
+the skill puts each run in a fresh `run-<n>` folder under it).
 
 ## How it works
 
@@ -40,7 +41,7 @@ partial, or a blocker is unknown; otherwise Ready.
 |---|---|---|
 | app | workflows, Dockerfile, deps, docs of the app repo at a committed ref | `git` |
 | deploy | the Application's rendered manifests, Terraform, alert rules from the GitOps repo at its `targetRevision` | `gh`, temp clone |
-| backstage | catalog entity, owner, lifecycle, dependencies, scorecard, CVE report | HTTP GET (optional `BACKSTAGE_TOKEN`) |
+| backstage | catalog entity, owner, lifecycle, dependencies, scorecard, CVE report | HTTP GET, and `POST /api/cve/report` (a read) (optional `BACKSTAGE_TOKEN`) |
 | cluster | workloads, restarts, usage in the app's namespace | `kubectl get` and `kubectl top` |
 | github | repo settings, branch protection, Dependabot alerts | `gh api` GET |
 
@@ -49,9 +50,11 @@ A source that cannot answer is recorded with its reason, and checks that need it
 ## Read-only guarantees
 
 - The reviewed repos are never written: reads use committed trees, and the deploy repo is read from
-  a temp clone.
-- kubectl runs only `get` and `top`; `gh api` runs only GET; Backstage is read with GET.
-- The Backstage token is never written to a file or printed.
+  a temp clone. Applications are rendered inside that temp clone with the local `kubectl kustomize`,
+  `helm template` and `helm dependency build`; nothing is applied to a cluster.
+- kubectl runs only `get` and `top` against the cluster; `gh api` runs only GET; Backstage is read
+  with GET and with `POST /api/cve/report`, a read that takes the image list in its body.
+- The Backstage token is never written to a file or printed, and never follows a redirect.
 - Repo text is untrusted data. The skill's judgments must cite collected facts, and `verify.py`
   rejects secret-looking strings.
 

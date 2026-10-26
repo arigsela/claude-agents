@@ -54,6 +54,40 @@ class SkillDocTest(unittest.TestCase):
         checks = {c["id"]: c for c in yaml.safe_load((PLUGIN / "checks.yaml").read_text())["checks"]}
         self.assertIn("deploy.alert_source", checks["ops.alerts"]["facts"])
 
+    def test_bars_match_the_collected_facts(self):  # final review M3
+        text = SKILL.read_text()
+        bar = re.search(r"- `ops.telemetry`:.*?(?=\n   - `)", text, re.S).group(0)
+        self.assertNotIn("metrics port", bar)  # container ports are not collected
+        self.assertIn("annotation", bar)
+        checks = {c["id"]: c for c in yaml.safe_load((PLUGIN / "checks.yaml").read_text())["checks"]}
+        self.assertIn("cluster.usage.*", checks["perf.scaling"]["facts"])  # the bar accepts "justified by usage"
+        self.assertIn("cluster", checks["perf.scaling"]["sources"])
+
+    def test_collect_timeout_and_fresh_run_folder(self):  # final review M6
+        text = SKILL.read_text()
+        collect = re.search(r"1\. \*\*Collect\*\*.*?(?=\n2\. )", text, re.S).group(0)
+        self.assertIn("600000", collect)
+        self.assertIn("<W>/run-<n>", text)
+        self.assertIn("never reuse an earlier run", text.lower())
+        for script in ("collect.py", "evaluate.py", "verify.py", "render.py"):
+            line = next(l for l in text.splitlines() if f"scripts/{script}" in l)
+            self.assertIn("--out <R>", line, script)
+
+    def test_readme_read_only_guarantees(self):  # final review M2
+        readme = (PLUGIN / "README.md").read_text()
+        section = readme.split("## Read-only guarantees", 1)[1].split("\n## ", 1)[0]
+        for needle in ("POST /api/cve/report", "kubectl kustomize", "helm template", "helm dependency build",
+                       "temp clone"):
+            self.assertIn(needle, section, needle)
+        sources = readme.split("## Sources", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("POST /api/cve/report", sources)
+
+    def test_repo_readmes_list_the_plugin(self):  # final review M9
+        for path in (ROOT / "README.md", ROOT / "skills" / "README.md"):
+            rows = [l for l in path.read_text().splitlines() if l.startswith("|") and "readiness" in l]
+            self.assertTrue(rows, path)
+            self.assertIn("production-readiness", rows[0], path)
+
     def test_judgment_statuses_match_verify(self):  # final review M4, M5
         para = re.search(r"- `judgments`:.*?(?=\n   - `pillar_notes`)", SKILL.read_text(), re.S).group(0)
         for status in verify.JUDGMENT_STATUSES:
