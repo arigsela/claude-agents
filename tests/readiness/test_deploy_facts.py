@@ -267,7 +267,8 @@ class DeployFactsTest(unittest.TestCase):
         blob = json.dumps(self.facts)
         self.assertNotIn(CANARY, blob)
         self.assertNotIn("literal-env-value", blob)
-        self.assertEqual(self.by["deploy.object.NetworkPolicy/demo"]["value"], {"pod_selector": {"app": "demo"}})
+        self.assertEqual(self.by["deploy.object.NetworkPolicy/demo"]["value"],
+                         {"pod_selector": {"app": "demo"}, "match_expressions": []})
         self.assertEqual(self.by["deploy.object.ExternalSecret/demo-es"]["value"],
                          {"target": "demo-secret", "keys": ["token"]})
         self.assertEqual(self.by["deploy.object.HTTPRoute/demo"]["value"],
@@ -321,6 +322,36 @@ def alerts(files):
 
 
 class HardeningTest(unittest.TestCase):
+    def test_match_expressions(self):  # final review I3
+        files = dict(FILES)
+        files["base-apps/demo/objects.yaml"] = OBJECTS + """---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: demo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: demo}
+    matchExpressions:
+      - {key: tier, operator: In, values: [web, api]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: by-expression
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: Exists}
+"""
+        by = run(files)[0]
+        self.assertEqual(by["deploy.object.PodDisruptionBudget/demo"]["value"],
+                         {"selector": {"app": "demo"},
+                          "match_expressions": [{"key": "tier", "operator": "In", "values": ["web", "api"]}]})
+        self.assertEqual(by["deploy.object.NetworkPolicy/by-expression"]["value"],
+                         {"pod_selector": {}, "match_expressions": [{"key": "app", "operator": "Exists", "values": []}]})
+
     def test_pod_run_as_user(self):  # final review I2
         files = dict(FILES)
         files["base-apps/demo/deployment.yaml"] = DEPLOY.replace("        runAsNonRoot: true\n      volumes:",

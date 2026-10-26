@@ -116,9 +116,28 @@ def _metric(f: Facts, mid: str) -> tuple[str | None, str, list[str]]:
     return str(v["evaluation"]), f"scorecard {mid} is {v['value']} ({v['evaluation']})", [m["id"]]
 
 
-def _selects(selector, labels) -> bool:
+def _expression_holds(e, lab: dict) -> bool:
+    """One matchExpressions entry against pod labels; a malformed entry or an unknown operator selects nothing."""
+    e = _d(e)
+    key, op, values = e.get("key"), e.get("operator"), [str(v) for v in _l(e.get("values"))]
+    if not isinstance(key, str):
+        return False
+    if op == "In":
+        return key in lab and str(lab[key]) in values
+    if op == "NotIn":
+        return key not in lab or str(lab[key]) not in values
+    if op == "Exists":
+        return key in lab
+    if op == "DoesNotExist":
+        return key not in lab
+    return False
+
+
+def _selects(selector, labels, expressions=None) -> bool:
+    """matchLabels and matchExpressions both hold (an empty selector selects every pod)."""
     lab = _d(labels)
-    return all(k in lab and str(lab[k]) == str(v) for k, v in _d(selector).items())
+    return (all(k in lab and str(lab[k]) == str(v) for k, v in _d(selector).items())
+            and all(_expression_holds(e, lab) for e in _l(expressions)))
 
 
 def _qty(kind: str, v) -> int | None:
@@ -277,7 +296,8 @@ def sec_netpol(f: Facts) -> Outcome:
     if gate:
         return gate
     pols = f.prefix("deploy.object.NetworkPolicy/")
-    hits = {w["id"]: [p for p in pols if _selects(_d(p["value"]).get("pod_selector"), w["value"].get("pod_labels"))]
+    hits = {w["id"]: [p for p in pols if _selects(_d(p["value"]).get("pod_selector"), w["value"].get("pod_labels"),
+                                                  _d(p["value"]).get("match_expressions"))]
             for w in ws}
     bad = [w for w in ws if not hits[w["id"]]]
     if not bad:
@@ -507,7 +527,8 @@ def rel_pdb(f: Facts) -> Outcome:
         return "n/a", "every workload runs one replica", _ids(ws)
     items = []
     for w, n in multi:
-        hit = [p for p in pdbs if _selects(_d(p["value"]).get("selector"), w["value"].get("pod_labels"))]
+        hit = [p for p in pdbs if _selects(_d(p["value"]).get("selector"), w["value"].get("pod_labels"),
+                                           _d(p["value"]).get("match_expressions"))]
         items.append(("pass", "", [w["id"]] + _ids(hit)) if hit else
                      ("fail", f"{_name(w, _W)} runs {n} replicas with no PodDisruptionBudget selecting it", [w["id"]]))
     return _combine(items, "a PodDisruptionBudget selects every workload with two or more replicas")

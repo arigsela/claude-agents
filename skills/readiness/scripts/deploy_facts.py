@@ -150,13 +150,25 @@ def _workload_facts(root: Path, doc: dict, file: str) -> list[dict]:
     return out
 
 
+def _match_expressions(selector) -> list[dict]:
+    """A label selector's matchExpressions as {key, operator, values}; rules.py evaluates them against pod labels."""
+    out = []
+    for e in map(_d, _l(_d(selector).get("matchExpressions"))):
+        key, op = e.get("key"), e.get("operator")
+        out.append({"key": None if key is None else str(key), "operator": None if op is None else str(op),
+                    "values": [str(v) for v in _l(e.get("values"))]})
+    return out
+
+
 def _object_value(doc: dict) -> dict | None:
     kind, spec = doc["kind"], _d(doc.get("spec"))
     name = str(_d(doc.get("metadata")).get("name", "?"))
     if kind == "NetworkPolicy":
-        return {"pod_selector": _d(_d(spec.get("podSelector")).get("matchLabels"))}
+        sel = _d(spec.get("podSelector"))
+        return {"pod_selector": _d(sel.get("matchLabels")), "match_expressions": _match_expressions(sel)}
     if kind == "PodDisruptionBudget":
-        return {"selector": _d(_d(spec.get("selector")).get("matchLabels"))}
+        sel = _d(spec.get("selector"))
+        return {"selector": _d(sel.get("matchLabels")), "match_expressions": _match_expressions(sel)}
     if kind == "HorizontalPodAutoscaler":
         t = _d(spec.get("scaleTargetRef"))
         return {"target": f"{t.get('kind')}/{t.get('name')}", "min": spec.get("minReplicas"),

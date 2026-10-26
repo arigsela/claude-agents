@@ -62,6 +62,10 @@ def obj(ref: str, **value) -> dict:
     return F(f"deploy.object.{ref}", value, "base-apps/api/objects.yaml:1-9")
 
 
+def expr(key: str, operator: str, *values: str) -> dict:
+    return {"key": key, "operator": operator, "values": list(values)}
+
+
 def afile(key: str, exists: bool = True) -> dict:
     return F(f"app.file.{key}", {"exists": exists, "path": key if exists else None, "searched": [key]})
 
@@ -203,6 +207,22 @@ CASES: dict[str, list[tuple[dict, str]]] = {
          "partial"),
         (doc(*DEPLOY, obj("NetworkPolicy/other", pod_selector={"app": "other"})), "fail"),
         (doc(*DEPLOY), "fail"),
+        # final review I3: matchExpressions are evaluated, not read as "selects all"
+        (doc(wl("Deployment/a"), ctr("Deployment/a/a"), obj("NetworkPolicy/b", pod_selector={},
+                                                             match_expressions=[expr("app", "In", "b")])), "fail"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "Exists")])), "pass"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "NotIn", "api")])),
+         "fail"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "NotIn", "web")])),
+         "pass"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "DoesNotExist")])),
+         "fail"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("tier", "DoesNotExist")])),
+         "pass"),
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={"app": "api"}, match_expressions=[expr("tier", "In", "web")])),
+         "fail"),  # a selector with both needs both
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "Matches", "api")])),
+         "fail"),  # an operator Kubernetes does not have selects nothing
     ],
     "sec.secrets": [
         (doc(*DEPLOY, obj("Secret/api", keys=[], has_data=False), obj("ExternalSecret/api", target="api",
@@ -293,6 +313,10 @@ CASES: dict[str, list[tuple[dict, str]]] = {
         (doc(wl(replicas=None), ctr()), "n/a"),
         (doc(wl(replicas=None), ctr(), obj("HorizontalPodAutoscaler/api", target="Deployment/api", min=2, max=5)),
          "fail"),  # the HPA keeps two or more running
+        (doc(wl(replicas=2), ctr(), obj("PodDisruptionBudget/x", selector={},
+                                        match_expressions=[expr("app", "In", "other")])), "fail"),  # final review I3
+        (doc(wl(replicas=2), ctr(), obj("PodDisruptionBudget/x", selector={},
+                                        match_expressions=[expr("app", "In", "api", "web")])), "pass"),
     ],
     "rel.restarts": [
         (doc(cw(), pod("api-1"), pod("api-2")), "pass"),
