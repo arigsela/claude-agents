@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/readiness/scripts"))
 
@@ -102,6 +106,66 @@ class ClientTest(unittest.TestCase):
             with self.assertRaises(b.BackstageError) as cm:
                 self.client(rec).entities_by_slug("a/b")
             self.assertEqual(cm.exception.reason, reason)
+
+
+class _Recorder(BaseHTTPRequestHandler):
+    """Records each request's headers; `location` set means answer 302 to it, else 200 with a JSON body."""
+
+    seen: list = []
+    location: str | None = None
+
+    def do_GET(self):
+        self.seen.append(dict(self.headers))
+        if self.location:
+            self.send_response(302)
+            self.send_header("Location", self.location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        body = b'{"kind": "Component"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class RedirectTest(unittest.TestCase):
+    """The real urllib fetch against two local servers: the token never follows a redirect (final review I4)."""
+
+    def serve(self, **attrs) -> str:
+        handler = type("Handler", (_Recorder,), {"seen": [], **attrs})
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.handlers.append(handler)
+        return f"http://127.0.0.1:{server.server_port}"
+
+    def setUp(self):
+        self.handlers = []
+        env = mock.patch.dict(os.environ, {"no_proxy": "127.0.0.1", "NO_PROXY": "127.0.0.1"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_authorization_not_sent_to_the_redirect_target(self):
+        other = self.serve()
+        first = self.serve(location=other + "/elsewhere")
+        doc = b.Backstage(first, "t0k").entity("component:a/b")
+        self.assertEqual(doc, {"kind": "Component"})
+        sent, landed = self.handlers[1].seen, self.handlers[0].seen
+        self.assertEqual(sent[0].get("Authorization"), "Bearer t0k")
+        self.assertEqual(len(landed), 1)
+        self.assertNotIn("authorization", {k.lower() for k in landed[0]})
+        self.assertNotIn("t0k", json.dumps(landed))
+
+    def test_no_redirect_keeps_the_header(self):
+        status, raw = b.urllib_fetch("GET", self.serve() + "/x", None, {"Authorization": "Bearer t0k"}, 5)
+        self.assertEqual((status, json.loads(raw)), (200, {"kind": "Component"}))
+        self.assertEqual(self.handlers[0].seen[0].get("Authorization"), "Bearer t0k")
 
 
 if __name__ == "__main__":

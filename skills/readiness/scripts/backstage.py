@@ -12,7 +12,13 @@ Fetch = Callable[[str, str, "bytes | None", "dict[str, str]", float], "tuple[int
 
 def urllib_fetch(method: str, url: str, body: bytes | None, headers: dict[str, str],
                  timeout: float) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    """Authorization is an unredirected header: urllib copies ordinary headers onto a redirect to any host,
+    so the token would otherwise follow a 3xx off Backstage."""
+    plain = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+    req = urllib.request.Request(url, data=body, headers=plain, method=method)
+    for k, v in headers.items():
+        if k.lower() == "authorization":
+            req.add_unredirected_header(k, v)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
