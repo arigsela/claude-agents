@@ -48,11 +48,13 @@ def parse_quantity_mem(s: str) -> int:
     s = s.strip()
     m = re.fullmatch(r"([0-9.]+)([A-Za-z]*)", s)
     if not m:
-        return 0
+        raise ValueError(f"unreadable memory quantity: {s!r}")
     num, unit = float(m.group(1)), m.group(2)
     if unit == "":
         return int(num / 1048576)
-    return int(num * _MEM_MI.get(unit, 0))
+    if unit not in _MEM_MI:
+        raise ValueError(f"unknown memory unit: {unit!r}")
+    return int(num * _MEM_MI[unit])
 
 
 def pod_workload(pod: dict) -> str | None:
@@ -160,9 +162,15 @@ def github_facts(slug: str, default_branch: str | None, run: Run = subprocess_ru
         rc, out, err = run(argv)
         return _gh_code(rc, out), _cmd(argv), (rc, err)
 
-    code, cmd, (rc, err) = call(f"repos/{slug}/vulnerability-alerts")
-    if code == 0 and rc != 0:
-        return [], _reason(rc, err, "gh")
+    pcode, pcmd, (prc, perr) = call(f"repos/{slug}")
+    if pcode == 0 and prc != 0:
+        return [], _reason(prc, perr, "gh")
+    if pcode != 200:
+        return [fact("github.dependabot_alerts", "github", {"enabled": None, "http": pcode}, pcmd),
+                fact("github.branch_protection", "github", {"protected": None, "http": pcode}, pcmd)], \
+            f"unavailable: repo not readable (HTTP {pcode})"
+
+    code, cmd, _ = call(f"repos/{slug}/vulnerability-alerts")
     facts.append(fact("github.dependabot_alerts", "github",
                       {"enabled": True if code == 204 else False if code == 404 else None, "http": code}, cmd))
 
