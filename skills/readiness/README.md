@@ -26,8 +26,10 @@ repo is not or ambiguously in the catalog), `--deploy-ref` (default: what Argo C
 3. The model writes `report.json`: nine judgments (each citing fact ids), a note per pillar, up to
    five fixes.
 4. `scripts/verify.py` rejects a changed rule status, an uncited judgment, a fix that names no
-   failing or partial check, a missing check, or a secret.
-5. `scripts/render.py` prints the markdown report (with an UNVERIFIED banner if verify failed).
+   failing or partial check, a missing check, or a secret. It recomputes the rule checks from
+   `facts.json` and `checks.yaml` rather than trusting `results.json`.
+5. `scripts/render.py` prints the markdown report (with an UNVERIFIED banner if verify failed). It
+   also decides the rule checks itself from `facts.json`, so an edited `results.json` changes nothing.
 
 Verdict: Not ready when any blocker check fails; Ready with gaps when any check fails or is
 partial, or a blocker is unknown; otherwise Ready.

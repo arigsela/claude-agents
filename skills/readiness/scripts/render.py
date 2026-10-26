@@ -3,11 +3,13 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "pathspec>=0.12,<1"]
 # ///
-"""readiness: facts.json + results.json + report.json -> the markdown report printed in the terminal (spec §7.7).
+"""readiness: facts.json + report.json -> the markdown report printed in the terminal (spec §7.7).
 
 Usage: render.py --out DIR [--unverified]   (reads DIR, prints the report to stdout)
 
-Prints only facts, results and report content. A missing report renders the judgment checks as unknown ("no report").
+Prints only facts, checks and report content. Rule statuses, reasons and ORR hints are recomputed from facts.json
+and checks.yaml (evaluate.py), never read from results.json, so a hand-edited results.json cannot change them.
+A missing report renders the judgment checks as unknown ("no report").
 """
 from __future__ import annotations
 
@@ -17,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from evaluate import verdict  # noqa: E402
-from readiness_model import PILLARS, STATUSES, Facts, SOURCES, read_json  # noqa: E402
+from evaluate import evaluate, verdict  # noqa: E402
+from readiness_model import PILLARS, STATUSES, Facts, SOURCES, load_checks, read_json  # noqa: E402
 
 BANNER = "> UNVERIFIED: verify.py rejected this report; read the evidence before acting on it."
 CVE_NOTE = "Unfixable critical CVEs are not visible: the CVE report keeps fixable CRITICAL/HIGH only."
@@ -110,9 +112,10 @@ def _evidence(f: Facts, ids) -> list[str]:
     return out
 
 
-def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool = False) -> str:
+def render(facts_doc: dict, report: dict | None, unverified: bool = False, checks: list[dict] | None = None) -> str:
+    """`checks` is the catalog (default checks.yaml); the rule checks are decided here from the facts."""
     f = Facts(facts_doc)
-    checks = [c for c in _l(_d(results).get("checks")) if isinstance(c, dict)]
+    checks = evaluate(facts_doc, load_checks() if checks is None else checks)["checks"]
     report = report if isinstance(report, dict) else None
     status, reason = _resolve(checks, report)
     judg = _d(_d(report).get("judgments"))
@@ -185,12 +188,12 @@ def render(facts_doc: dict, results: dict, report: dict | None, unverified: bool
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="render.py", description="Render the readiness report as markdown")
-    ap.add_argument("--out", required=True, help="directory with facts.json, results.json and report.json")
+    ap.add_argument("--out", required=True, help="directory with facts.json and report.json")
     ap.add_argument("--unverified", action="store_true", help="put the UNVERIFIED banner first")
     args = ap.parse_args(argv)
     out = Path(args.out).expanduser()
     try:
-        facts_doc, results = read_json(out / "facts.json"), read_json(out / "results.json")
+        facts_doc = read_json(out / "facts.json")
     except (OSError, ValueError) as err:
         print(f"render: cannot read inputs in {out} ({type(err).__name__})", file=sys.stderr)
         return 1
@@ -198,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         report = read_json(out / "report.json")
     except (OSError, ValueError):
         report = None
-    print(render(facts_doc, results, report, unverified=args.unverified), end="")
+    print(render(facts_doc, report, unverified=args.unverified), end="")
     return 0
 
 

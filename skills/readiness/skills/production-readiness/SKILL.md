@@ -130,7 +130,8 @@ given, else this session's scratchpad if the system prompt lists one, else `$(mk
 
    - Prints `ok` and exits 0: continue.
    - Exit 1: it lists violations. Fix exactly the named items in `report.json` and re-run, at most
-     twice more.
+     twice more. A `results.json:` violation means `results.json` no longer matches the facts: re-run
+     step 2 to rewrite it; never edit `results.json` yourself.
    - Still failing after that: continue with `--unverified` in step 5.
 
 5. **Render**

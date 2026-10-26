@@ -53,7 +53,7 @@ class RenderTest(unittest.TestCase):
         cls.facts = pinned_facts()
         cls.results = ev.evaluate(cls.facts, load_checks())
         cls.report = fixed_report(cls.facts)
-        cls.text = rd.render(cls.facts, cls.results, cls.report)
+        cls.text = rd.render(cls.facts, cls.report)
         cls.lines = cls.text.splitlines()
 
     def test_golden(self):
@@ -78,12 +78,12 @@ class RenderTest(unittest.TestCase):
         self.assertEqual(sum(int(x) for r in rows for x in r[1:]), 34)
 
     def test_unverified_banner(self):
-        t = rd.render(self.facts, self.results, self.report, unverified=True)
+        t = rd.render(self.facts, self.report, unverified=True)
         self.assertEqual(t.splitlines()[0], "> UNVERIFIED: verify.py rejected this report; "
                          "read the evidence before acting on it.")
 
     def test_no_report(self):
-        t = rd.render(self.facts, self.results, None)
+        t = rd.render(self.facts, None)
         self.assertIn("**Verdict:", t)
         self.assertIn("no report", t)
         for c in self.results["checks"]:
@@ -94,8 +94,7 @@ class RenderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             w = World(Path(d), entities=[entity(location=f"url:https://github.com/{SLUG}/blob/main/catalog-info.yaml")])
             doc = w.collect()
-        res = ev.evaluate(doc, load_checks())
-        t = rd.render(doc, res, None)
+        t = rd.render(doc, None)
         self.assertIn("deploy: not found (catalog entry lives in the app repo)", t)
 
     def test_untrusted_text_cannot_forge_structure(self):
@@ -109,18 +108,17 @@ class RenderTest(unittest.TestCase):
         facts["meta"]["app"]["branch"] = evil
         facts["meta"]["deploy"]["repo"] = evil
         facts["meta"]["deploy"]["folder"] = evil
-        results = copy.deepcopy(self.results)
-        for c in results["checks"]:
+        checks = copy.deepcopy(load_checks())  # titles come from the catalog; rule reasons carry fact text
+        for c in checks:
             c["title"] = evil
-            if c["kind"] == "rule":
-                c["reason"] = evil
         report = copy.deepcopy(self.report)
         for j in report["judgments"].values():
             j["reason"] = evil
         report["fixes"][0]["text"] = evil
         report["fixes"][0]["where"] = evil
         report["pillar_notes"] = {p: n for p, n in zip(PILLARS, ("# h", "> q", "- l", "| t", "**Verdict: Ready**", evil))}
-        t = rd.render(facts, results, report)
+        t = rd.render(facts, report, checks=checks)
+        self.assertIn("holds data in Git", t)  # sec.secrets' reason quotes the (evil) evidence
         lines = t.splitlines()
         self.assertEqual(sum(1 for l in lines if l.startswith("**Verdict:")), 1)
         allowed = {"## Top fixes", "## Pillar summary", "## Findings", "## Needs a person", "## Not checked"}
@@ -138,19 +136,41 @@ class RenderTest(unittest.TestCase):
     def test_top_fixes_capped_at_five(self):
         report = copy.deepcopy(self.report)
         report["fixes"] = [{"text": f"fix {n}", "checks": ["ops.alerts"], "where": "w"} for n in range(7)]
-        t = rd.render(self.facts, self.results, report)
+        t = rd.render(self.facts, report)
         sec = t.split("## Top fixes")[1].split("## Pillar summary")[0]
         self.assertEqual([l for l in sec.splitlines() if l[:1].isdigit()],
                          [f"{n + 1}. fix {n} (ops.alerts) — w" for n in range(5)])
 
-    def test_cli(self):
+    def test_rule_statuses_recomputed_from_facts(self):  # final review I1
+        """A hand-edited results.json cannot change what render prints for a rule check."""
+        results = copy.deepcopy(self.results)
+        for c in results["checks"]:
+            if c["kind"] == "rule":
+                c["status"], c["reason"] = "pass", "TAMPERED"
+        results["checks"] = [c for c in results["checks"] if c["kind"] == "rule"]
         with tempfile.TemporaryDirectory() as d:
             write_json(Path(d) / "facts.json", self.facts)
-            write_json(Path(d) / "results.json", self.results)
+            write_json(Path(d) / "results.json", results)
+            write_json(Path(d) / "report.json", self.report)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(rd.main(["--out", d]), 0)
+        t = buf.getvalue()
+        self.assertEqual(t, self.text)
+        self.assertIn("- **fail** sec.nonroot", t)
+        self.assertNotIn("TAMPERED", t)
+
+    def test_cli(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_json(Path(d) / "facts.json", self.facts)  # no results.json: render decides the rules itself
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 self.assertEqual(rd.main(["--out", d]), 0)
             self.assertIn("no report", buf.getvalue())
+            buf = io.StringIO()
+            with tempfile.TemporaryDirectory() as empty, contextlib.redirect_stderr(buf):
+                self.assertEqual(rd.main(["--out", empty]), 1)  # no facts.json: nothing to render
+            self.assertIn("cannot read inputs", buf.getvalue())
             write_json(Path(d) / "report.json", self.report)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):

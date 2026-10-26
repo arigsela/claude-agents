@@ -3,7 +3,11 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "pathspec>=0.12,<1"]
 # ///
-"""verify: reject a report.json that is uncited, overrides a rule check, or leaks a secret."""
+"""verify: reject a report.json that is uncited, overrides a rule check, or leaks a secret.
+
+Rule statuses and the list of checks are recomputed from facts.json and checks.yaml (evaluate.py), never taken
+from results.json: a results.json whose checks or rule statuses differ from the recomputed ones is a violation.
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from readiness_model import PILLARS, Facts, read_json  # noqa: E402
+from evaluate import evaluate  # noqa: E402
+from readiness_model import PILLARS, Facts, load_checks, read_json  # noqa: E402
 
 JUDGMENT_STATUSES = ("pass", "partial", "fail", "unknown")
 MAX_FIXES = 5
@@ -36,15 +41,34 @@ def _name(value, secrets: list[str]) -> str:
     return "<redacted>" if _leaks(value, secrets) else str(value)
 
 
-def verify(facts_doc: dict, results: dict, report: dict, canaries: list[str] = ()) -> list[str]:
-    out: list[str] = []
+def _results_drift(expected: list[dict], results) -> list[str]:
+    """What results.json changed against the recomputed checks: the check list, or a rule's status or reason."""
+    got = results.get("checks") if isinstance(results, dict) else None
+    got = [c for c in got if isinstance(c, dict)] if isinstance(got, list) else []
+    by_id = {c.get("id"): c for c in got if isinstance(c.get("id"), str)}
+    want = {c["id"]: c for c in expected}
+    out = []
+    if (len(got) != len(expected) or set(by_id) != set(want)
+            or any(by_id[i].get("kind") != c["kind"] for i, c in want.items() if i in by_id)):
+        out.append("results.json: checks differ from checks.yaml")
+    for cid, c in want.items():
+        r = by_id.get(cid)
+        if c["kind"] == "rule" and r is not None and (r.get("status"), r.get("reason")) != (c["status"], c["reason"]):
+            out.append(f"results.json: rule {cid} status changed")
+    return out
+
+
+def verify(facts_doc: dict, results: dict, report: dict, canaries: list[str] = (),
+           checks: list[dict] | None = None) -> list[str]:
+    """Violations in `report` (and in `results`, which must equal evaluate(facts_doc, checks.yaml))."""
     secrets = [s for s in (os.environ.get("BACKSTAGE_TOKEN"), *canaries) if s]
+    expected = evaluate(facts_doc, load_checks() if checks is None else checks)["checks"]
+    out: list[str] = _results_drift(expected, results)
     if not isinstance(report, dict):
-        return ["report: not an object"]
+        return out + ["report: not an object"]
     facts = Facts(facts_doc)
-    checks = results.get("checks", [])
-    judgment_ids = [c["id"] for c in checks if c.get("kind") == "judgment"]
-    final = {c["id"]: c.get("status") for c in checks if c.get("kind") == "rule"}
+    judgment_ids = [c["id"] for c in expected if c["kind"] == "judgment"]
+    final = {c["id"]: c["status"] for c in expected if c["kind"] == "rule"}
 
     def text_field(path: str, value) -> None:
         if not isinstance(value, str):

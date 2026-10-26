@@ -190,6 +190,56 @@ class VerifyTest(unittest.TestCase):
             self.assertTrue(any("fixes[0].checks" in x and "contains a secret" in x for x in out), out)
             self.assertFalse(any("t0k" in x for x in out), out)
 
+    # --- results.json cannot carry a changed rule status (final review I1) ---------------------------------
+
+    def tampered(self, f) -> dict:
+        res = copy.deepcopy(self.results)
+        f(res)
+        return res
+
+    @staticmethod
+    def check(res: dict, cid: str) -> dict:
+        return next(c for c in res["checks"] if c["id"] == cid)
+
+    def test_changed_rule_status(self):
+        res = self.tampered(lambda r: self.check(r, "sec.nonroot").update(status="pass"))
+        self.assertIn("results.json: rule sec.nonroot status changed", vf.verify(self.facts, res, self.good()))
+
+    def test_changed_rule_reason(self):
+        res = self.tampered(lambda r: self.check(r, "ops.catalog").update(reason="all good"))
+        self.assertIn("results.json: rule ops.catalog status changed", vf.verify(self.facts, res, self.good()))
+
+    def test_deleted_judgment_check(self):
+        res = self.tampered(lambda r: r.update(checks=[c for c in r["checks"] if c["id"] != "ops.alerts"]))
+        r = self.good()
+        del r["judgments"]["ops.alerts"]
+        out = vf.verify(self.facts, res, r)
+        self.assertIn("results.json: checks differ from checks.yaml", out)
+        self.assertIn("judgments.ops.alerts: missing", out)  # judgment ids come from checks.yaml
+
+    def test_extra_or_garbled_checks(self):
+        for res in (self.tampered(lambda r: r["checks"].append({"id": "x.extra", "kind": "rule", "status": "pass"})),
+                    {"checks": "x"}, [], None):
+            with self.subTest(res=str(res)[:40]):
+                self.assertIn("results.json: checks differ from checks.yaml", vf.verify(self.facts, res, self.good()))
+
+    def test_every_rule_pass_and_no_judgments(self):
+        """The reviewer's reproduction: every rule status set to pass and every judgment check deleted."""
+        res = self.tampered(lambda r: r.update(checks=[dict(c, status="pass") for c in r["checks"]
+                                                       if c["kind"] == "rule"]))
+        out = vf.verify(self.facts, res, {"judgments": {}, "pillar_notes": {}, "fixes": []})
+        self.assertIn("results.json: checks differ from checks.yaml", out)
+        self.assertIn("results.json: rule sec.nonroot status changed", out)
+        for j in JUDGMENTS:
+            self.assertIn(f"judgments.{j}: missing", out)
+
+    def test_fix_statuses_come_from_the_facts(self):
+        # results.json says ops.catalog failed; on these facts it passes, so a fix naming only it is rejected.
+        res = self.tampered(lambda r: self.check(r, "ops.catalog").update(status="fail"))
+        r = self.good()
+        r["fixes"] = [{"text": "t", "checks": ["ops.catalog"], "where": "w"}]
+        self.assertIn("fixes[0]: names no failing or partial check", vf.verify(self.facts, res, r))
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             write_json(Path(d) / "facts.json", self.facts)
