@@ -167,6 +167,15 @@ hourly run after any commit to `main` would pull about 2.6 GB. Daily keeps it to
 06:00. If the first run strains the portal (2 CPU / 1 Gi), remove the filecheck module: the skill
 checks `runbook.md` and `docs.md` itself.
 
+> **Amended 2026-10-26: filecheck removed (portal v1.6.1, arigsela/backstage#45).** It ran 5
+> minutes after the v1.6.0 pod started, not only at 06:00 (`initialDelay` applies to cron tasks
+> too). That run stalled the event loop and the DB pool (`KnexTimeoutError`, GitHub socket
+> hang-ups). `/healthcheck` stopped answering, and the liveness probe killed the pod with exit
+> 137. Memory stayed flat at about 520 Mi, so this was not an OOM. The killed run retries when its
+> 15-minute task lock expires, so the pod would loop. The contract script now fails if a
+> `filecheck.*` metric is registered. The skill's `ops.runbook` still reads `filecheck.runbook`
+> as a fallback when the deploy folder is unreadable, and treats the absent metric as unknown.
+
 Why only `runbook` and `docs` (designer's call): filecheck reads the folder named by the entity's
 `backstage.io/source-location`.
 
@@ -417,7 +426,7 @@ change.
 | id | pillar | check | kind | blocker |
 |---|---|---|---|---|
 | ops.catalog | Operational excellence | In the catalog with an owner, lifecycle and system | rule | yes |
-| ops.runbook | Operational excellence | A runbook exists (deploy folder or TechDocs; scorecard `filecheck.runbook` agrees) | rule | yes |
+| ops.runbook | Operational excellence | A runbook exists in the deploy folder (scorecard `filecheck.runbook` only when the folder is unreadable) | rule | yes |
 | ops.docs | Operational excellence | Service docs exist (README in the app repo, docs.md in the deploy folder) | rule | no |
 | ops.ci | Operational excellence | CI runs on pull requests, with test and lint steps | judgment | yes |
 | ops.release | Operational excellence | Release and deploy are automated and versioned (tagged images, GitOps pin) | judgment | no |
@@ -507,7 +516,8 @@ Sustainability and cost have few signals in a homelab. The report should say so,
 5. **`sec.cve`.** It means "no fixable critical in scanned images", and unscanned images make it
    unknown.
 6. **Daily file check.** Filecheck runs daily at 06:00, not hourly, because each run can download
-   the 105 MB kubernetes archive once per entity (§5).
+   the 105 MB kubernetes archive once per entity (§5). Superseded 2026-10-26: its first run stalled
+   the portal, so v1.6.1 removes it (§5).
 
 ## 12. Left to the builder
 

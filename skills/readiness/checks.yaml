@@ -13,7 +13,7 @@ checks:
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_ops_model_def_resource_owners.html
 - id: ops.runbook
   pillar: Operational excellence
-  title: A runbook exists (deploy folder or TechDocs; scorecard filecheck.runbook agrees)
+  title: A runbook exists in the deploy folder (scorecard filecheck.runbook only when the folder is unreadable)
   kind: rule
   blocker: true
   sources:
