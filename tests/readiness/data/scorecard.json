@@ -1,0 +1,96 @@
+[
+  {
+    "id": "github.openPRs",
+    "status": "success",
+    "metadata": {
+      "title": "Open PRs",
+      "description": "Open pull requests",
+      "type": "number"
+    },
+    "result": {
+      "value": 3,
+      "timestamp": "2026-10-25T09:00:00.000Z",
+      "thresholdResult": {
+        "status": "success",
+        "definition": {
+          "rules": [
+            {
+              "key": "success",
+              "expression": "<10"
+            }
+          ]
+        },
+        "evaluation": "success"
+      }
+    }
+  },
+  {
+    "id": "filecheck.runbook",
+    "status": "success",
+    "metadata": {
+      "title": "Runbook",
+      "description": "Runbook file exists",
+      "type": "boolean"
+    },
+    "result": {
+      "value": true,
+      "timestamp": "2026-10-25T09:00:00.000Z",
+      "thresholdResult": {
+        "status": "success",
+        "definition": {
+          "rules": [
+            {
+              "key": "exist",
+              "expression": "==true"
+            }
+          ]
+        },
+        "evaluation": "exist"
+      }
+    }
+  },
+  {
+    "id": "filecheck.docs",
+    "status": "success",
+    "metadata": {
+      "title": "Docs",
+      "description": "Docs file exists",
+      "type": "boolean"
+    },
+    "result": {
+      "value": false,
+      "timestamp": "2026-10-25T09:00:00.000Z",
+      "thresholdResult": {
+        "status": "error",
+        "definition": {
+          "rules": [
+            {
+              "key": "missing",
+              "expression": "==false"
+            }
+          ]
+        },
+        "evaluation": "missing"
+      }
+    }
+  },
+  {
+    "id": "dependabot.alertsHigh",
+    "status": "error",
+    "metadata": {
+      "title": "High Dependabot alerts",
+      "description": "Open high severity alerts",
+      "type": "number"
+    },
+    "error": "Failed to fetch metric: 403 Resource not accessible by integration",
+    "result": {
+      "value": null,
+      "timestamp": "2026-10-25T09:00:00.000Z",
+      "thresholdResult": {
+        "status": "error",
+        "definition": null,
+        "evaluation": null
+      }
+    }
+  }
+]

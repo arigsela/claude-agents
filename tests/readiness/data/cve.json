@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "scannedAt": "2026-10-25",
+  "matchedRefs": [
+    "ghcr.io/arigsela/hk-demo@sha256:abababababababababababababababababababababababababababababababab"
+  ],
+  "unmatchedRefs": [],
+  "totals": {
+    "critical": 0,
+    "high": 2,
+    "actionable": 2
+  },
+  "findings": [
+    {
+      "id": "CVE-2026-1111",
+      "pkg": "libssl3",
+      "installed": "3.0.11-1",
+      "fixed": "3.0.15-1",
+      "severity": "HIGH",
+      "title": "openssl: example flaw in X.509 parsing",
+      "image": "ghcr.io/arigsela/hk-demo@sha256:abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "id": "CVE-2026-2222",
+      "pkg": "zlib1g",
+      "installed": "1.2.13-1",
+      "fixed": "1.2.13-2",
+      "severity": "HIGH",
+      "title": "zlib: example heap overflow",
+      "image": "ghcr.io/arigsela/hk-demo@sha256:abababababababababababababababababababababababababababababababab"
+    }
+  ]
+}
