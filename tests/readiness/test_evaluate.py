@@ -96,11 +96,11 @@ def dep(ref, lifecycle="production", error=None) -> dict:
     return F(f"backstage.dependency.{ref}", {"ref": ref, "lifecycle": lifecycle, "error": error})
 
 
-def cve(critical=0, high=0, ok=True, unmatched=(), error=None) -> dict:
+def cve(critical=0, high=0, ok=True, unmatched=(), error=None, matched=("reg/api" + DIGEST,)) -> dict:
     findings = ([{"id": "CVE-1", "severity": "CRITICAL", "pkg": "openssl", "fixed": "3.0.15", "image": "img"}]
                 * bool(critical)
                 + [{"id": "CVE-2", "severity": "HIGH", "pkg": "zlib", "fixed": "1.2.13", "image": "img"}] * bool(high))
-    return F("backstage.cve", {"ok": ok, "scanned_at": "2026-10-25", "matched": ["reg/api" + DIGEST],
+    return F("backstage.cve", {"ok": ok, "scanned_at": "2026-10-25", "matched": list(matched),
                                "unmatched": list(unmatched), "totals": {"critical": critical, "high": high},
                                "findings": findings, "error": error})
 
@@ -128,6 +128,7 @@ def protection(protected=True, http=200) -> dict:
 
 DEPLOY = (wl(), ctr())
 NO_PROBES = {"readiness": False, "liveness": False, "startup": False}
+CRONJOB = (wl("CronJob/backup", replicas=None), ctr("CronJob/backup/backup", probes=NO_PROBES))
 
 CASES: dict[str, list[tuple[dict, str]]] = {
     "ops.catalog": [
@@ -213,6 +214,8 @@ CASES: dict[str, list[tuple[dict, str]]] = {
         (doc(*DEPLOY, cve(high=1, unmatched=["busybox:1.36"])), "partial"),
         (doc(*DEPLOY), "unknown"),  # no report
         (doc(*DEPLOY, cve(), backstage="unavailable: timeout"), "unknown"),
+        (doc(*DEPLOY, cve(matched=[])), "unknown"),  # an empty report scanned nothing: no pass
+        (doc(*DEPLOY, cve(critical=1, matched=[])), "fail"),  # a critical in the totals still wins
     ],
     "sec.dependabot": [
         (doc(alerts(), metric("dependabot.alertsCritical", "success", 0), metric("dependabot.alertsHigh", "success", 0)),
@@ -264,6 +267,10 @@ CASES: dict[str, list[tuple[dict, str]]] = {
         (doc(*DEPLOY, ctr("Deployment/api/init", init=True, probes=NO_PROBES)), "pass"),  # init needs none
         (doc(wl(), ctr(probes={"readiness": True, "liveness": False, "startup": False})), "fail"),
         (doc(wl(), ctr("Deployment/api/init", init=True)), "unknown"),  # no non-init container rendered
+        (doc(wl(), ctr(probes=NO_PROBES), *CRONJOB), "fail"),  # only the Deployment's container counts
+        (doc(*DEPLOY, *CRONJOB), "pass"),  # batch containers take no probes
+        (doc(*CRONJOB), "n/a"),
+        (doc(wl("Job/migrate", replicas=None), ctr("Job/migrate/migrate", probes=NO_PROBES)), "n/a"),
     ],
     "rel.resources": [
         (doc(*DEPLOY), "pass"),
@@ -311,6 +318,9 @@ CASES: dict[str, list[tuple[dict, str]]] = {
         (doc(wl(), ctr(resources=res(rmem="2Gi")), use(cpu=100, mem=100)), "partial"),  # 2048Mi vs 100Mi
         (doc(wl(), ctr(resources=res(rcpu="100m", rmem="128Mi")), use(cpu=1, mem=1)), "pass"),  # at the floors
         (doc(*DEPLOY), "unknown"),
+        (doc(wl(), ctr(resources=res(None, None, None, None)), use()), "unknown"),  # usage, but no requests
+        (doc(*DEPLOY, use(), ctr("Deployment/api/proxy", resources=res(None, None, None, None)),
+             use("Deployment/api/proxy", cpu=1, mem=1)), "pass"),  # the proxy without requests is skipped
     ],
     "sus.utilization": [
         (doc(*DEPLOY, use(cpu=60)), "pass"),
@@ -324,7 +334,7 @@ CASES: dict[str, list[tuple[dict, str]]] = {
 PARTIAL = {"ops.catalog", "ops.docs", "ops.open_prs", "sec.hardening", "sec.netpol", "sec.cve", "sec.dependabot",
            "sec.token_perms", "sec.sa_token", "sec.repo_hygiene", "rel.restarts", "rel.dependencies",
            "perf.rightsize", "cost.overprovision", "sus.utilization"}
-NA = {"sec.base_digest", "sec.actions_pinned", "sec.token_perms", "rel.pdb", "rel.dependencies"}
+NA = {"sec.base_digest", "sec.actions_pinned", "sec.token_perms", "rel.pdb", "rel.dependencies", "rel.probes"}
 
 # Task 7's happy path, decided by hand from its facts (test_collect.World).
 HAPPY = {
@@ -416,6 +426,20 @@ class RuleTableTest(unittest.TestCase):
         self.assertIn("not scanned: busybox:1.36", reason)
         _, reason, _ = run("perf.rightsize", doc(*DEPLOY, use(cpu=250, mem=100)))
         self.assertEqual(reason, "Deployment/api/api cpu 250m is above its 200m request")
+
+    def test_fix_round_1_reasons(self):
+        _, reason, ids = run("rel.probes", doc(wl(), ctr(probes=NO_PROBES), *CRONJOB))
+        self.assertEqual(reason, "Deployment/api/api has no readiness or liveness probe")
+        self.assertEqual(ids, ["deploy.container.Deployment/api/api"])
+        self.assertEqual(run("rel.probes", doc(*CRONJOB))[1], "only Job/CronJob containers, which take no probes")
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(matched=[])))[1],
+                         "the CVE report matched none of the rendered images")
+        self.assertEqual(run("cost.overprovision", doc(wl(), ctr(resources=res(None, None, None, None)), use()))[1],
+                         "no CPU or memory requests to compare live usage with")
+        self.assertEqual(run("cost.overprovision", doc(*DEPLOY, use(), ctr("Deployment/api/proxy",
+                                                       resources=res(None, None, None, None)),
+                                                       use("Deployment/api/proxy", cpu=1, mem=1)))[1],
+                         "requests are within 4x of live usage (1 container)")
 
     def test_long_lists_are_capped(self):
         many = [ctr(f"Deployment/api/c{i}", image=f"img{i}:1", image_pinned=False) for i in range(8)]

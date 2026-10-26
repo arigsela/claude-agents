@@ -33,6 +33,7 @@ _EVAL = {"success": "pass", "warning": "partial", "error": "fail"}
 _C, _W, _U = "deploy.container.", "deploy.workload.", "cluster.usage."
 _UNITS = {"cpu": ("cpu_m", "m"), "memory": ("memory_mi", "Mi")}
 _FLOORS = {"cpu": OVERPROVISION_MIN_CPU_M, "memory": OVERPROVISION_MIN_MEM_MI}
+_BATCH = ("Job", "CronJob")
 
 
 def worst(statuses: list[str]) -> str:
@@ -309,6 +310,8 @@ def sec_cve(f: Facts) -> Outcome:
         parts.append(("unknown", "the CVE report failed" + (f": {_clip(v['error'])}" if v.get("error") else "")))
     elif _l(v.get("unmatched")):
         parts.append(("unknown", "not scanned: " + _names([str(x) for x in v["unmatched"]])))
+    elif not _l(v.get("matched")):  # an empty report scanned nothing, so it cannot pass
+        parts.append(("unknown", "the CVE report matched none of the rendered images"))
     elif not all(isinstance(totals.get(k), int) for k in ("critical", "high")):
         parts.append(("unknown", "the CVE report gave no critical/high totals"))
     if not parts:
@@ -439,9 +442,12 @@ def sec_repo_hygiene(f: Facts) -> Outcome:
 # --- Reliability --------------------------------------------------------------------------------------------
 
 def rel_probes(f: Facts) -> Outcome:
-    gate, cs = _rendered(f, _C, "non-init containers", keep=lambda v: not v.get("init"))
+    gate, rendered = _rendered(f, _C, "non-init containers", keep=lambda v: not v.get("init"))
     if gate:
         return gate
+    cs = [c for c in rendered if str(c["value"].get("workload", "")).split("/", 1)[0] not in _BATCH]
+    if not cs:  # Jobs and CronJobs run to completion and take no readiness or liveness probes
+        return "n/a", "only Job/CronJob containers, which take no probes", _ids(rendered)
     items = []
     for c in cs:
         missing = [k for k in ("readiness", "liveness") if not _d(c["value"].get("probes")).get(k)]
@@ -601,16 +607,21 @@ def cost_overprovision(f: Facts) -> Outcome:
         return gate
     items = []
     for name, u, c in rows:
-        over = []
+        over, compared = [], 0
         for kind, (key, unit) in _UNITS.items():
             used, req = u["value"].get(key), _res(c, "requests", kind)
             if not isinstance(used, (int, float)) or req is None:
-                continue
+                continue  # nothing requested for this resource: nothing to compare
+            compared += 1
             if req > _FLOORS[kind] and req >= OVERPROVISION_RATIO * used:
                 over.append(f"requests {req}{unit} {kind} and uses {used}{unit}")
-        items.append(("partial", f"{name} " + ", ".join(over), _row_ids(u, c)) if over
-                     else ("pass", "", _row_ids(u, c)))
-    return _combine(items, f"requests are within {OVERPROVISION_RATIO}x of live usage ({_n(len(rows), 'container')})")
+        if over:
+            items.append(("partial", f"{name} " + ", ".join(over), _row_ids(u, c)))
+        elif compared:
+            items.append(("pass", "", _row_ids(u, c)))
+    if not items:
+        return "unknown", "no CPU or memory requests to compare live usage with", [row[1]["id"] for row in rows]
+    return _combine(items, f"requests are within {OVERPROVISION_RATIO}x of live usage ({_n(len(items), 'container')})")
 
 
 def sus_utilization(f: Facts) -> Outcome:
