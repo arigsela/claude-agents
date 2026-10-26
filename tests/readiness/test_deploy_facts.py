@@ -231,6 +231,7 @@ class DeployFactsTest(unittest.TestCase):
         self.assertEqual(w["value"]["replicas"], 1)
         self.assertEqual(w["value"]["replicas_comment"], "one in-memory run at a time")
         self.assertIs(w["value"]["pod_run_as_non_root"], True)
+        self.assertIsNone(w["value"]["pod_run_as_user"])
         self.assertIs(w["value"]["automount_sa_token"], False)
         self.assertEqual(w["value"]["service_account"], "demo-sa")
         self.assertEqual(w["value"]["volume_kinds"], ["emptyDir"])
@@ -320,6 +321,14 @@ def alerts(files):
 
 
 class HardeningTest(unittest.TestCase):
+    def test_pod_run_as_user(self):  # final review I2
+        files = dict(FILES)
+        files["base-apps/demo/deployment.yaml"] = DEPLOY.replace("        runAsNonRoot: true\n      volumes:",
+                                                                 "        runAsUser: 1000\n      volumes:")
+        w = run(files)[0]["deploy.workload.Deployment/demo"]["value"]
+        self.assertEqual(w["pod_run_as_user"], 1000)
+        self.assertIsNone(w["pod_run_as_non_root"])
+
     def test_short_digest_not_pinned(self):
         for bad in ("@sha256:abc", "@sha256:" + "z" * 64):
             files = dict(FILES)

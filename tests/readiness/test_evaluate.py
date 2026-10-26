@@ -51,7 +51,8 @@ def ctr(ref="Deployment/api/api", init=False, sec=None, **kw) -> dict:
 def wl(ref="Deployment/api", **kw) -> dict:
     kind, name = ref.split("/")
     value = {"kind": kind, "name": name, "replicas": 2, "replicas_comment": None, "pod_labels": {"app": name},
-             "pod_run_as_non_root": True, "automount_sa_token": False, "service_account": name,
+             "pod_run_as_non_root": True, "pod_run_as_user": None, "automount_sa_token": False,
+             "service_account": name,
              "pod_annotations": [], "volume_kinds": [], "volume_claim_templates": 0}
     value.update(kw)
     return F(f"deploy.workload.{ref}", value, "base-apps/api/deployment.yaml:1-40")
@@ -181,6 +182,13 @@ CASES: dict[str, list[tuple[dict, str]]] = {
         (doc(wl(pod_run_as_non_root=None), ctr(sec={"runAsNonRoot": None, "runAsUser": 1000})), "pass"),
         (doc(wl(pod_run_as_non_root=True), ctr(sec={"runAsNonRoot": False, "runAsUser": None})), "fail"),
         (doc(wl(pod_run_as_non_root=None), ctr(sec={"runAsNonRoot": None, "runAsUser": 0})), "fail"),
+        # final review I2: the pod's runAsUser counts when the container sets none (base-apps/n8n)
+        (doc(wl(pod_run_as_non_root=None, pod_run_as_user=1000), ctr(sec={"runAsNonRoot": None, "runAsUser": None})),
+         "pass"),
+        (doc(wl(pod_run_as_non_root=None, pod_run_as_user=0), ctr(sec={"runAsNonRoot": None, "runAsUser": None})),
+         "fail"),
+        (doc(wl(pod_run_as_non_root=None, pod_run_as_user=1000), ctr(sec={"runAsNonRoot": None, "runAsUser": 0})),
+         "fail"),  # the container's runAsUser overrides the pod's
     ],
     "sec.hardening": [
         (doc(*DEPLOY), "pass"),
@@ -416,16 +424,33 @@ class RuleTableTest(unittest.TestCase):
         self.assertEqual(reason, ".github/workflows/ci.yml:8 uses actions/checkout@v4")
         _, reason, _ = run("rel.resources", doc(wl(), ctr(resources=res(lcpu=None, lmem=None))))
         self.assertEqual(reason, "Deployment/api/api has no limits.cpu, limits.memory")
-        _, reason, _ = run("sec.nonroot", doc(wl(pod_run_as_non_root=None),
-                                              ctr(sec={"runAsNonRoot": None, "runAsUser": None}),
-                                              F("app.dockerfile.user", {"user": "10001"}, "Dockerfile")))
+        root = doc(wl(pod_run_as_non_root=None), ctr(sec={"runAsNonRoot": None, "runAsUser": None}),
+                   F("app.dockerfile.user", {"user": "10001"}, "Dockerfile"))
+        root["meta"]["app"] = {"slug": "arigsela/api"}  # reg/api is built from this repo
+        _, reason, ids = run("sec.nonroot", root)
         self.assertIn("Deployment/api/api", reason)
         self.assertIn("Dockerfile USER 10001", reason)
+        self.assertIn("app.dockerfile.user", ids)
         _, reason, _ = run("sec.cve", doc(*DEPLOY, cve(high=1, unmatched=["busybox:1.36"])))
         self.assertIn("CVE-2 in zlib", reason)
         self.assertIn("not scanned: busybox:1.36", reason)
         _, reason, _ = run("perf.rightsize", doc(*DEPLOY, use(cpu=250, mem=100)))
         self.assertEqual(reason, "Deployment/api/api cpu 250m is above its 200m request")
+
+    def test_nonroot_dockerfile_user_only_for_the_apps_own_image(self):  # final review I2
+        d = doc(wl(pod_run_as_non_root=None), ctr(sec={"runAsNonRoot": None, "runAsUser": None}),
+                wl("Deployment/valkey", pod_run_as_non_root=None),
+                ctr("Deployment/valkey/valkey", image="valkey/valkey:8", sec={"runAsNonRoot": None, "runAsUser": None}),
+                F("app.dockerfile.user", {"user": "10001"}, "Dockerfile"))
+        d["meta"]["app"] = {"slug": "arigsela/api"}
+        _, reason, ids = run("sec.nonroot", d)
+        self.assertEqual(reason, "Deployment/api/api sets neither runAsNonRoot nor a non-zero runAsUser "
+                                 "(Dockerfile USER 10001); Deployment/valkey/valkey sets neither runAsNonRoot nor a "
+                                 "non-zero runAsUser")
+        d["facts"] = [x for x in d["facts"] if not x["id"].startswith("deploy.container.Deployment/api/")]
+        _, reason, ids = run("sec.nonroot", d)
+        self.assertEqual(reason, "Deployment/valkey/valkey sets neither runAsNonRoot nor a non-zero runAsUser")
+        self.assertNotIn("app.dockerfile.user", ids)
 
     def test_fix_round_1_reasons(self):
         _, reason, ids = run("rel.probes", doc(wl(), ctr(probes=NO_PROBES), *CRONJOB))
@@ -490,6 +515,9 @@ class EvaluateTest(unittest.TestCase):
         self.assertIn("demo-7d9f8c6b5-aaaaa", self.by_id["rel.restarts"]["reason"])
         self.assertIn("Secret/demo-secret", self.by_id["sec.secrets"]["reason"])
         self.assertIn("busybox:1.36", self.by_id["sec.image_digest"]["reason"])
+        # valkey's image is not built from arigsela/demo, so the app's Dockerfile USER says nothing about it
+        self.assertEqual(self.by_id["sec.nonroot"]["reason"],
+                         "Deployment/valkey/valkey sets neither runAsNonRoot nor a non-zero runAsUser")
 
     def test_catalog_sources_name_what_each_rule_reads(self):
         # Knock out one source at a time: a rule that reports it unavailable must list it in checks.yaml.

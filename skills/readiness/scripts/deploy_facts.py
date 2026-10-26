@@ -137,6 +137,7 @@ def _workload_facts(root: Path, doc: dict, file: str) -> list[dict]:
         "replicas_comment": _comment_on_replicas(root, file, kind, name),
         "pod_labels": labels,
         "pod_run_as_non_root": _d(pod.get("securityContext")).get("runAsNonRoot"),
+        "pod_run_as_user": _d(pod.get("securityContext")).get("runAsUser"),
         "automount_sa_token": pod.get("automountServiceAccountToken"),
         "service_account": pod.get("serviceAccountName"),
         "pod_annotations": sorted(_d(_d(template.get("metadata")).get("annotations"))),

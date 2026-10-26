@@ -218,26 +218,39 @@ def sec_base_digest(f: Facts) -> Outcome:
 
 
 def _nonroot(c: dict, pods: dict) -> bool:
-    s = _d(c["value"].get("security"))
-    own, uid = s.get("runAsNonRoot"), s.get("runAsUser")
-    effective = own if own is not None else pods.get(str(c["value"].get("workload")))
-    return effective is True or (isinstance(uid, int) and not isinstance(uid, bool) and uid > 0)
+    """The container's runAsNonRoot, else the pod's, enforces non-root; or the effective runAsUser (the
+    container's, else the pod's) is a non-zero uid."""
+    s, pod = _d(c["value"].get("security")), _d(pods.get(str(c["value"].get("workload"))))
+    enforced = s.get("runAsNonRoot")
+    enforced = pod.get("pod_run_as_non_root") if enforced is None else enforced
+    uid = s.get("runAsUser")
+    uid = pod.get("pod_run_as_user") if uid is None else uid
+    return enforced is True or (isinstance(uid, int) and not isinstance(uid, bool) and uid > 0)
+
+
+def _image_repo(image) -> str:
+    """The image's last path segment without tag or digest: `123.dkr.ecr.../demo:v1@sha256:…` -> `demo`."""
+    return str(image).split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0].lower()
 
 
 def sec_nonroot(f: Facts) -> Outcome:
     gate, cs = _rendered(f, _C, "containers")
     if gate:
         return gate
-    pods = {_name(w, _W): _d(w["value"]).get("pod_run_as_non_root") for w in f.prefix(_W)}
+    pods = {_name(w, _W): _d(w["value"]) for w in f.prefix(_W)}
     bad = [c for c in cs if not _nonroot(c, pods)]
     if not bad:
         return "pass", f"every container runs as non-root ({_n(len(cs), 'container')})", _ids(cs)
-    reason = _names([f"{_name(c, _C)} sets neither runAsNonRoot nor a non-zero runAsUser" for c in bad])
+    # The app's Dockerfile USER only speaks for images built from the app repo: the image's last path segment
+    # is the repo's name (a third-party image such as valkey/valkey has its own USER).
     user = f.get("app.dockerfile.user")
-    if user:
-        u = _d(user["value"]).get("user")
-        reason += f" (Dockerfile USER {u})" if u else " (the Dockerfile sets no USER)"
-    return "fail", reason, _ids(bad) + ([user["id"]] if user else [])
+    repo = str(_d(_d(f.doc.get("meta")).get("app")).get("slug") or "").rsplit("/", 1)[-1].lower()
+    own = {c["id"] for c in bad if user and repo and _image_repo(c["value"].get("image")) == repo}
+    u = _d(user["value"]).get("user") if user else None
+    tail = f" (Dockerfile USER {u})" if u else " (the Dockerfile sets no USER)"
+    reason = _names([f"{_name(c, _C)} sets neither runAsNonRoot nor a non-zero runAsUser"
+                     + (tail if c["id"] in own else "") for c in bad])
+    return "fail", reason, _ids(bad) + ([user["id"]] if own else [])
 
 
 def _hardening_gaps(c: dict) -> list[str]:
