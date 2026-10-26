@@ -21,6 +21,7 @@ from readiness_model import fact  # noqa: E402
 Run = Callable[[list[str]], tuple[int, str, str]]
 
 TIMEOUT_S = 20
+LIVE_KINDS = ("Deployment", "StatefulSet")  # what `kubectl get deploy,statefulset,pods` reads
 
 
 def subprocess_run(argv: list[str]) -> tuple[int, str, str]:
@@ -100,10 +101,12 @@ def cluster_facts(namespace: str, workloads: list[str], run: Run = subprocess_ru
     facts: list[dict] = []
     present = {}
     for it in items:
-        if not isinstance(it, dict) or it.get("kind") not in ("Deployment", "StatefulSet"):
+        if not isinstance(it, dict) or it.get("kind") not in LIVE_KINDS:
             continue
         present[f"{it['kind']}/{(it.get('metadata') or {}).get('name')}"] = it
     for w in workloads:
+        if w.split("/", 1)[0] not in LIVE_KINDS:
+            continue  # not looked up (CronJob, Job, DaemonSet): no fact, rather than a false "not found"
         it = present.get(w)
         if it is None:
             value = {"found": False, "ready": 0, "desired": 0}

@@ -302,6 +302,17 @@ tests/readiness/                          pytest, fixtures only, no network
    `feat/hk-demo-valkey`, and an untracked `app-token.txt`.
 
    When the catalog entry sits in the app repo itself, the deploy folder is unknown.
+
+   **Amended 2026-10-26:** in that case, follow the entity's System (the entity itself when it is a
+   System, else its `spec.system`). `filter=relations.partOf=<system ref>` lists every entity in it.
+   The candidates are the folders of other repos that those entities are catalogued from. One
+   candidate is used as is. Among several, keep those whose YAML declares a workload kind; if the
+   entity has `backstage.io/kubernetes-id`, narrow them to the folders that carry that label, when
+   any does. Exactly one left is used; otherwise the deploy source is unavailable and names the
+   folders. Candidates spanning more than 3 repos are not cloned. `arigsela/beacon` showed why: its
+   System and Components live in the app repo, and `resource:beacon/beacon-db` is catalogued from
+   `base-apps/beacon`, next to `resource:beacon/beacon-tenants` (`base-apps/beacon-tenants`, no
+   workloads). collect logs the entity it went through, and the report header names it.
 4. **Rendered manifests.** On the default branch, find the Argo CD Application whose source is
    that folder (for hk-demo, `base-apps/hk-demo.yaml`). Then read the folder at that Application's
    `targetRevision`, or at `--deploy-ref`, so the review matches what is deployed. Render it the

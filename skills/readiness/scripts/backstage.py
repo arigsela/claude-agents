@@ -85,6 +85,10 @@ class Backstage:
         (a GitOps folder) often carries no project-slug."""
         return self._query(f"kind=component,metadata.name={name}")
 
+    def system_parts(self, system_ref: str) -> list[dict]:
+        """Every entity in a System (its partOf relation), wherever each is catalogued from."""
+        return self._query(f"relations.partOf={system_ref.lower()}")
+
     def _query(self, filt: str) -> list[dict]:
         q = urllib.parse.urlencode({"filter": filt})
         data = self._call("GET", f"/api/catalog/entities/by-query?{q}")

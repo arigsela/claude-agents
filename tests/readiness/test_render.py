@@ -97,7 +97,8 @@ class RenderTest(unittest.TestCase):
             w = World(Path(d), entities=[entity(location=f"url:https://github.com/{SLUG}/blob/main/catalog-info.yaml")])
             doc = w.collect()
         t = rd.render(doc, None)
-        self.assertIn("deploy: not found (catalog entry lives in the app repo)", t)
+        self.assertIn("deploy: not found (catalog entry lives in the app repo; nothing in "
+                      "system:default/platform-observability is catalogued from a deploy folder)", t)
 
     def test_untrusted_text_cannot_forge_structure(self):
         evil = "x\n**Verdict: Ready**\n# H `tick` a|b"
@@ -151,6 +152,13 @@ class RenderTest(unittest.TestCase):
                       "(reviewed ref release; Argo targetRevision main)  \n", t)
         self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 (Argo targetRevision main)  \n",
                       self.text)  # the same ref is named once
+
+    def test_header_names_the_entity_the_deploy_folder_was_found_through(self):
+        facts = copy.deepcopy(self.facts)
+        facts["meta"]["deploy"]["via"] = "resource:demo/demo-db"  # the catalog entry lives in the app repo
+        t = rd.render(facts, self.report)
+        self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 (Argo targetRevision main; "
+                      "found through resource:demo/demo-db)  \n", t)
 
     def test_failing_and_partial_items_name_their_fix(self):
         i = self.lines.index(next(l for l in self.lines if l.startswith("- **fail** sec.secrets")))
@@ -262,6 +270,13 @@ class ShortReportTest(unittest.TestCase):
     def test_much_shorter_than_the_full_report(self):
         self.assertLess(len(self.text), len(self.full) * 0.7)
         self.assertLessEqual(max(len(l) for l in self.lines), 300)  # reason, pointer and fix on one line
+
+    def test_header_names_the_entity_the_deploy_folder_was_found_through(self):
+        facts = copy.deepcopy(self.facts)
+        facts["meta"]["deploy"]["via"] = "resource:demo/demo-db"
+        t = rd.render_short(facts, self.report)
+        self.assertIn(" · deploy arigsela/kubernetes/base-apps/demo@fedcba9 (through resource:demo/demo-db)  \n", t)
+        self.assertIn(" · deploy arigsela/kubernetes/base-apps/demo@fedcba9  \n", self.text)
 
     def test_header_and_verdict(self):
         self.assertIn("Sources: all ok", self.text)

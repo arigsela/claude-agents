@@ -85,6 +85,14 @@ class ClusterTests(unittest.TestCase):
         self.assertEqual(f["cluster.workload.StatefulSet/db"]["value"], {"found": True, "ready": 0, "desired": 1})
         self.assertEqual(f["cluster.usage.StatefulSet/db/app"]["value"], {"cpu_m": 1000, "memory_mi": 1024})
 
+    def test_only_kinds_the_read_looks_up_get_a_workload_fact(self):
+        # arigsela/beacon, 2026-10-26: its CronJobs and smoke Job read as "not found live", so rel.restarts was
+        # unknown although every Deployment was running. The get covers Deployments and StatefulSets only.
+        (facts, _), _ = self.run_cluster({GET_CMD: (0, GET_OUT, ""), TOP_CMD: (0, TOP_OUT, "")},
+                                         ["Deployment/demo", "CronJob/backup", "Job/smoke", "DaemonSet/agent"])
+        self.assertEqual(sorted(i for i in by_id(facts) if i.startswith("cluster.workload.")),
+                         ["cluster.workload.Deployment/demo"])
+
     def test_get_fails(self):
         (facts, status), _ = self.run_cluster({GET_CMD: (1, "", "Unable to connect")})
         self.assertEqual((facts, status), ([], "unavailable: Unable to connect"))

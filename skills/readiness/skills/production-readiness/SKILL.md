@@ -1,7 +1,7 @@
 ---
 name: production-readiness
 description: Review an app repo for production readiness against an AWS Well-Architected-style check catalog. Collects facts from the app repo, its deploy folder in the GitOps repo, Backstage (catalog, scorecard, CVE report), the cluster (read-only) and GitHub, decides the rule checks with a script, judges the rest from cited facts, verifies the report, and prints a terminal report with a verdict, the top fixes and findings per pillar. Use for "production readiness", "is X ready for prod", "readiness review", "ORR", "well-architected check of a repo".
-version: "0.2.3"
+version: "0.2.4"
 author:
   name: "Arisela"
 tags: [production-readiness, well-architected, orr, kubernetes, gitops, backstage]
@@ -171,3 +171,5 @@ not persist); `collect.py` creates it.
    - the header shows `on default branch: no`: name the branch reviewed, and that the default branch
      can be reviewed with `--ref origin/<default branch>` once the user has fetched;
    - collect logged `matched <ref> by name`: the entity was found by its name, not its project-slug.
+   - collect logged `deploy: <folder> through <ref>`: the catalog entry lives in the app repo, so the
+     deploy folder is the one `<ref>`, in the same System, is catalogued from.

@@ -161,9 +161,13 @@ def ops_catalog(f: Facts) -> Outcome:
     v = e["value"]
     if not isinstance(v, dict):
         return "fail", "not in the catalog", [e["id"]]
-    missing = [k for k in ("owner", "lifecycle", "system") if not v.get(k)]
+    # Backstage's System kind has an owner but no lifecycle or system of its own; its components carry those.
+    system = str(v.get("ref") or "").lower().startswith("system:")
+    missing = [k for k in (("owner",) if system else ("owner", "lifecycle", "system")) if not v.get(k)]
     if missing:
         return "partial", f"{v.get('ref')} has no {', '.join(missing)}", [e["id"]]
+    if system:
+        return "pass", f"{v['ref']}: owner {v['owner']}", [e["id"]]
     return "pass", f"{v['ref']}: owner {v['owner']}, lifecycle {v['lifecycle']}, system {v['system']}", [e["id"]]
 
 

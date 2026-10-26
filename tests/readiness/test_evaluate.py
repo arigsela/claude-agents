@@ -141,6 +141,9 @@ CASES: dict[str, list[tuple[dict, str]]] = {
     "ops.catalog": [
         (doc(entity()), "pass"),
         (doc(entity(system=None)), "partial"),
+        # A System has an owner but no lifecycle or system of its own (Backstage's System kind).
+        (doc(entity(ref="system:default/beacon", lifecycle=None, system=None)), "pass"),
+        (doc(entity(ref="system:default/beacon", owner=None, lifecycle=None, system=None)), "partial"),
         (doc(F("backstage.entity", None)), "fail"),
         (doc(entity(), backstage="unavailable: HTTP 500"), "unknown"),
     ],
@@ -415,6 +418,10 @@ class RuleTableTest(unittest.TestCase):
                     self.assertTrue(reason)
                     known = {f["id"] for f in d["facts"]}
                     self.assertTrue(set(ids) <= known, (rid, ids))
+
+    def test_a_system_is_not_asked_for_a_lifecycle(self):
+        status, reason, _ = run("ops.catalog", doc(entity(ref="system:default/beacon", lifecycle=None, system=None)))
+        self.assertEqual((status, reason), ("pass", "system:default/beacon: owner group:default/platform"))
 
     def test_unavailable_sources_give_unknown_or_na(self):
         d = {"meta": {"sources": {s: U for s in SOURCES}}, "facts": []}

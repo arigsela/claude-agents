@@ -46,9 +46,9 @@ partial, or a blocker is unknown; otherwise Ready.
 | Source | What it gives | Access |
 |---|---|---|
 | app | workflows, Dockerfiles (anywhere in the tree), deps, docs of the app repo at a committed ref | `git` |
-| deploy | the Application's rendered manifests, Terraform, alert rules from the GitOps repo at its `targetRevision` | `gh`, temp clone |
+| deploy | the Application's rendered manifests, Terraform, alert rules from the GitOps repo at its `targetRevision`. The folder is where the entity is catalogued from; when that is the app repo, the folder the entity's System is catalogued from in another repo (the one holding workloads) | `gh`, temp clone |
 | backstage | catalog entity, owner, lifecycle, dependencies, scorecard, CVE report | HTTP GET, and `POST /api/cve/report` (a read) (optional `BACKSTAGE_TOKEN`) |
-| cluster | workloads, restarts, usage in the app's namespace | `kubectl get` and `kubectl top` |
+| cluster | Deployments, StatefulSets, their pods' restarts and usage in the app's namespace | `kubectl get` and `kubectl top` |
 | github | repo settings, branch protection, Dependabot alerts | `gh api` GET |
 
 A source that cannot answer is recorded with its reason, and checks that need it end `unknown`.
