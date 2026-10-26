@@ -96,12 +96,15 @@ def app_ref_info(repo: Path, ref: str = "HEAD") -> dict:
 
 
 def remote_checkout(url: str, ref: str, dest: Path) -> str:
-    """Shallow, blobless checkout of `ref` (branch, tag, sha or HEAD) at `url` into `dest`; returns the sha."""
+    """Shallow, blobless checkout of `ref` (branch, tag, sha or HEAD) at `url` into `dest`; returns the sha.
+
+    Symlinks in the tree are written as plain files holding the link text, so no read follows one out of `dest`."""
     if ref.startswith("-"):
         raise ValueError(f"unsafe ref: {ref!r}")
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     _git("init", "--quiet", cwd=dest)
+    _git("config", "core.symlinks", "false", cwd=dest)
     _git("remote", "add", "origin", url, cwd=dest)
     # gh's token covers private repos. The empty entry drops inherited helpers so a stale credential cannot win.
     _git("config", "credential.helper", "", cwd=dest)

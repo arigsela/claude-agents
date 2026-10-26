@@ -1,6 +1,7 @@
 """git_sources: the app repo at a commit, the deploy repo from a temp clone."""
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,23 @@ class RemoteCheckoutTest(TmpCase):
         g.remote_checkout(url, "dev", d3)
         self.assertEqual((d3 / "a.txt").read_text(), "dev\n")
         self.assertEqual(g.default_branch(url), "main")
+
+    def test_symlinks_check_out_as_plain_files(self):
+        """A symlink in the remote tree is written as a regular file holding the link text, never followed."""
+        r = self.sub("r")
+        src = fx.git_repo(r, {"a.txt": "x\n"})
+        os.symlink("/etc/passwd", src / "runbook.md")
+        os.symlink("../outside", src / "docs.md")
+        fx.commit_files(src, {}, "links")
+        bare = r / "links.git"
+        fx.git(r, "clone", "--quiet", "--bare", str(src), str(bare))
+        d = self.sub("d")
+        g.remote_checkout(bare.as_uri(), "HEAD", d)
+        for name, target in (("runbook.md", "/etc/passwd"), ("docs.md", "../outside")):
+            p = d / name
+            self.assertFalse(os.path.islink(p), name)
+            self.assertTrue(p.is_file(), name)
+            self.assertEqual(p.read_text(), target)
 
     def test_option_like_ref_rejected_without_running_git(self):
         d = self.sub("d")

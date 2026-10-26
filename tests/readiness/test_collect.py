@@ -448,12 +448,13 @@ class DeployRevisionTest(Case):
         fx.git(w.tmp, "clone", "--quiet", "--bare", str(src), str(bare))
         w.repo_urls = {DEPLOY_REPO: bare.as_uri()}
         d = w.collect()
-        self.assertEqual(d["meta"]["sources"]["deploy"], "unavailable: unsafe folder")
-        self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+        # remote_checkout writes the link as a plain file (core.symlinks=false): nothing outside is read.
         self.assertNotIn("OUTSIDE-CANARY", (w.out / "facts.json").read_text())
+        self.assertNotIn("deploy.workload.Deployment/demo", by_id(d))
+        self.assertTrue((w.tmp / "outside" / "runbook.md").exists())  # the canary was reachable had it been followed
 
     def test_symlink_inside_folder_escaping_the_clone(self):
-        """deploy.text would copy a runbook.md -> <outside file> link's target into facts.json."""
+        """A runbook.md -> <outside file> link reaches facts.json only as its link text, never the target."""
         w = self.world()
         secret = w.tmp / "secret.txt"
         secret.write_text("OUTSIDE-CANARY\n")
@@ -464,7 +465,8 @@ class DeployRevisionTest(Case):
         fx.git(w.tmp, "clone", "--quiet", "--bare", str(src), str(bare))
         w.repo_urls = {DEPLOY_REPO: bare.as_uri()}
         d = w.collect()
-        self.assertEqual(d["meta"]["sources"]["deploy"], "unavailable: unsafe folder")
+        self.assertEqual(d["meta"]["sources"]["deploy"], "ok")
+        self.assertEqual(by_id(d)["deploy.text.base-apps/demo/runbook.md"]["value"]["text"], str(secret))
         self.assertNotIn("OUTSIDE-CANARY", (w.out / "facts.json").read_text())
 
     def test_entity_namespace_reaches_alert_rules(self):
@@ -488,6 +490,32 @@ class DeployRevisionTest(Case):
         self.assertEqual(d["meta"]["deploy"]["application_file"], "base-apps/demo.yaml")
         self.assertIsNone(d["meta"]["deploy"]["sha"])  # nothing was read at the deployed revision
         self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+
+
+class EscapesTest(unittest.TestCase):
+    """Defence in depth behind remote_checkout's core.symlinks=false: real symlinks out of the clone are refused."""
+
+    def setUp(self):
+        t = tempfile.TemporaryDirectory()
+        self.addCleanup(t.cleanup)
+        self.tmp = Path(t.name)
+        self.root = self.tmp / "clone"
+        fx.write_tree(self.root, {"apps/ok/a.yaml": "x: 1\n", "apps/inner/a.yaml": "x: 1\n"})
+        fx.write_tree(self.tmp / "outside", {"secret": "s\n"})
+
+    def test_plain_and_missing_folders(self):
+        self.assertFalse(c._escapes(self.root, "apps/ok"))
+        self.assertFalse(c._escapes(self.root, "apps/missing"))
+
+    def test_folder_symlink_out(self):
+        (self.root / "apps" / "evil").symlink_to(self.tmp / "outside", target_is_directory=True)
+        self.assertTrue(c._escapes(self.root, "apps/evil"))
+
+    def test_symlink_inside_folder(self):
+        (self.root / "apps" / "ok" / "runbook.md").symlink_to(self.tmp / "outside" / "secret")
+        self.assertTrue(c._escapes(self.root, "apps/ok"))
+        (self.root / "apps" / "inner" / "link.yaml").symlink_to(self.root / "apps" / "ok" / "a.yaml")
+        self.assertFalse(c._escapes(self.root, "apps/inner"))  # a link that stays inside the clone is fine
 
 
 class LiveTest(Case):
