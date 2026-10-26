@@ -1,6 +1,7 @@
 """readiness_model: constants, fact records and the Facts accessor."""
 from __future__ import annotations
 
+import datetime
 import sys
 import tempfile
 import unittest
@@ -70,6 +71,15 @@ class ModelTest(unittest.TestCase):
             p = Path(d) / "x.json"
             m.write_json(p, {"a": [1, 2]})
             self.assertEqual(m.read_json(p), {"a": [1, 2]})
+
+    def test_write_json_takes_yaml_typed_values(self):
+        """An unquoted date in a manifest is a datetime.date after yaml.safe_load; facts.json must still be
+        written (final review I8)."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.json"
+            m.write_json(p, {"v": datetime.date(2026, 10, 25), "keys": {datetime.date(2026, 1, 1): 1, 2: "b",
+                                                                         "c": None}})
+            self.assertEqual(m.read_json(p), {"v": "2026-10-25", "keys": {"2026-01-01": 1, "2": "b", "c": None}})
 
 
 if __name__ == "__main__":

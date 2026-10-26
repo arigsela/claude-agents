@@ -67,5 +67,16 @@ def read_json(path) -> dict:
     return json.loads(Path(path).read_text())
 
 
+def _plain(v):
+    """String dict keys all the way down: YAML keys can be dates or a mix of ints and strings, which json.dumps
+    cannot write (non-str key types) or sort (sort_keys compares them)."""
+    if isinstance(v, dict):
+        return {k if isinstance(k, str) else str(k): _plain(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    return v
+
+
 def write_json(path, obj) -> None:
-    Path(path).write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n")
+    """default=str: a YAML-typed value (an unquoted date or timestamp) that reaches a fact is written as text."""
+    Path(path).write_text(json.dumps(_plain(obj), indent=2, sort_keys=True, default=str) + "\n")

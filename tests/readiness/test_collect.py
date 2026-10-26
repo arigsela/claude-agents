@@ -518,6 +518,18 @@ class EscapesTest(unittest.TestCase):
         self.assertFalse(c._escapes(self.root, "apps/inner"))  # a link that stays inside the clone is fine
 
 
+class YamlTypesTest(Case):
+    def test_unquoted_date_in_a_manifest_still_writes_facts(self):  # final review I8
+        objects = DEPLOY_FILES["base-apps/demo/objects.yaml"].replace("    - port: 80\n",
+                                                                      "    - port: 80\n      name: 2026-10-25\n")
+        w = self.world(deploy_files={**DEPLOY_FILES, "base-apps/demo/objects.yaml": objects})
+        d = w.collect()
+        self.assertEqual(by_id(d)["deploy.object.Service/demo"]["value"]["ports"][0]["name"].isoformat(),
+                         "2026-10-25")
+        self.assertEqual(by_id(w.doc())["deploy.object.Service/demo"]["value"]["ports"],
+                         [{"name": "2026-10-25", "port": 80}])
+
+
 class LiveTest(Case):
     def test_no_live(self):
         w = self.world()
