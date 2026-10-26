@@ -41,6 +41,9 @@ from readiness_model import SOURCES, fact, write_json  # noqa: E402
 DEFAULT_BACKSTAGE_URL = "https://backstage.arigsela.com"
 MANAGED_BY = "backstage.io/managed-by-location"
 K8S_NAMESPACE = "backstage.io/kubernetes-namespace"
+K8S_ID = "backstage.io/kubernetes-id"
+MAX_DEPLOY_REPOS = 3  # repos cloned to choose among a System's deploy folders
+LIST_CAP = 5
 CVE_FINDINGS_CAP = 20
 _SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 # url:https://github.com/<o>/<r>/(tree|blob)/<ref>/<path>/catalog-info.yaml; <path> is empty at the repo root.
@@ -238,8 +241,56 @@ def _escapes(root: Path, folder: str) -> bool:
     return False
 
 
+def _system_of(ent: dict) -> str | None:
+    """The System an entity belongs to: itself when it is one, else its spec.system (namespace defaults to the
+    entity's, as in Backstage)."""
+    if str(ent.get("kind", "")).lower() == "system":
+        return entity_ref(ent)
+    system = _d(ent.get("spec")).get("system")
+    if not isinstance(system, str) or not system.strip():
+        return None
+    system = system.strip()
+    return _qualify(system if ":" in system else f"system:{system}", str(_d(ent.get("metadata")).get("namespace")
+                                                                          or "default"))
+
+
+def _system_folders(parts: list, app_slug: str) -> list[tuple[str, str, str]]:
+    """Sorted (repo, folder, entity ref) for each folder of another repo that a System entity is catalogued from."""
+    out: dict[tuple[str, str], str] = {}
+    for e in parts:
+        if not isinstance(e, dict):
+            continue
+        target = parse_managed_by(str(_d(_d(e.get("metadata")).get("annotations")).get(MANAGED_BY) or ""))
+        if target and target[1] and target[0].lower() != app_slug.lower():
+            out.setdefault(target, entity_ref(e))
+    return sorted((repo, folder, ref) for (repo, folder), ref in out.items())
+
+
+def _named(candidates: list[tuple[str, str, str]]) -> str:
+    names = [f"{repo}/{folder}" for repo, folder, _ in candidates]
+    return ", ".join(names[:LIST_CAP]) + (", …" if len(names) > LIST_CAP else "")
+
+
+def _pick_folder(candidates: list[tuple[str, str, str]], head: Callable[[str], tuple[str, Path, str]],
+                 kubernetes_id, system: str) -> tuple[tuple[str, str, str] | None, str]:
+    """The one candidate folder that holds workloads, narrowed to those labelled with the entity's
+    backstage.io/kubernetes-id when any is; else (None, why)."""
+    def root(repo: str) -> Path:
+        return head(repo)[1]
+
+    safe = [c for c in candidates if not _escapes(root(c[0]), c[1]) and (root(c[0]) / c[1]).is_dir()]
+    held = [c for c in safe if df.holds_workloads(root(c[0]), c[1])]
+    if kubernetes_id and isinstance(kubernetes_id, str):
+        held = [c for c in held if df.holds_workloads(root(c[0]), c[1], kubernetes_id)] or held
+    if len(held) == 1:
+        return held[0], ""
+    if not held:
+        return None, f"none of the {len(candidates)} deploy folders in {system} hold workloads ({_named(candidates)})"
+    return None, f"{len(held)} deploy folders in {system} hold workloads ({_named(held)})"
+
+
 def _deploy_step(ent: dict, app_slug: str | None, deploy_ref: str | None, deps: Deps,
-                 tmp: Path) -> tuple[list[dict], str, dict | None]:
+                 tmp: Path, bs: Backstage) -> tuple[list[dict], str, dict | None]:
     """(deploy facts, deploy status, meta.deploy)."""
     annotations = _d(_d(ent.get("metadata")).get("annotations"))
     location = annotations.get(MANAGED_BY)
@@ -250,16 +301,53 @@ def _deploy_step(ent: dict, app_slug: str | None, deploy_ref: str | None, deps: 
     if target is None:
         return [], "unavailable: managed-by-location is not a GitHub file URL", None
     repo, folder = target
+    system = None
     if app_slug and repo.lower() == app_slug.lower():
-        return [], "unavailable: catalog entry lives in the app repo", None
-    if not folder:
+        # The catalog file lives in the app repo (arigsela/beacon): the deploy folder is the one the System's
+        # deploy-side entities (beacon-db) are catalogued from.
+        system = _system_of(ent)
+        if system is None:
+            return [], "unavailable: catalog entry lives in the app repo and names no System", None
+        try:
+            candidates = _system_folders(bs.system_parts(system), app_slug)
+        except Exception as err:
+            return [], f"unavailable: catalog entry lives in the app repo (system lookup failed: {_why(err)})", None
+        if not candidates:
+            return [], (f"unavailable: catalog entry lives in the app repo; nothing in {system} is catalogued from "
+                        "a deploy folder"), None
+        repos = {c[0].lower() for c in candidates}
+        if len(repos) > MAX_DEPLOY_REPOS:
+            return [], f"unavailable: the deploy folders in {system} span {len(repos)} repos", None
+    elif not folder:
         return [], f"unavailable: catalog entry sits at the root of {repo}", None
-    meta = {"repo": repo, "folder": folder, "ref": deploy_ref, "sha": None, "application_file": None}
+    else:
+        candidates = [(repo, folder, None)]
+
+    heads: dict[str, tuple[str, Path, str]] = {}
+
+    def head(r: str) -> tuple[str, Path, str]:
+        """(url, root, sha) of a HEAD clone of `r`, cloned once."""
+        if r.lower() not in heads:
+            url = deps.repo_url(r)
+            root = tmp / ("deploy" if not heads else f"deploy-{len(heads)}")
+            heads[r.lower()] = (url, root, gs.remote_checkout(url, "HEAD", root))
+        return heads[r.lower()]
+
+    if len(candidates) > 1:
+        try:
+            picked, why = _pick_folder(candidates, head, annotations.get(K8S_ID), str(system))
+        except Exception as err:
+            return [], f"unavailable: clone failed ({_why(err)})", None
+        if picked is None:
+            return [], f"unavailable: {why}", None
+        candidates = [picked]
+    repo, folder, via = candidates[0]
+    if via:
+        _log(f"deploy: {repo}/{folder} through {via} in {system} (the catalog entry lives in the app repo)")
+    meta = {"repo": repo, "folder": folder, "ref": deploy_ref, "sha": None, "application_file": None, "via": via}
     stage = "clone failed"
     try:
-        url = deps.repo_url(repo)
-        root = tmp / "deploy"
-        sha = gs.remote_checkout(url, "HEAD", root)
+        url, root, sha = head(repo)
         dflt = gs.default_branch(url)
         found = df.find_application(root, repo, folder)
         meta["application_file"] = found[0] if found else None
@@ -369,7 +457,7 @@ def collect(repo_path: Path, out: Path, ref: str = "HEAD", entity: str | None = 
         deploy: list[dict] = []
         if ent is not None:
             _log("deploy: temp clone of the deploy repo")
-            deploy, status["deploy"], meta["deploy"] = _deploy_step(ent, info["slug"], deploy_ref, deps, tmp)
+            deploy, status["deploy"], meta["deploy"] = _deploy_step(ent, info["slug"], deploy_ref, deps, tmp, bs)
         elif status["backstage"] == "ok":
             status["deploy"] = "unavailable: not in catalog"
         elif status["backstage"].startswith("skipped"):

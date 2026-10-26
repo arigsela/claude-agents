@@ -26,6 +26,8 @@ BASE = "https://backstage.test"
 SLUG = "arigsela/demo"
 DEPLOY_REPO = "arigsela/kubernetes"
 LOCATION = f"url:https://github.com/{DEPLOY_REPO}/tree/main/base-apps/demo/catalog-info.yaml"
+APP_LOCATION = f"url:https://github.com/{SLUG}/blob/main/catalog-info.yaml"
+SYSTEM = "system:default/platform-observability"  # entity.json's spec.system
 # deploy_facts.image_refs order: Deployment/demo's init container, its containers, then Deployment/valkey.
 IMAGES = ["busybox:1.36", "123.dkr.ecr.us-east-1.amazonaws.com/demo:v1",
           "quay.io/oauth2-proxy/oauth2-proxy:v7@sha256:" + "a" * 64, "valkey/valkey:8"]
@@ -74,12 +76,14 @@ class World:
     """The app checkout, a deploy remote, a fake Backstage (fetch) and fake kubectl/gh (run)."""
 
     def __init__(self, tmp: Path, entities: list[dict] | None = None, deploy_files: dict | None = None,
-                 deploy_branches: dict | None = None, named: list[dict] | None = None):
+                 deploy_branches: dict | None = None, named: list[dict] | None = None,
+                 parts: list[dict] | None = None):
         self.tmp = tmp
         self.app = app_checkout(tmp, APP_FILES)
         self.deploy_url = fx.bare_remote(tmp, deploy_files or DEPLOY_FILES, deploy_branches)
         self.entities = [entity()] if entities is None else entities  # carry the project-slug
         self.named = named or []  # found only by a kind=component,metadata.name=<repo> query
+        self.parts = parts or []  # found only by a relations.partOf=<system> query
         self.override: dict[str, object] = {}  # path prefix -> (status, body) or an exception to raise
         self.fetches: list[tuple] = []
         self.runs: list[list[str]] = []
@@ -105,6 +109,8 @@ class World:
                 return resp
         if path.startswith("/api/catalog/entities/by-query?"):
             query = urllib.parse.parse_qs(path.split("?", 1)[1]).get("filter", [""])[0]
+            if query.startswith("relations.partOf="):
+                return 200, json.dumps({"items": self.parts}).encode()
             if "metadata.name=" in query:
                 name = query.split("metadata.name=", 1)[1].split(",")[0]
                 pool = self.entities + self.named
@@ -234,7 +240,8 @@ class HappyPathTest(unittest.TestCase):
         self.assertEqual(meta["app"]["sha"], fx.git(self.w.app, "rev-parse", "HEAD"))
         sha = fx.git(self.w.tmp, "ls-remote", self.w.deploy_url, "refs/heads/main").split()[0]
         self.assertEqual(meta["deploy"], {"repo": DEPLOY_REPO, "folder": "base-apps/demo", "ref": "main",
-                                          "sha": sha, "application_file": "base-apps/demo.yaml"})
+                                          "sha": sha, "application_file": "base-apps/demo.yaml",
+                                          "via": None})  # the entity's own catalog folder
         self.assertRegex(meta["generated_at"], r"^\d{4}-\d\d-\d\dT")
 
     def test_facts_shape(self):
@@ -434,10 +441,11 @@ class CatalogMatchTest(Case):
         self.assertEqual(w.posts(), [])
 
     def test_catalog_entry_in_app_repo(self):  # Review Focus 2
-        w = self.world(entities=[entity(location=f"url:https://github.com/{SLUG}/blob/main/catalog-info.yaml")])
+        w = self.world(entities=[entity(location=APP_LOCATION)])
         d = w.collect()
         s = d["meta"]["sources"]
-        self.assertEqual(s["deploy"], "unavailable: catalog entry lives in the app repo")
+        self.assertEqual(s["deploy"], "unavailable: catalog entry lives in the app repo; nothing in "
+                                      f"{SYSTEM} is catalogued from a deploy folder")
         self.assertIsNone(d["meta"]["deploy"])
         self.assertEqual(s["backstage"], "ok")
         self.assertEqual(s["scorecard"], "ok")
@@ -445,6 +453,137 @@ class CatalogMatchTest(Case):
         self.assertEqual(s["cluster"], "unavailable: no rendered workloads")
         self.assertFalse([a for a in w.runs if a[0] == "kubectl"])
         self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+
+
+def part(name: str, folder: str, kind: str = "Resource", repo: str = DEPLOY_REPO) -> dict:
+    """A deploy-side entity of the System, catalogued from `folder` of `repo` (beacon's beacon-db)."""
+    return {"apiVersion": "backstage.io/v1alpha1", "kind": kind,
+            "metadata": {"name": name, "namespace": "demo", "annotations": {
+                "backstage.io/managed-by-location": f"url:https://github.com/{repo}/tree/main/{folder}/catalog-info.yaml"}},
+            "spec": {"system": "default/platform-observability"}}
+
+
+def workload(name: str, kubernetes_id: str | None = None) -> str:
+    labels = f"\n  labels:\n    backstage.io/kubernetes-id: {kubernetes_id}" if kubernetes_id else ""
+    return (f"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}{labels}\n"
+            "spec:\n  template:\n    spec:\n      containers:\n        - name: app\n          image: app:v1\n")
+
+
+class SystemDeployTest(Case):
+    """arigsela/beacon, 2026-10-26: the app repo holds the System and Components; the deploy side's entities
+    (resource beacon-db) are catalogued from the deploy folder. The deploy folder is found through the System."""
+
+    def in_app_repo(self, ent: dict | None = None, **kw) -> World:
+        return self.world(entities=[ent or entity(location=APP_LOCATION)], **kw)
+
+    def part_queries(self, w: World) -> list[str]:
+        q = [urllib.parse.unquote_plus(f[1]) for f in w.fetches]
+        return [x.split("filter=", 1)[1] for x in q if "filter=relations.partOf=" in x]
+
+    def test_follows_the_system_to_the_deploy_folder(self):
+        w = self.in_app_repo(parts=[entity(location=APP_LOCATION), part("demo-db", "base-apps/demo")])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            d = c.collect(w.app, w.out, deps=w.deps())
+        s = d["meta"]["sources"]
+        self.assertEqual(s["deploy"], "ok")
+        self.assertEqual(self.part_queries(w), [f"relations.partOf={SYSTEM}"])
+        self.assertEqual({k: d["meta"]["deploy"][k] for k in ("repo", "folder", "via")},
+                         {"repo": DEPLOY_REPO, "folder": "base-apps/demo", "via": "resource:demo/demo-db"})
+        self.assertIn("deploy.workload.Deployment/demo", by_id(d))
+        self.assertEqual(s["cluster"], "ok")
+        self.assertIn(f"deploy: {DEPLOY_REPO}/base-apps/demo through resource:demo/demo-db in {SYSTEM} "
+                      "(the catalog entry lives in the app repo)", err.getvalue())
+
+    def test_the_folder_with_workloads_wins(self):
+        files = {**DEPLOY_FILES, "base-apps/demo-tenants/runbook.md": "# Tenants\n",
+                 "base-apps/demo-tenants/tenant.yaml": "apiVersion: x/v1\nkind: XTenant\nmetadata:\n  name: t\n"}
+        w = self.in_app_repo(deploy_files=files,
+                             parts=[part("demo-tenants", "base-apps/demo-tenants"), part("demo-db", "base-apps/demo")])
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"], "ok")
+        self.assertEqual((d["meta"]["deploy"]["folder"], d["meta"]["deploy"]["via"]),
+                         ("base-apps/demo", "resource:demo/demo-db"))
+
+    def test_the_folder_labelled_with_the_kubernetes_id_wins(self):
+        files = {**DEPLOY_FILES, "base-apps/one/deployment.yaml": workload("one", "demo"),
+                 "base-apps/two/deployment.yaml": workload("two", "demo-other")}
+        ent = entity(location=APP_LOCATION)
+        ent["metadata"]["annotations"]["backstage.io/kubernetes-id"] = "demo"
+        w = self.in_app_repo(ent, deploy_files=files, parts=[part("b", "base-apps/two"), part("a", "base-apps/one")])
+        d = w.collect()
+        self.assertEqual((d["meta"]["deploy"]["folder"], d["meta"]["deploy"]["via"]),
+                         ("base-apps/one", "resource:demo/a"))
+
+    def test_two_folders_with_workloads_are_not_guessed(self):
+        files = {**DEPLOY_FILES, "base-apps/demo2/deployment.yaml": workload("demo2")}
+        w = self.in_app_repo(deploy_files=files, parts=[part("b", "base-apps/demo2"), part("a", "base-apps/demo")])
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"],
+                         f"unavailable: 2 deploy folders in {SYSTEM} hold workloads "
+                         f"({DEPLOY_REPO}/base-apps/demo, {DEPLOY_REPO}/base-apps/demo2)")
+        self.assertIsNone(d["meta"]["deploy"])
+        self.assertFalse([f for f in d["facts"] if f["source"] == "deploy"])
+
+    def test_no_folder_with_workloads(self):
+        files = {**DEPLOY_FILES, "base-apps/demo-tenants/runbook.md": "# Tenants\n"}
+        w = self.in_app_repo(deploy_files=files, parts=[part("t", "base-apps/demo-tenants")])
+        d = w.collect()  # one candidate: used as is, like an entity's own managed-by folder
+        self.assertEqual((d["meta"]["sources"]["deploy"], d["meta"]["deploy"]["folder"]),
+                         ("ok", "base-apps/demo-tenants"))
+        files["base-apps/other/runbook.md"] = "# Other\n"
+        w = self.in_app_repo(deploy_files=files, parts=[part("t", "base-apps/demo-tenants"), part("o", "base-apps/other")])
+        self.assertEqual(w.collect()["meta"]["sources"]["deploy"],
+                         f"unavailable: none of the 2 deploy folders in {SYSTEM} hold workloads "
+                         f"({DEPLOY_REPO}/base-apps/demo-tenants, {DEPLOY_REPO}/base-apps/other)")
+
+    def test_parts_that_name_no_deploy_folder_are_skipped(self):
+        w = self.in_app_repo(parts=[
+            entity(location=APP_LOCATION),  # the app repo itself
+            {"kind": "Resource", "metadata": {"name": "root", "annotations": {  # the deploy repo's root
+                "backstage.io/managed-by-location": f"url:https://github.com/{DEPLOY_REPO}/blob/main/catalog-info.yaml"}}},
+            part("evil", "base-apps/../../etc"),  # traversal: parse_managed_by refuses it
+            {"kind": "Resource", "metadata": {"name": "bare"}},  # no managed-by-location
+            "not an entity"])
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"], "unavailable: catalog entry lives in the app repo; "
+                                                         f"nothing in {SYSTEM} is catalogued from a deploy folder")
+
+    def test_no_system(self):
+        ent = entity(location=APP_LOCATION)
+        del ent["spec"]["system"]
+        w = self.in_app_repo(ent, parts=[part("demo-db", "base-apps/demo")])
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"],
+                         "unavailable: catalog entry lives in the app repo and names no System")
+        self.assertEqual(self.part_queries(w), [])
+
+    def test_a_system_entity_follows_its_own_parts(self):
+        system = {"apiVersion": "backstage.io/v1alpha1", "kind": "System",
+                  "metadata": {"name": "demo-system", "annotations": {
+                      "backstage.io/managed-by-location": APP_LOCATION, "github.com/project-slug": SLUG}},
+                  "spec": {"owner": "group:default/platform"}}
+        w = self.world(entities=[system], parts=[part("demo-db", "base-apps/demo")])
+        d = w.collect()
+        self.assertEqual(d["meta"]["entity_ref"], "system:default/demo-system")
+        self.assertEqual(self.part_queries(w), ["relations.partOf=system:default/demo-system"])
+        self.assertEqual((d["meta"]["sources"]["deploy"], d["meta"]["deploy"]["folder"]), ("ok", "base-apps/demo"))
+
+    def test_system_lookup_failure(self):
+        w = self.in_app_repo()
+        w.override = {"/api/catalog/entities/by-query?filter=relations": (500, b"{}")}
+        d = w.collect()
+        self.assertEqual(d["meta"]["sources"]["deploy"],
+                         "unavailable: catalog entry lives in the app repo (system lookup failed: HTTP 500)")
+        self.assertEqual(d["meta"]["sources"]["backstage"], "ok")
+
+    def test_too_many_deploy_repos(self):
+        parts = [part(f"p{i}", "base-apps/demo", repo=f"arigsela/deploy{i}") for i in range(c.MAX_DEPLOY_REPOS + 1)]
+        w = self.in_app_repo(parts=parts)
+        d = w.collect()
+        # No clone was tried: repo_urls knows none of these repos, so a clone would fail with KeyError.
+        self.assertEqual(d["meta"]["sources"]["deploy"],
+                         f"unavailable: the deploy folders in {SYSTEM} span {c.MAX_DEPLOY_REPOS + 1} repos")
 
 
 class DeployRevisionTest(Case):

@@ -6,6 +6,7 @@
 """readiness: facts from a deploy-repo (GitOps) checkout: the rendered Application, alert rules, registry policy."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -19,12 +20,14 @@ WORKLOAD_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
 TEXT_SUFFIXES = (".yaml", ".yml", ".md", ".tf")
 SKIP_DIRS = {".git", "node_modules", ".terraform"}
 TEXT_CAP = 20000
+SCAN_CAP = 200_000  # per file, when looking for workloads
 QUERY_CAP = 300
 HOST_CAP = 10
 _NS_MATCHER = re.compile(r'namespace\s*=~?\s*"')
 _DIGEST = re.compile(r"@sha256:[0-9a-f]{64}\b")
 _MATCHER = re.compile(r'([A-Za-z_]\w*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"')
 _SECRET_KIND = re.compile(r"""^\s*(?:-\s+)?kind:\s*["']?Secret["']?\s*(?:#.*)?$""", re.M)
+_WORKLOAD_KIND = re.compile(rf"""^\s*(?:-\s+)?kind:\s*["']?(?:{"|".join(WORKLOAD_KINDS)})["']?\s*(?:#.*)?$""", re.M)
 REDACTED = "<redacted>"
 
 
@@ -72,6 +75,30 @@ def find_application(root: Path, repo: str, folder: str) -> tuple[str, dict] | N
             if (str(src.get("path", "")).rstrip("/") == want and fl.same_repo(src.get("repoURL"), repo)):
                 return file, app
     return None
+
+
+def _yaml_texts(root: Path, folder: str):
+    """The text of each YAML file under `folder`, raw (Helm templates and Kustomize bases included)."""
+    for dirpath, dirnames, filenames in os.walk(root / folder):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        for name in sorted(filenames):
+            p = Path(dirpath) / name
+            if p.suffix in (".yaml", ".yml") and p.is_file() and not p.is_symlink():
+                yield p.read_text(errors="replace")[:SCAN_CAP]
+
+
+def holds_workloads(root: Path, folder: str, kubernetes_id: str | None = None) -> bool:
+    """True when a YAML file under `folder` declares a workload kind; with `kubernetes_id`, only a folder that
+    also carries the `backstage.io/kubernetes-id: <id>` label counts."""
+    label = (re.compile(rf"""^\s*backstage\.io/kubernetes-id:\s*["']?{re.escape(kubernetes_id)}["']?\s*(?:#.*)?$""",
+                        re.M) if kubernetes_id else None)
+    found = labelled = False
+    for text in _yaml_texts(root, folder):
+        found = found or bool(_WORKLOAD_KIND.search(text))
+        labelled = labelled or bool(label and label.search(text))
+        if found and (label is None or labelled):
+            return True
+    return False
 
 
 def _evidence(root: Path, file: str, kind: str, name: str) -> str:

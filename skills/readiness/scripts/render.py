@@ -71,6 +71,8 @@ def _header(doc: dict, f: Facts) -> list[str]:
         rev = _s(_d(f.value("deploy.application")).get("target_revision"), "unknown")
         ref = _s(deploy.get("ref"))  # what was read: --deploy-ref, else targetRevision, else the default branch
         refs = f"reviewed ref {ref}; Argo targetRevision {rev}" if ref and ref != rev else f"Argo targetRevision {rev}"
+        if _s(deploy.get("via")):  # the catalog entry lives in the app repo; collect followed the System
+            refs += f"; found through {_one_line(deploy.get('via'))}"
         lines.append(f"deploy: {_s(deploy.get('repo'), 'unknown')}/{_s(deploy.get('folder'), '')}"
                      f"@{_sha7(deploy.get('sha'))} ({refs})")
     else:
@@ -224,8 +226,9 @@ def render_short(facts_doc: dict, report: dict | None, unverified: bool = False,
     head = [_s(entity.get("owner"), "no owner"), _s(entity.get("lifecycle"), "no lifecycle"),
             f"app {_s(app.get('slug'), 'unknown')}@{_sha7(app.get('sha'))} ({branch})"]
     if deploy:
+        via = f" (through {_one_line(deploy.get('via'))})" if _s(deploy.get("via")) else ""
         head.append(f"deploy {_s(deploy.get('repo'), 'unknown')}/{_s(deploy.get('folder'), '')}"
-                    f"@{_sha7(deploy.get('sha'))}")
+                    f"@{_sha7(deploy.get('sha'))}{via}")
     else:
         head.append(f"deploy not found ({_one_line(f.status('deploy')).removeprefix('unavailable: ')})")
     out.append(" · ".join(head) + "  ")
