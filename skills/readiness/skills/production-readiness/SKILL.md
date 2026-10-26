@@ -1,7 +1,7 @@
 ---
 name: production-readiness
 description: Review an app repo for production readiness against an AWS Well-Architected-style check catalog. Collects facts from the app repo, its deploy folder in the GitOps repo, Backstage (catalog, scorecard, CVE report), the cluster (read-only) and GitHub, decides the rule checks with a script, judges the rest from cited facts, verifies the report, and prints a terminal report with a verdict, the top fixes and findings per pillar. Use for "production readiness", "is X ready for prod", "readiness review", "ORR", "well-architected check of a repo".
-version: "0.2.2"
+version: "0.2.3"
 author:
   name: "Arisela"
 tags: [production-readiness, well-architected, orr, kubernetes, gitops, backstage]
@@ -91,7 +91,8 @@ not persist); `collect.py` creates it.
    ```json
    {"judgments": {"ops.ci": {"status": "pass", "reason": "...", "facts": ["app.workflow.ci"]}},
     "pillar_notes": {"Operational excellence": "one line"},
-    "fixes": [{"text": "...", "checks": ["sec.dependabot"], "where": "repo settings"}]}
+    "fixes": [{"text": "...", "checks": ["sec.dependabot"], "where": "repo settings"}],
+    "item_fixes": {"sec.base_digest": "Pin node:24-trixie-slim by digest in packages/backend/Dockerfile"}}
    ```
 
    - `judgments`: exactly one entry per judgment check, status `pass`, `partial`, `fail`,
@@ -108,6 +109,10 @@ not persist); `collect.py` creates it.
    - `fixes`: at most 5, most impact first, blockers first. Each has `text` (the change, at most
      20 words, no rationale), `checks` (check ids; at least one must end `fail` or `partial`,
      counting your judgments) and `where` (the repo and file or setting to change, briefly).
+   - `item_fixes`: for each check (rule or judgment) that ends `fail` or `partial`, the specific
+     change for this repo in at most 20 words, naming the file or setting. The report prints it on
+     that check's line. A check you leave out shows the catalog's generic fix (`fix` in
+     `checks.yaml`), so skip only when the generic one already says it.
 
    **Bars for the nine judgment checks** (take the status from the bar, not from tone):
 

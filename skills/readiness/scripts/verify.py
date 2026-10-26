@@ -24,6 +24,7 @@ from readiness_model import CREDENTIAL_URL_RE, PILLARS, SECRET_RE, Facts, load_c
 JUDGMENT_STATUSES = ("pass", "partial", "fail", "unknown", "n/a")
 CITED = ("pass", "partial", "fail", "n/a")  # every status but unknown decides the check, so it rests on facts
 MAX_FIXES = 5
+ITEM_FIX_WORDS = 25
 
 
 def _empty(v) -> bool:
@@ -154,6 +155,22 @@ def verify(facts_doc: dict, results: dict, report: dict, canaries: list[str] = (
             out.append(f"fixes[{i}]: names no failing or partial check")
         for field in ("text", "where"):
             text_field(f"fixes[{i}].{field}", fx.get(field))
+
+    # Optional: a specific fix per failing/partial line, shown instead of the catalog's generic one.
+    item_fixes = report.get("item_fixes", {})
+    if not isinstance(item_fixes, dict):
+        out.append("item_fixes: not an object")
+        item_fixes = {}
+    fixable = {c["id"] for c in expected if c["kind"] in ("rule", "judgment")}
+    for cid, text in item_fixes.items():
+        if _leaks(cid, secrets):
+            out.append("item_fixes[<redacted>]: contains a secret")
+            continue
+        if cid not in fixable:
+            out.append(f"item_fixes.{cid}: not a rule or judgment check")
+        text_field(f"item_fixes.{cid}", text)
+        if isinstance(text, str) and len(text.split()) > ITEM_FIX_WORDS:
+            out.append(f"item_fixes.{cid}: more than {ITEM_FIX_WORDS} words")
     return out
 
 

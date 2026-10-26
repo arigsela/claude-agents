@@ -5,6 +5,7 @@ checks:
 - id: ops.catalog
   pillar: Operational excellence
   title: In the catalog with an owner, lifecycle and system
+  fix: "Register the entity with an owner group, lifecycle and system"
   kind: rule
   blocker: true
   sources:
@@ -14,6 +15,7 @@ checks:
 - id: ops.runbook
   pillar: Operational excellence
   title: A runbook exists in the deploy folder (scorecard filecheck.runbook only when the folder is unreadable)
+  fix: "Add runbook.md to the deploy folder"
   kind: rule
   blocker: true
   sources:
@@ -24,6 +26,7 @@ checks:
 - id: ops.docs
   pillar: Operational excellence
   title: Service docs exist (README in the app repo, docs.md in the deploy folder)
+  fix: "Add a README and a docs.md in the deploy folder"
   kind: rule
   sources:
   - app
@@ -33,6 +36,7 @@ checks:
 - id: ops.ci
   pillar: Operational excellence
   title: CI runs on pull requests, with test and lint steps
+  fix: "Add a pull_request workflow that runs the tests and lint"
   kind: judgment
   blocker: true
   sources:
@@ -45,6 +49,7 @@ checks:
 - id: ops.release
   pillar: Operational excellence
   title: Release and deploy are automated and versioned (tagged images, GitOps pin)
+  fix: "Tag images by version or SHA and pin them in GitOps"
   kind: judgment
   sources:
   - app
@@ -58,6 +63,7 @@ checks:
 - id: ops.alerts
   pillar: Operational excellence
   title: An alert rule fires when this workload is down, crash-looping or erroring
+  fix: "Add an alert rule for the workload being down or crash-looping"
   kind: judgment
   blocker: true
   sources:
@@ -70,6 +76,7 @@ checks:
 - id: ops.telemetry
   pillar: Operational excellence
   title: Emits logs, metrics or traces that the platform collects
+  fix: "Expose metrics for scraping or add OpenTelemetry"
   kind: judgment
   sources:
   - app
@@ -82,6 +89,7 @@ checks:
 - id: ops.open_prs
   pillar: Operational excellence
   title: Open PR count is within threshold (scorecard github.openPRs)
+  fix: "Merge or close the stale pull requests"
   kind: rule
   sources:
   - scorecard
@@ -89,6 +97,7 @@ checks:
 - id: sec.image_digest
   pillar: Security
   title: Every container image is pinned by digest
+  fix: "Pin every container image by digest"
   kind: rule
   sources:
   - deploy
@@ -97,6 +106,7 @@ checks:
 - id: sec.base_digest
   pillar: Security
   title: Dockerfile base images are pinned by digest
+  fix: "Pin the Dockerfile base images by digest"
   kind: rule
   sources:
   - app
@@ -105,6 +115,7 @@ checks:
 - id: sec.nonroot
   pillar: Security
   title: Runs as non-root (pod or container runAsNonRoot, Dockerfile USER)
+  fix: "Set runAsNonRoot: true or a non-zero runAsUser"
   kind: rule
   blocker: true
   sources:
@@ -114,6 +125,7 @@ checks:
 - id: sec.hardening
   pillar: Security
   title: 'readOnlyRootFilesystem, allowPrivilegeEscalation: false, capabilities dropped'
+  fix: "Set readOnlyRootFilesystem, allowPrivilegeEscalation: false and drop ALL"
   kind: rule
   sources:
   - deploy
@@ -122,6 +134,7 @@ checks:
 - id: sec.netpol
   pillar: Security
   title: A NetworkPolicy selects the pods
+  fix: "Add a NetworkPolicy that selects the pods"
   kind: rule
   sources:
   - deploy
@@ -130,6 +143,7 @@ checks:
 - id: sec.secrets
   pillar: Security
   title: No Secret manifests with data in Git, and secrets come from ExternalSecrets
+  fix: "Move the secret data to an ExternalSecret and out of Git"
   kind: rule
   blocker: true
   sources:
@@ -139,6 +153,7 @@ checks:
 - id: sec.cve
   pillar: Security
   title: No fixable critical or actively exploited (CISA KEV) CVEs in the rendered images (from /api/cve/report)
+  fix: "Rebuild or upgrade the images that carry the fixable CVEs"
   kind: rule
   blocker: true
   sources:
@@ -149,6 +164,7 @@ checks:
 - id: sec.dependabot
   pillar: Security
   title: Dependabot alerts are on, and the open critical/high counts are within threshold
+  fix: "Turn on Dependabot alerts and resolve the critical and high ones"
   kind: rule
   sources:
   - github
@@ -158,6 +174,7 @@ checks:
 - id: sec.dep_updates
   pillar: Security
   title: A dependency update tool is configured (dependabot.yml or renovate.json)
+  fix: "Add .github/dependabot.yml or renovate.json"
   kind: rule
   sources:
   - app
@@ -166,6 +183,7 @@ checks:
 - id: sec.actions_pinned
   pillar: Security
   title: 'Workflow uses: are pinned by SHA'
+  fix: "Pin workflow uses: refs to full commit SHAs"
   kind: rule
   sources:
   - app
@@ -174,6 +192,7 @@ checks:
 - id: sec.token_perms
   pillar: Security
   title: Workflows declare least-privilege permissions
+  fix: "Declare least-privilege permissions in every workflow"
   kind: rule
   sources:
   - app
@@ -182,6 +201,7 @@ checks:
 - id: sec.exposure
   pillar: Security
   title: Anything exposed (HTTPRoute) has auth in front (sidecar proxy, AuthorizationPolicy, or allow-list)
+  fix: "Put auth in front of the route: proxy, AuthorizationPolicy or allow-list"
   kind: judgment
   blocker: true
   sources:
@@ -196,6 +216,7 @@ checks:
 - id: sec.sa_token
   pillar: Security
   title: The service-account token is not mounted, or a dedicated SA is used
+  fix: "Set automountServiceAccountToken: false or use a dedicated service account"
   kind: rule
   sources:
   - deploy
@@ -203,6 +224,7 @@ checks:
 - id: sec.repo_hygiene
   pillar: Security
   title: CODEOWNERS and SECURITY.md exist; the default branch is protected
+  fix: "Add CODEOWNERS and SECURITY.md and protect the default branch"
   kind: rule
   sources:
   - app
@@ -212,6 +234,7 @@ checks:
 - id: rel.probes
   pillar: Reliability
   title: Readiness and liveness probes on every container
+  fix: "Add readiness and liveness probes to every container"
   kind: rule
   blocker: true
   sources:
@@ -221,6 +244,7 @@ checks:
 - id: rel.resources
   pillar: Reliability
   title: CPU and memory requests and limits on every container
+  fix: "Set CPU and memory requests and limits for each container"
   kind: rule
   blocker: true
   sources:
@@ -229,6 +253,7 @@ checks:
 - id: rel.replicas
   pillar: Reliability
   title: Two or more replicas, or one with a stated reason
+  fix: "Run two replicas, or state why one is enough in the manifest"
   kind: judgment
   sources:
   - deploy
@@ -240,6 +265,7 @@ checks:
 - id: rel.pdb
   pillar: Reliability
   title: A PodDisruptionBudget exists (n/a when one replica is justified)
+  fix: "Add a PodDisruptionBudget for the workload"
   kind: rule
   sources:
   - deploy
@@ -247,6 +273,7 @@ checks:
 - id: rel.restarts
   pillar: Reliability
   title: No restarts or OOMKills in the pods' current lifetime (live)
+  fix: "Find the cause of the restarts or OOMKills in logs and limits"
   kind: rule
   sources:
   - cluster
@@ -255,6 +282,7 @@ checks:
 - id: rel.dependencies
   pillar: Reliability
   title: Every dependsOn entity is itself production
+  fix: "Promote or replace the dependencies that are not production"
   kind: rule
   sources:
   - backstage
@@ -263,6 +291,7 @@ checks:
 - id: rel.state
   pillar: Reliability
   title: Stateful dependencies (PVCs, databases) have backup/restore (n/a when stateless)
+  fix: "Add a backup and a tested restore for the stateful dependency"
   kind: judgment
   sources:
   - deploy
@@ -276,6 +305,7 @@ checks:
 - id: perf.scaling
   pillar: Performance efficiency
   title: An HPA exists, or the fixed size is justified
+  fix: "Add an HPA, or state why the fixed size is enough"
   kind: judgment
   sources:
   - deploy
@@ -289,6 +319,7 @@ checks:
 - id: perf.rightsize
   pillar: Performance efficiency
   title: Live usage is under requests and nothing runs near its limits
+  fix: "Raise the requests to live usage and keep headroom under limits"
   kind: rule
   sources:
   - deploy
@@ -298,6 +329,7 @@ checks:
 - id: cost.overprovision
   pillar: Cost optimization
   title: Requests are not far above live usage
+  fix: "Lower the requests toward live usage"
   kind: rule
   sources:
   - deploy
@@ -307,6 +339,7 @@ checks:
 - id: cost.registry
   pillar: Cost optimization
   title: The image registry has a retention rule (Terraform in the deploy repo)
+  fix: "Add a retention (lifecycle) rule for the image registry"
   kind: judgment
   sources:
   - deploy
@@ -316,6 +349,7 @@ checks:
 - id: sus.utilization
   pillar: Sustainability
   title: Shares the usage facts; flags idle or oversized workloads
+  fix: "Scale down or remove the idle workloads"
   kind: rule
   sources:
   - deploy

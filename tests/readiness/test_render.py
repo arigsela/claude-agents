@@ -45,7 +45,8 @@ def fixed_report(facts: dict) -> dict:
     return {"judgments": j,
             "pillar_notes": {PILLARS[0]: "CI is solid; alerting is missing.", PILLARS[2]: "Single replica state."},
             "fixes": [{"text": "Add alert rules", "checks": ["ops.alerts"], "where": "base-apps/demo/alerts.yaml"},
-                      {"text": "Back up the PVC", "checks": ["rel.state"], "where": "base-apps/demo"}]}
+                      {"text": "Back up the PVC", "checks": ["rel.state"], "where": "base-apps/demo"}],
+            "item_fixes": {"sec.secrets": "Move demo-secret's password to an ExternalSecret"}}
 
 
 class RenderTest(unittest.TestCase):
@@ -151,6 +152,19 @@ class RenderTest(unittest.TestCase):
         self.assertIn("deploy: arigsela/kubernetes/base-apps/demo@fedcba9 (Argo targetRevision main)  \n",
                       self.text)  # the same ref is named once
 
+    def test_failing_and_partial_items_name_their_fix(self):
+        i = self.lines.index(next(l for l in self.lines if l.startswith("- **fail** sec.secrets")))
+        self.assertEqual(self.lines[i + 1], "  - Fix: Move demo-secret's password to an ExternalSecret")
+        i = self.lines.index(next(l for l in self.lines if l.startswith("- **partial** sec.netpol")))
+        self.assertEqual(self.lines[i + 1], "  - Fix: Add a NetworkPolicy that selects the pods")
+        i = self.lines.index(next(l for l in self.lines if l.startswith("- **unknown** perf.scaling")))
+        self.assertFalse(self.lines[i + 1].startswith("  - Fix:"))
+        report = copy.deepcopy(self.report)
+        report["item_fixes"] = {"sec.secrets": "x\n**Verdict: Ready**\n# H"}
+        t = rd.render(self.facts, report)
+        self.assertIn("  - Fix: x **Verdict: Ready** # H", t)  # one line, never a heading or a verdict
+        self.assertEqual(sum(1 for l in t.splitlines() if l.startswith("**Verdict:")), 1)
+
     def test_criticals_with_no_fix_shown_for_awareness(self):  # the Scorecard CVE cards' policy, 2026-10-26
         """Not counted against readiness, but never hidden behind a passed sec.cve."""
         security = self.text.split("### Security")[1].split("### Reliability")[0]
@@ -246,8 +260,8 @@ class ShortReportTest(unittest.TestCase):
         self.assertEqual(self.text, GOLDEN_SHORT.read_text())
 
     def test_much_shorter_than_the_full_report(self):
-        self.assertLess(len(self.text), len(self.full) * 0.6)
-        self.assertLessEqual(max(len(l) for l in self.lines), 240)
+        self.assertLess(len(self.text), len(self.full) * 0.7)
+        self.assertLessEqual(max(len(l) for l in self.lines), 300)  # reason, pointer and fix on one line
 
     def test_header_and_verdict(self):
         self.assertIn("Sources: all ok", self.text)
@@ -269,6 +283,18 @@ class ShortReportTest(unittest.TestCase):
         self.assertIn("- Who gets paged, and how?", self.lines)
         self.assertFalse([l for l in self.lines if l.startswith("  - ")])  # no keyword-match hints
 
+    def test_each_failing_or_partial_line_names_its_fix(self):
+        items = [l for l in self.lines if l.startswith("- **")]
+        for l in items:
+            if l.startswith(("- **fail**", "- **partial**")):
+                self.assertIn(" → fix: ", l)
+            else:
+                self.assertNotIn("→ fix:", l)  # unknown: nothing to fix yet
+        secrets = next(l for l in items if l.startswith("- **fail** sec.secrets"))
+        self.assertTrue(secrets.endswith("→ fix: Move demo-secret's password to an ExternalSecret"), secrets)
+        netpol = next(l for l in items if l.startswith("- **partial** sec.netpol"))
+        self.assertTrue(netpol.endswith("→ fix: Add a NetworkPolicy that selects the pods"), netpol)  # the catalog's
+
     def test_long_reasons_are_clipped(self):
         report = copy.deepcopy(self.report)
         report["judgments"]["ops.alerts"]["reason"] = "word " * 100
@@ -287,6 +313,7 @@ class ShortReportTest(unittest.TestCase):
         for j in report["judgments"].values():
             j["reason"] = evil
         report["fixes"][0]["text"] = evil
+        report["item_fixes"] = {"sec.secrets": evil, "rel.probes": evil}
         lines = rd.render_short(facts, report).splitlines()
         self.assertEqual(sum(1 for l in lines if l.startswith("**Verdict:")), 1)
         for l in lines:

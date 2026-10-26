@@ -123,6 +123,21 @@ class VerifyTest(unittest.TestCase):
         r["fixes"] = [{"text": "t", "checks": ["ops.ci"], "where": "w"}]
         self.assertEqual(self.v(r), [])
 
+    def test_item_fixes(self):  # a specific fix per failing/partial line, in place of the catalog's generic one
+        r = self.good()
+        r["item_fixes"] = {"sec.nonroot": "Set runAsNonRoot: true in base-apps/demo/deployment.yaml",
+                           "ops.alerts": "Add a workload-down rule to grafana-alerting.yaml"}
+        self.assertEqual(self.v(r), [])
+        for bad, text in (({"orr.slo": "x"}, "item_fixes.orr.slo: not a rule or judgment check"),
+                          ({"nope.x": "x"}, "item_fixes.nope.x: not a rule or judgment check"),
+                          ({"sec.nonroot": 3}, "item_fixes.sec.nonroot: not a string"),
+                          ({"sec.nonroot": "word " * 26}, "item_fixes.sec.nonroot: more than 25 words"),
+                          ({"sec.nonroot": f"use {CANARY}"}, "item_fixes.sec.nonroot: contains a secret")):
+            r["item_fixes"] = bad
+            self.has(r, text, canaries=[CANARY])
+        r["item_fixes"] = ["sec.nonroot"]
+        self.has(r, "item_fixes: not an object")
+
     def test_pillar_note_key(self):
         r = self.good()
         r["pillar_notes"]["Speed"] = "x"

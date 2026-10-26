@@ -25,14 +25,16 @@ the skill puts each run in a fresh `run-<n>` folder under it).
 2. `scripts/evaluate.py` facts and `checks.yaml` to `results.json`: rule checks decided, judgment
    checks listed with candidate facts.
 3. The model writes `report.json`: nine judgments (each citing fact ids), a note per pillar, up to
-   five fixes.
+   five top fixes, and `item_fixes`: a specific fix for each failing or partial check.
 4. `scripts/verify.py` rejects a changed rule status, an uncited judgment, a fix that names no
-   failing or partial check, a missing check, or a secret. It recomputes the rule checks from
+   failing or partial check, an `item_fixes` entry for an unknown check or of more than 25 words,
+   a missing check, or a secret. It recomputes the rule checks from
    `facts.json` and `checks.yaml` rather than trusting `results.json`.
 5. `scripts/render.py` prints the short markdown report and saves the full one as `<R>/report.md`
    (`--full` prints that instead; an UNVERIFIED banner comes first if verify failed). The short one
-   has one line per finding, with at most one file pointer, and no check titles, pillar notes or
-   keyword hints. Under Security both show the Scorecard CVE cards, from the images actually
+   has one line per finding, with at most one file pointer and, on a failing or partial line, the
+   fix (the report's `item_fixes`, else the catalog's generic `fix`); no check titles, pillar notes
+   or keyword hints. Under Security both show the Scorecard CVE cards, from the images actually
    running, next to `sec.cve`, from the images in the deploy repo. It also decides the rule checks
    itself from `facts.json`, so an edited `results.json` changes nothing.
 
