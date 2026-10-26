@@ -219,8 +219,8 @@ CASES: dict[str, list[tuple[dict, str]]] = {
          "fail"),
         (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("tier", "DoesNotExist")])),
          "pass"),
-        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={"app": "api"}, match_expressions=[expr("tier", "In", "web")])),
-         "fail"),  # a selector with both needs both
+        (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={"app": "api"},
+                          match_expressions=[expr("tier", "In", "web")])), "fail"),  # a selector with both needs both
         (doc(*DEPLOY, obj("NetworkPolicy/x", pod_selector={}, match_expressions=[expr("app", "Matches", "api")])),
          "fail"),  # an operator Kubernetes does not have selects nothing
     ],

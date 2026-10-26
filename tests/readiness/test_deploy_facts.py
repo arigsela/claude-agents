@@ -356,7 +356,8 @@ spec:
                          {"selector": {"app": "demo"},
                           "match_expressions": [{"key": "tier", "operator": "In", "values": ["web", "api"]}]})
         self.assertEqual(by["deploy.object.NetworkPolicy/by-expression"]["value"],
-                         {"pod_selector": {}, "match_expressions": [{"key": "app", "operator": "Exists", "values": []}]})
+                         {"pod_selector": {},
+                          "match_expressions": [{"key": "app", "operator": "Exists", "values": []}]})
 
     def test_pod_run_as_user(self):  # final review I2
         files = dict(FILES)

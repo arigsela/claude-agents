@@ -578,7 +578,8 @@ class TokenTest(Case):
         d = w.doc()
         self.assertEqual(d["meta"]["backstage_url"], BASE)
         self.assertEqual(d["meta"]["sources"]["backstage"], "ok")
-        self.assertEqual(by_id(d)["backstage.entity"]["evidence"], BASE + "/api/catalog/entities/by-name/component/demo/demo")
+        self.assertEqual(by_id(d)["backstage.entity"]["evidence"],
+                         BASE + "/api/catalog/entities/by-name/component/demo/demo")
         self.assertTrue(all(f[1].startswith(BASE + "/") for f in w.fetches))
         self.assertNotIn("pw-CANARY", self.files_text(w))
         self.assertNotIn("pw-CANARY", out + err)
