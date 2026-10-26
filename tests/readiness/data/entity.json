@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "annotations": {
+      "backstage.io/managed-by-location": "url:https://github.com/arigsela/kubernetes/tree/main/base-apps/hk-demo/catalog-info.yaml",
+      "backstage.io/managed-by-origin-location": "url:https://github.com/arigsela/kubernetes/blob/main/base-apps/*/catalog-info.yaml",
+      "backstage.io/view-url": "https://github.com/arigsela/kubernetes/tree/main/base-apps/hk-demo/catalog-info.yaml",
+      "backstage.io/edit-url": "https://github.com/arigsela/kubernetes/edit/main/base-apps/hk-demo/catalog-info.yaml",
+      "backstage.io/source-location": "url:https://github.com/arigsela/kubernetes/tree/main/base-apps/hk-demo/",
+      "agent-docs/path": "docs.md",
+      "backstage.io/techdocs-ref": "dir:.",
+      "backstage.io/kubernetes-label-selector": "app=hk-demo",
+      "backstage.io/kubernetes-namespace": "hk-demo",
+      "github.com/project-slug": "arigsela/hk-demo"
+    },
+    "name": "hk-demo",
+    "namespace": "hk-demo",
+    "description": "A conversation with the homelab-knowledge agent, shown end to end (checks, cost, logs, trace); an implementer: turn has the implementer agent open the pull request",
+    "tags": [
+      "fastapi",
+      "agents",
+      "oauth2-proxy",
+      "observability"
+    ]
+  },
+  "apiVersion": "backstage.io/v1alpha1",
+  "kind": "Component",
+  "spec": {
+    "type": "service",
+    "lifecycle": "production",
+    "owner": "group:default/platform",
+    "system": "default/platform-observability",
+    "providesApis": [
+      "default/hk-demo-api"
+    ],
+    "dependsOn": [
+      "component:ate-system/substrate",
+      "component:dex/dex",
+      "component:kagent/kagent",
+      "component:logging/logging",
+      "component:tracing/tracing",
+      "resource:vault/vault"
+    ]
+  }
+}

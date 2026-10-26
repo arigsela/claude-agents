@@ -1,0 +1,398 @@
+# Check catalog v1 (spec 2026-10-25 section 8). Adding a check is a data change.
+# wa_ref/wa_url: the AWS Well-Architected best practice the check supports, looked up on
+# docs.aws.amazon.com (2026-10-25); none where nothing fits.
+checks:
+- id: ops.catalog
+  pillar: Operational excellence
+  title: In the catalog with an owner, lifecycle and system
+  kind: rule
+  blocker: true
+  sources:
+  - backstage
+  wa_ref: OPS02-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_ops_model_def_resource_owners.html
+- id: ops.runbook
+  pillar: Operational excellence
+  title: A runbook exists in the deploy folder (scorecard filecheck.runbook only when the folder is unreadable)
+  kind: rule
+  blocker: true
+  sources:
+  - deploy
+  - scorecard
+  wa_ref: OPS07-BP03
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_ready_to_support_use_runbooks.html
+- id: ops.docs
+  pillar: Operational excellence
+  title: Service docs exist (README in the app repo, docs.md in the deploy folder)
+  kind: rule
+  sources:
+  - app
+  - deploy
+  wa_ref: OPS11-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_evolve_ops_knowledge_management.html
+- id: ops.ci
+  pillar: Operational excellence
+  title: CI runs on pull requests, with test and lint steps
+  kind: judgment
+  blocker: true
+  sources:
+  - app
+  facts:
+  - app.workflow.*
+  - app.file.tests_dir
+  wa_ref: OPS05-BP07
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_dev_integ_code_quality.html
+- id: ops.release
+  pillar: Operational excellence
+  title: Release and deploy are automated and versioned (tagged images, GitOps pin)
+  kind: judgment
+  sources:
+  - app
+  - deploy
+  facts:
+  - app.workflow.*
+  - deploy.container.*
+  - deploy.application
+  wa_ref: OPS05-BP10
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_dev_integ_auto_integ_deploy.html
+- id: ops.alerts
+  pillar: Operational excellence
+  title: An alert rule fires when this workload is down, crash-looping or erroring
+  kind: judgment
+  blocker: true
+  sources:
+  - deploy
+  facts:
+  - deploy.alert_source
+  - deploy.alert_rule.*
+  wa_ref: OPS08-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_workload_observability_create_alerts.html
+- id: ops.telemetry
+  pillar: Operational excellence
+  title: Emits logs, metrics or traces that the platform collects
+  kind: judgment
+  sources:
+  - app
+  - deploy
+  facts:
+  - app.deps.telemetry
+  - deploy.workload.*
+  wa_ref: OPS04-BP02
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_observability_application_telemetry.html
+- id: ops.open_prs
+  pillar: Operational excellence
+  title: Open PR count is within threshold (scorecard github.openPRs)
+  kind: rule
+  sources:
+  - scorecard
+  wa_ref: none
+- id: sec.image_digest
+  pillar: Security
+  title: Every container image is pinned by digest
+  kind: rule
+  sources:
+  - deploy
+  wa_ref: SEC06-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_validate_software_integrity.html
+- id: sec.base_digest
+  pillar: Security
+  title: Dockerfile base images are pinned by digest
+  kind: rule
+  sources:
+  - app
+  wa_ref: SEC06-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_validate_software_integrity.html
+- id: sec.nonroot
+  pillar: Security
+  title: Runs as non-root (pod or container runAsNonRoot, Dockerfile USER)
+  kind: rule
+  blocker: true
+  sources:
+  - app
+  - deploy
+  wa_ref: none
+- id: sec.hardening
+  pillar: Security
+  title: 'readOnlyRootFilesystem, allowPrivilegeEscalation: false, capabilities dropped'
+  kind: rule
+  sources:
+  - deploy
+  wa_ref: SEC06-BP02
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_hardened_images.html
+- id: sec.netpol
+  pillar: Security
+  title: A NetworkPolicy selects the pods
+  kind: rule
+  sources:
+  - deploy
+  wa_ref: SEC05-BP02
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_network_protection_layered.html
+- id: sec.secrets
+  pillar: Security
+  title: No Secret manifests with data in Git, and secrets come from ExternalSecrets
+  kind: rule
+  blocker: true
+  sources:
+  - deploy
+  wa_ref: SEC02-BP03
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_identities_secrets.html
+- id: sec.cve
+  pillar: Security
+  title: No fixable critical or high CVEs in the rendered images (from /api/cve/report)
+  kind: rule
+  blocker: true
+  sources:
+  - deploy
+  - backstage
+  wa_ref: SEC06-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_vulnerability_management.html
+- id: sec.dependabot
+  pillar: Security
+  title: Dependabot alerts are on, and the open critical/high counts are within threshold
+  kind: rule
+  sources:
+  - github
+  - scorecard
+  wa_ref: SEC06-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_vulnerability_management.html
+- id: sec.dep_updates
+  pillar: Security
+  title: A dependency update tool is configured (dependabot.yml or renovate.json)
+  kind: rule
+  sources:
+  - app
+  wa_ref: OPS05-BP05
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_dev_integ_patch_mgmt.html
+- id: sec.actions_pinned
+  pillar: Security
+  title: 'Workflow uses: are pinned by SHA'
+  kind: rule
+  sources:
+  - app
+  wa_ref: SEC06-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_protect_compute_validate_software_integrity.html
+- id: sec.token_perms
+  pillar: Security
+  title: Workflows declare least-privilege permissions
+  kind: rule
+  sources:
+  - app
+  wa_ref: SEC03-BP02
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_permissions_least_privileges.html
+- id: sec.exposure
+  pillar: Security
+  title: Anything exposed (HTTPRoute) has auth in front (sidecar proxy, AuthorizationPolicy, or allow-list)
+  kind: judgment
+  blocker: true
+  sources:
+  - deploy
+  facts:
+  - deploy.object.HTTPRoute/*
+  - deploy.object.AuthorizationPolicy/*
+  - deploy.object.Service/*
+  - deploy.container.*
+  - deploy.host_mentions.*
+  wa_ref: none
+- id: sec.sa_token
+  pillar: Security
+  title: The service-account token is not mounted, or a dedicated SA is used
+  kind: rule
+  sources:
+  - deploy
+  wa_ref: none
+- id: sec.repo_hygiene
+  pillar: Security
+  title: CODEOWNERS and SECURITY.md exist; the default branch is protected
+  kind: rule
+  sources:
+  - app
+  - github
+  wa_ref: SEC11-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sec_appsec_manual_code_reviews.html
+- id: rel.probes
+  pillar: Reliability
+  title: Readiness and liveness probes on every container
+  kind: rule
+  blocker: true
+  sources:
+  - deploy
+  wa_ref: REL11-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_withstand_component_failures_monitoring_health.html
+- id: rel.resources
+  pillar: Reliability
+  title: CPU and memory requests and limits on every container
+  kind: rule
+  blocker: true
+  sources:
+  - deploy
+  wa_ref: none
+- id: rel.replicas
+  pillar: Reliability
+  title: Two or more replicas, or one with a stated reason
+  kind: judgment
+  sources:
+  - deploy
+  - cluster
+  facts:
+  - deploy.workload.*
+  - cluster.workload.*
+  wa_ref: none
+- id: rel.pdb
+  pillar: Reliability
+  title: A PodDisruptionBudget exists (n/a when one replica is justified)
+  kind: rule
+  sources:
+  - deploy
+  wa_ref: none
+- id: rel.restarts
+  pillar: Reliability
+  title: No restarts or OOMKills in the pods' current lifetime (live)
+  kind: rule
+  sources:
+  - cluster
+  wa_ref: REL11-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_withstand_component_failures_monitoring_health.html
+- id: rel.dependencies
+  pillar: Reliability
+  title: Every dependsOn entity is itself production
+  kind: rule
+  sources:
+  - backstage
+  wa_ref: REL04-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_prevent_interaction_failure_identify.html
+- id: rel.state
+  pillar: Reliability
+  title: Stateful dependencies (PVCs, databases) have backup/restore (n/a when stateless)
+  kind: judgment
+  sources:
+  - deploy
+  - backstage
+  facts:
+  - deploy.object.PersistentVolumeClaim/*
+  - deploy.workload.*
+  - backstage.dependency.*
+  wa_ref: REL09-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_backing_up_data_identified_backups_data.html
+- id: perf.scaling
+  pillar: Performance efficiency
+  title: An HPA exists, or the fixed size is justified
+  kind: judgment
+  sources:
+  - deploy
+  - cluster
+  facts:
+  - deploy.object.HorizontalPodAutoscaler/*
+  - deploy.workload.*
+  - cluster.usage.*
+  wa_ref: PERF02-BP05
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/perf_compute_hardware_scale_compute_resources_dynamically.html
+- id: perf.rightsize
+  pillar: Performance efficiency
+  title: Live usage is under requests and nothing runs near its limits
+  kind: rule
+  sources:
+  - deploy
+  - cluster
+  wa_ref: PERF02-BP04
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/perf_compute_hardware_configure_and_right_size_compute_resources.html
+- id: cost.overprovision
+  pillar: Cost optimization
+  title: Requests are not far above live usage
+  kind: rule
+  sources:
+  - deploy
+  - cluster
+  wa_ref: COST06-BP02
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/cost_type_size_number_resources_data.html
+- id: cost.registry
+  pillar: Cost optimization
+  title: The image registry has a retention rule (Terraform in the deploy repo)
+  kind: judgment
+  sources:
+  - deploy
+  facts:
+  - deploy.registry.*
+  wa_ref: none
+- id: sus.utilization
+  pillar: Sustainability
+  title: Shares the usage facts; flags idle or oversized workloads
+  kind: rule
+  sources:
+  - deploy
+  - cluster
+  wa_ref: SUS05-BP01
+  wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/sus_sus_hardware_a2.html
+- id: orr.oncall
+  pillar: Operational excellence
+  title: Who gets paged, and how?
+  kind: person
+  sources: []
+  hints:
+  - on-call
+  - oncall
+  - page
+  - pager
+  - escalat
+  orr: true
+  wa_ref: none
+- id: orr.slo
+  pillar: Reliability
+  title: Is there an SLO or an agreed error budget?
+  kind: person
+  sources: []
+  hints:
+  - slo
+  - error budget
+  - availability target
+  - sla
+  orr: true
+  wa_ref: none
+- id: orr.rollback
+  pillar: Reliability
+  title: Has a rollback been done or rehearsed recently?
+  kind: person
+  sources: []
+  hints:
+  - rollback
+  - roll back
+  - revert
+  orr: true
+  wa_ref: none
+- id: orr.load
+  pillar: Performance efficiency
+  title: Expected load and the plan when it is exceeded
+  kind: person
+  sources: []
+  hints:
+  - load test
+  - capacity
+  - rps
+  - throughput
+  orr: true
+  wa_ref: none
+- id: orr.dep_failure
+  pillar: Reliability
+  title: What happens when each dependency is down?
+  kind: person
+  sources: []
+  hints:
+  - outage
+  - fallback
+  - degrad
+  - depends on
+  - is down
+  orr: true
+  wa_ref: none
+- id: orr.incident
+  pillar: Operational excellence
+  title: Has the runbook been used in an incident or drill?
+  kind: person
+  sources: []
+  hints:
+  - incident
+  - drill
+  - game day
+  - postmortem
+  - post-mortem
+  orr: true
+  wa_ref: none

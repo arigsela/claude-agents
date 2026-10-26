@@ -88,6 +88,11 @@
       "name": "review-retro",
       "source": "./skills/review-retro",
       "description": "Retro of a /code-review session: misses versus later fixes, cited causes, token cost, and proposed reviewer edits."
+    },
+    {
+      "name": "readiness",
+      "source": "./skills/readiness",
+      "description": "Production-readiness review of an app repo (/production-readiness): scripted rule checks over the app repo, deploy folder, Backstage, cluster and GitHub, verified model judgments, and a terminal report with a verdict and ranked fixes."
     }
   ]
 }
