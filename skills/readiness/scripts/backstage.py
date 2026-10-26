@@ -78,7 +78,15 @@ class Backstage:
             raise BackstageError("invalid JSON") from None
 
     def entities_by_slug(self, slug: str) -> list[dict]:
-        q = urllib.parse.urlencode({"filter": f"metadata.annotations.github.com/project-slug={slug}"})
+        return self._query(f"metadata.annotations.github.com/project-slug={slug}")
+
+    def components_named(self, name: str) -> list[dict]:
+        """Components named like the repo, in any namespace: the entity of an app catalogued from another repo
+        (a GitOps folder) often carries no project-slug."""
+        return self._query(f"kind=component,metadata.name={name}")
+
+    def _query(self, filt: str) -> list[dict]:
+        q = urllib.parse.urlencode({"filter": filt})
         data = self._call("GET", f"/api/catalog/entities/by-query?{q}")
         items = data.get("items") if isinstance(data, dict) else None
         return items if isinstance(items, list) else []

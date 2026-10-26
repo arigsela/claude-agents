@@ -39,7 +39,7 @@ partial, or a blocker is unknown; otherwise Ready.
 
 | Source | What it gives | Access |
 |---|---|---|
-| app | workflows, Dockerfile, deps, docs of the app repo at a committed ref | `git` |
+| app | workflows, Dockerfiles (anywhere in the tree), deps, docs of the app repo at a committed ref | `git` |
 | deploy | the Application's rendered manifests, Terraform, alert rules from the GitOps repo at its `targetRevision` | `gh`, temp clone |
 | backstage | catalog entity, owner, lifecycle, dependencies, scorecard, CVE report | HTTP GET, and `POST /api/cve/report` (a read) (optional `BACKSTAGE_TOKEN`) |
 | cluster | workloads, restarts, usage in the app's namespace | `kubectl get` and `kubectl top` |
