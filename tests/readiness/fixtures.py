@@ -49,3 +49,8 @@ def bare_remote(tmp: Path, files: dict[str, str], branches: dict[str, dict] | No
     git(tmp, "clone", "--quiet", "--bare", str(src), str(bare))
     git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
     return bare.as_uri()
+
+
+def write_tree(root: Path, files: dict[str, str]) -> None:
+    """Write `files` (relative path -> text) under `root`."""
+    write_files(root, files)
