@@ -18,7 +18,6 @@ checks:
   blocker: true
   sources:
   - deploy
-  - backstage
   - scorecard
   wa_ref: OPS07-BP03
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_ready_to_support_use_runbooks.html
@@ -85,7 +84,6 @@ checks:
   kind: rule
   sources:
   - scorecard
-  - github
   wa_ref: none
 - id: sec.image_digest
   pillar: Security
@@ -162,7 +160,6 @@ checks:
   kind: rule
   sources:
   - app
-  - github
   wa_ref: OPS05-BP05
   wa_url: https://docs.aws.amazon.com/wellarchitected/latest/framework/ops_dev_integ_patch_mgmt.html
 - id: sec.actions_pinned
