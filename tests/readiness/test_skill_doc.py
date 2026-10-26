@@ -23,7 +23,7 @@ class SkillDocTest(unittest.TestCase):
     def test_frontmatter(self):
         fm = frontmatter(SKILL.read_text())
         self.assertEqual(fm["name"], "production-readiness")
-        self.assertEqual(fm["version"], "0.2.1")
+        self.assertEqual(fm["version"], "0.2.2")
         self.assertEqual(fm["requires"]["tools"], ["git", "gh", "uv", "kubectl"])
         self.assertNotIn("model", fm)
 
@@ -100,7 +100,7 @@ class SkillDocTest(unittest.TestCase):
         self.assertEqual(len(entry), 1)
         self.assertEqual(entry[0]["source"], "./skills/readiness")
         cat = json.loads((ROOT / "skills" / "skills-catalog.json").read_text())
-        self.assertEqual(cat["skills"]["readiness"]["version"], "0.2.1")
+        self.assertEqual(cat["skills"]["readiness"]["version"], "0.2.2")
         plugin = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(plugin["name"], "readiness")
 

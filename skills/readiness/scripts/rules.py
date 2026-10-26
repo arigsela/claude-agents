@@ -251,6 +251,11 @@ def _nonroot(c: dict, pods: dict) -> bool:
     return enforced is True or (isinstance(uid, int) and not isinstance(uid, bool) and uid > 0)
 
 
+def _short_image(image) -> str:
+    """`123.dkr.ecr.../backstage-portal:v1.7.0@sha256:…` -> `backstage-portal:v1.7.0`: the full ref is in the fact."""
+    return str(image).split("@", 1)[0].rsplit("/", 1)[-1]
+
+
 def _image_repo(image) -> str:
     """The image's last path segment without tag or digest: `123.dkr.ecr.../demo:v1@sha256:…` -> `demo`."""
     return str(image).split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0].lower()
@@ -340,7 +345,7 @@ def sec_cve(f: Facts) -> Outcome:
     # highs, mediums and lows are not counted.
     v = _d(cve["value"])
     totals, findings = _d(v.get("totals")), _l(v.get("findings"))
-    matched, unmatched = _l(v.get("matched")), [str(x) for x in _l(v.get("unmatched"))]
+    matched, unmatched = _l(v.get("matched")), [_short_image(x) for x in _l(v.get("unmatched"))]
     parts: list[tuple[str, str]] = []
     crit, kev, nofix = totals.get("critical"), totals.get("kev_fixable"), totals.get("critical_no_fix")
     if isinstance(crit, int) and crit > 0:

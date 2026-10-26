@@ -1,7 +1,7 @@
 ---
 name: production-readiness
 description: Review an app repo for production readiness against an AWS Well-Architected-style check catalog. Collects facts from the app repo, its deploy folder in the GitOps repo, Backstage (catalog, scorecard, CVE report), the cluster (read-only) and GitHub, decides the rule checks with a script, judges the rest from cited facts, verifies the report, and prints a terminal report with a verdict, the top fixes and findings per pillar. Use for "production readiness", "is X ready for prod", "readiness review", "ORR", "well-architected check of a repo".
-version: "0.2.1"
+version: "0.2.2"
 author:
   name: "Arisela"
 tags: [production-readiness, well-architected, orr, kubernetes, gitops, backstage]
@@ -95,17 +95,19 @@ not persist); `collect.py` creates it.
    ```
 
    - `judgments`: exactly one entry per judgment check, status `pass`, `partial`, `fail`,
-     `unknown` or `n/a`, a one-sentence `reason`, and the fact ids it rests on. Use `unknown` when
+     `unknown` or `n/a`, a `reason` of one short sentence (at most 20 words: the finding, not how
+     you reached it), and the fact ids it rests on. Use `unknown` when
      the facts cannot tell, and say what is missing. Use `n/a` only when the check does not apply
      (for example `rel.state` for a stateless app). A `pass`, `partial`, `fail` or `n/a` needs at
      least one fact id from that check's candidate list in `results.json` (it may cite other
      existing facts too), and a `pass` cannot rest on empty facts only.
-   - `pillar_notes`: one line for each of the six pillars (Operational excellence, Security,
-     Reliability, Performance efficiency, Cost optimization, Sustainability). Sustainability and
-     cost have few signals in a homelab: say so, do not pad.
-   - `fixes`: at most 5, most impact first, blockers first. Each has `text` (the change),
-     `checks` (check ids; at least one must end `fail` or `partial`, counting your judgments) and
-     `where` (the repo, file or setting to change).
+   - `pillar_notes`: one line of at most 15 words for each of the six pillars (Operational
+     excellence, Security, Reliability, Performance efficiency, Cost optimization, Sustainability);
+     only the full report shows them. Sustainability and cost have few signals in a homelab: say
+     so, do not pad.
+   - `fixes`: at most 5, most impact first, blockers first. Each has `text` (the change, at most
+     20 words, no rationale), `checks` (check ids; at least one must end `fail` or `partial`,
+     counting your judgments) and `where` (the repo and file or setting to change, briefly).
 
    **Bars for the nine judgment checks** (take the status from the bar, not from tone):
 
@@ -153,10 +155,14 @@ not persist); `collect.py` creates it.
    uv run --script ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --out <R> [--unverified]
    ```
 
-   Add `--unverified` only if verify still fails. Show its stdout as is: do not edit, summarise
-   or reorder it. If `render.py` fails, show its error and stop.
+   Add `--unverified` only if verify still fails. It prints the short report (one line per
+   finding) and saves the full one, with check titles, pillar notes and all evidence, as
+   `<R>/report.md`; add `--full` only when the user asks for the full report on screen. Show its
+   stdout as is: do not edit, summarise or reorder it. If `render.py` fails, show its error and
+   stop.
 
-6. **Close** with one line: the run folder path, `<R>`. Before it, say so when:
+6. **Close** with one line: the run folder path, `<R>` (the full report is `<R>/report.md`).
+   Before it, say so when:
    - the header shows `on default branch: no`: name the branch reviewed, and that the default branch
      can be reviewed with `--ref origin/<default branch>` once the user has fetched;
    - collect logged `matched <ref> by name`: the entity was found by its name, not its project-slug.
