@@ -154,7 +154,7 @@
     },
     "readiness": {
       "name": "readiness",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "path": "./readiness",
       "installedAt": "2026-10-26T00:00:00Z",
       "source": {

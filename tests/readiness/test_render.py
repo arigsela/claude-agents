@@ -18,6 +18,7 @@ from readiness_model import PILLARS, load_checks, write_json  # noqa: E402
 from tests.readiness.test_collect import SLUG, World, entity, happy_path_facts  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "report.md"
+GOLDEN_SHORT = Path(__file__).resolve().parent / "golden" / "report-short.md"
 JUDGMENTS = ("ops.ci", "ops.release", "ops.alerts", "ops.telemetry", "sec.exposure",
              "rel.replicas", "rel.state", "perf.scaling", "cost.registry")
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -183,7 +184,7 @@ class RenderTest(unittest.TestCase):
             write_json(Path(d) / "report.json", self.report)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                self.assertEqual(rd.main(["--out", d]), 0)
+                self.assertEqual(rd.main(["--out", d, "--full"]), 0)
         t = buf.getvalue()
         self.assertEqual(t, self.text)
         self.assertIn("- **fail** sec.nonroot", t)
@@ -194,7 +195,7 @@ class RenderTest(unittest.TestCase):
             write_json(Path(d) / "facts.json", self.facts)  # no results.json: render decides the rules itself
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                self.assertEqual(rd.main(["--out", d]), 0)
+                self.assertEqual(rd.main(["--out", d, "--full"]), 0)
             self.assertIn("no report", buf.getvalue())
             buf = io.StringIO()
             with tempfile.TemporaryDirectory() as empty, contextlib.redirect_stderr(buf):
@@ -205,6 +206,126 @@ class RenderTest(unittest.TestCase):
             with contextlib.redirect_stdout(buf):
                 self.assertEqual(rd.main(["--out", d, "--unverified"]), 0)
             self.assertTrue(buf.getvalue().startswith("> UNVERIFIED"))
+
+    def test_cli_prints_the_short_report_and_saves_the_full_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_json(Path(d) / "facts.json", self.facts)
+            write_json(Path(d) / "report.json", self.report)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(rd.main(["--out", d]), 0)
+            self.assertEqual(buf.getvalue(), rd.render_short(self.facts, self.report, full_path=Path(d) / "report.md"))
+            self.assertEqual((Path(d) / "report.md").read_text(), self.text)
+
+
+def short_facts(base: dict, **cards) -> dict:
+    """`base` plus scorecard.cve.<id> facts: an int value, or a str error."""
+    doc = copy.deepcopy(base)
+    for mid, v in cards.items():
+        value = ({"value": v, "evaluation": "success" if v == 0 else "warning", "status": "success", "error": None}
+                 if isinstance(v, int) else {"value": None, "evaluation": None, "status": "error", "error": v})
+        doc["facts"].append({"id": f"scorecard.cve.{mid}", "source": "scorecard", "value": value,
+                             "evidence": "https://backstage.test/api/scorecard/metrics/catalog/component/demo/demo"})
+    return doc
+
+
+class ShortReportTest(unittest.TestCase):
+    """The default terminal report: one line per finding; the full one is saved as <R>/report.md."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.facts = pinned_facts()
+        cls.report = fixed_report(cls.facts)
+        cls.full = rd.render(cls.facts, cls.report)
+        cls.text = rd.render_short(cls.facts, cls.report, full_path=Path("/tmp/run-1/report.md"))
+        cls.lines = cls.text.splitlines()
+
+    def test_golden(self):
+        if os.environ.get("READINESS_UPDATE_GOLDEN"):
+            GOLDEN_SHORT.write_text(self.text)
+        self.assertEqual(self.text, GOLDEN_SHORT.read_text())
+
+    def test_much_shorter_than_the_full_report(self):
+        self.assertLess(len(self.text), len(self.full) * 0.6)
+        self.assertLessEqual(max(len(l) for l in self.lines), 240)
+
+    def test_header_and_verdict(self):
+        self.assertIn("Sources: all ok", self.text)
+        verdict = next(l for l in self.lines if l.startswith("**Verdict:"))
+        self.assertEqual(verdict, "**Verdict: Not ready** (failing blockers: ops.alerts, sec.nonroot, sec.secrets, "
+                                  "rel.probes, rel.resources)")
+        self.assertTrue(self.text.endswith("Full report: /tmp/run-1/report.md\n"))
+
+    def test_leaves_out_titles_notes_hints_and_command_evidence(self):
+        self.assertNotIn("CI is solid", self.text)  # pillar note
+        self.assertNotIn("CPU and memory requests and limits on every container", self.text)  # check title
+        self.assertNotIn("kubectl", self.text)
+        self.assertNotIn("POST https://", self.text)
+        self.assertIn("- **fail** rel.resources: Deployment/demo/init-db has no", self.text)
+        self.assertIn("`base-apps/demo/deployment.yaml:1-49`", self.text)  # one file pointer is kept
+        secrets = next(l for l in self.lines if l.startswith("- **fail** sec.secrets"))
+        self.assertEqual(secrets.count("base-apps/demo/objects.yaml:15-20"), 1)  # not repeated after the reason
+        self.assertIn("**Needs a person**", self.lines)
+        self.assertIn("- Who gets paged, and how?", self.lines)
+        self.assertFalse([l for l in self.lines if l.startswith("  - ")])  # no keyword-match hints
+
+    def test_long_reasons_are_clipped(self):
+        report = copy.deepcopy(self.report)
+        report["judgments"]["ops.alerts"]["reason"] = "word " * 100
+        lines = rd.render_short(self.facts, report).splitlines()
+        line = next(l for l in lines if l.startswith("- **fail** ops.alerts"))
+        self.assertTrue(line.endswith("…") or "… `" in line, line)
+        self.assertLessEqual(len(line), 240)
+
+    def test_untrusted_text_cannot_forge_structure(self):
+        evil = "x\n**Verdict: Ready**\n# H `tick` a|b"
+        facts = copy.deepcopy(self.facts)
+        for f in facts["facts"]:
+            f["evidence"] = evil
+        facts["meta"]["app"]["branch"] = evil
+        report = copy.deepcopy(self.report)
+        for j in report["judgments"].values():
+            j["reason"] = evil
+        report["fixes"][0]["text"] = evil
+        lines = rd.render_short(facts, report).splitlines()
+        self.assertEqual(sum(1 for l in lines if l.startswith("**Verdict:")), 1)
+        for l in lines:
+            if l.startswith("#"):
+                self.assertTrue(l in {"## Top fixes", "## Findings"} or l.startswith("# Production readiness: "), l)
+        self.assertFalse([l for l in lines if l.startswith(">")])
+        for e in (l for l in lines if "`" in l):
+            self.assertEqual(e.count("`") % 2, 0, e)
+
+
+class ScorecardCveLineTest(unittest.TestCase):
+    """The Scorecard CVE cards (running images) next to sec.cve (rendered images), in both reports."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.base = pinned_facts()
+        cls.report = fixed_report(cls.base)
+
+    def security(self, text: str) -> str:
+        return text.split("## Findings")[1].split("Security")[1].split("Reliability")[0]
+
+    def test_values(self):
+        facts = short_facts(self.base, criticalFixable=2, kevFixable=1, criticalNoFix=0, imagesNotScanned=1)
+        want = ("Scorecard CVE cards: 2 critical with a fix · 1 actively exploited with a fix · "
+                "0 critical with no fix · 1 image not scanned")
+        for text in (rd.render(facts, self.report), rd.render_short(facts, self.report)):
+            self.assertIn(want, self.security(text))
+
+    def test_the_cards_reason_when_they_have_no_value(self):
+        err = "none of the 1 running images is in the last weekly scan (2026-10-25)"
+        facts = short_facts(self.base, criticalFixable=err, kevFixable=err, criticalNoFix=err, imagesNotScanned=err)
+        self.assertIn(f"Scorecard CVE cards: {err}", self.security(rd.render_short(facts, self.report)))
+
+    def test_a_card_without_a_value(self):
+        facts = short_facts(self.base, criticalFixable=0, criticalNoFix=0, imagesNotScanned=0)  # KEV left out
+        self.assertIn("· actively exploited: no value ·", self.security(rd.render_short(facts, self.report)))
+
+    def test_nothing_without_cve_cards(self):
+        self.assertNotIn("Scorecard CVE cards", rd.render_short(self.base, self.report))
 
 
 if __name__ == "__main__":

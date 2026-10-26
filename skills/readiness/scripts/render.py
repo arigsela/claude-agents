@@ -5,7 +5,8 @@
 # ///
 """readiness: facts.json + report.json -> the markdown report printed in the terminal (spec §7.7).
 
-Usage: render.py --out DIR [--unverified]   (reads DIR, prints the report to stdout)
+Usage: render.py --out DIR [--unverified] [--full]
+Reads DIR, saves the full report as DIR/report.md and prints the short one (or the full one with --full).
 
 Prints only facts, checks and report content. Rule statuses, reasons and ORR hints are recomputed from facts.json
 and checks.yaml (evaluate.py), never read from results.json, so a hand-edited results.json cannot change them.
@@ -14,6 +15,7 @@ A missing report renders the judgment checks as unknown ("no report").
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -115,21 +117,59 @@ def _evidence(f: Facts, ids) -> list[str]:
     return out
 
 
-def _awareness(f: Facts) -> dict[str, list[str]]:
-    """Lines shown under a pillar whatever the checks decided: things to know that are not counted."""
+def _int(v) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+# The portal's Scorecard CVE cards (running images), shown next to sec.cve (rendered images): (id, as a count, alone)
+CVE_CARDS = (("criticalFixable", "critical with a fix", "critical with a fix"),
+             ("kevFixable", "actively exploited with a fix", "actively exploited"),
+             ("criticalNoFix", "critical with no fix", "critical with no fix"),
+             ("imagesNotScanned", "image not scanned", "images not scanned"))
+
+
+def _scorecard_cve_line(f: Facts, evidence: bool) -> str | None:
+    cards = {mid: f.get(f"scorecard.cve.{mid}") for mid, _, _ in CVE_CARDS}
+    present = [t for t in cards.values() if t]
+    if not present:
+        return None
+    values = {mid: _int(_d(t["value"]).get("value")) if t else None for mid, t in cards.items()}
+    if all(v is None for v in values.values()):
+        errors = list(dict.fromkeys(_s(_d(t["value"]).get("error"), "no value") for t in present))
+        text = "; ".join(errors)
+    else:
+        parts = []
+        for mid, counted, alone in CVE_CARDS:
+            n = values[mid]
+            if n is None:
+                parts.append(f"{alone}: no value")
+            elif mid == "imagesNotScanned":
+                parts.append(f"{n} image{'' if n == 1 else 's'} not scanned")
+            else:
+                parts.append(f"{n} {counted}")
+        text = " · ".join(parts)
+    line = f"Scorecard CVE cards: {text}"
+    return line + (" " + _code(present[0].get("evidence", "")) if evidence else "")
+
+
+def _awareness(f: Facts, evidence: bool = True) -> dict[str, list[str]]:
+    """Lines shown under a pillar whatever the checks decided: context that is not counted."""
     out: dict[str, list[str]] = {}
+    card_line = _scorecard_cve_line(f, evidence)
+    if card_line:
+        out.setdefault("Security", []).append(card_line)
     cve = f.get("backstage.cve")
-    n = _d(_d(cve["value"]).get("totals")).get("critical_no_fix") if cve else None
-    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+    n = _int(_d(_d(cve["value"]).get("totals")).get("critical_no_fix")) if cve else None
+    if n:
         noun = "CVE" if n == 1 else "CVEs"
         out.setdefault("Security", []).append(
-            f"Awareness: {n} critical {noun} with no fix yet in the scanned images (not counted) "
-            + _code(cve.get("evidence", "")))
+            f"Awareness: {n} critical {noun} with no fix yet in the scanned images (not counted)"
+            + (" " + _code(cve.get("evidence", "")) if evidence else ""))
     return out
 
 
-def render(facts_doc: dict, report: dict | None, unverified: bool = False, checks: list[dict] | None = None) -> str:
-    """`checks` is the catalog (default checks.yaml); the rule checks are decided here from the facts."""
+def _prepare(facts_doc: dict, report: dict | None, checks: list[dict] | None):
+    """(facts, decided checks, report or None, status, reason, judgments, title) shared by both reports."""
     f = Facts(facts_doc)
     checks = evaluate(facts_doc, load_checks() if checks is None else checks)["checks"]
     report = report if isinstance(report, dict) else None
@@ -137,6 +177,109 @@ def render(facts_doc: dict, report: dict | None, unverified: bool = False, check
     judg = _d(_d(report).get("judgments"))
     meta = _d(facts_doc.get("meta"))
     title = _s(meta.get("entity_ref")) or _s(_d(meta.get("app")).get("slug"), "unknown")
+    return f, checks, report, status, reason, judg, title
+
+
+def _clip(text: str, n: int) -> str:
+    """One line of at most n characters, cut at a word boundary."""
+    text = _one_line(text)
+    if len(text) <= n:
+        return text
+    cut = text[:n - 1]
+    return (cut.rsplit(" ", 1)[0] if " " in cut else cut).rstrip(" ,;:") + "…"
+
+
+_POINTER = re.compile(r"[A-Za-z0-9_.@/-]+(:\d+(-\d+)?)?")
+
+
+def _pointer(f: Facts, ids) -> str | None:
+    """The first evidence that is a repo path (a file, maybe with lines): not a command, URL or list."""
+    for ev in _evidence(f, ids):
+        if _POINTER.fullmatch(ev):  # spaces, commas and "scheme://" never match
+            return ev
+    return None
+
+
+def render_short(facts_doc: dict, report: dict | None, unverified: bool = False, checks: list[dict] | None = None,
+                 full_path: Path | None = None) -> str:
+    """The default terminal report: header, verdict and why, top fixes, the pillar table, one line per finding.
+    Titles, pillar notes, keyword hints and command evidence stay in the full report (render)."""
+    f, checks, report, status, reason, judg, title = _prepare(facts_doc, report, checks)
+    meta = _d(facts_doc.get("meta"))
+    app, deploy = _d(meta.get("app")), _d(meta.get("deploy"))
+    entity = _d(f.value("backstage.entity"))
+
+    out: list[str] = [BANNER, ""] if unverified else []
+    out += [f"# Production readiness: {title}", ""]
+    branch = _s(app.get("branch"), "unknown")
+    if app.get("on_default_branch") is False:
+        branch += ", not the default branch"
+    head = [_s(entity.get("owner"), "no owner"), _s(entity.get("lifecycle"), "no lifecycle"),
+            f"app {_s(app.get('slug'), 'unknown')}@{_sha7(app.get('sha'))} ({branch})"]
+    if deploy:
+        head.append(f"deploy {_s(deploy.get('repo'), 'unknown')}/{_s(deploy.get('folder'), '')}"
+                    f"@{_sha7(deploy.get('sha'))}")
+    else:
+        head.append(f"deploy not found ({_one_line(f.status('deploy')).removeprefix('unavailable: ')})")
+    out.append(" · ".join(head) + "  ")
+    bad = [f"{s} {_one_line(f.status(s))}" for s in SOURCES if not f.ok(s)]
+    out.append("Sources: " + ("; ".join(bad) if bad else "all ok"))
+
+    word = verdict(checks, status)
+    blockers = [c for c in checks if c.get("blocker") and c.get("id") in status]
+    why = ""
+    if word == "Not ready":
+        why = " (failing blockers: " + ", ".join(c["id"] for c in blockers if status[c["id"]] == "fail") + ")"
+    elif any(status[c["id"]] == "unknown" for c in blockers):
+        why = " (unknown blockers: " + ", ".join(c["id"] for c in blockers if status[c["id"]] == "unknown") + ")"
+    out += ["", f"**Verdict: {word}**{why}", "", "## Top fixes", ""]
+    fixes = [x for x in _l(_d(report).get("fixes")) if isinstance(x, dict)][:MAX_FIXES]
+    for n, x in enumerate(fixes, 1):
+        ids = ", ".join(_one_line(c) for c in _l(x.get("checks")))
+        out.append(f"{n}. {_clip(x.get('text', ''), 120)} ({_clip(ids, 50)}) — {_clip(x.get('where', ''), 60)}")
+    if not fixes:
+        out.append("None listed." if report else "None: no report.")
+
+    out += ["", "| Pillar | pass | partial | fail | unknown | n/a |", "|---|---|---|---|---|---|"]
+    for p in PILLARS:
+        counts = [sum(1 for c in checks if c.get("pillar") == p and status.get(c.get("id")) == s) for s in STATUSES]
+        out.append(f"| {p} | " + " | ".join(str(n) for n in counts) + " |")
+
+    out += ["", "## Findings"]
+    aware = _awareness(f, evidence=False)
+    for p in PILLARS:
+        out += ["", f"**{p}**", ""]
+        mine = [c for c in checks if c.get("pillar") == p and c.get("id") in status]
+        for s in ORDER:
+            for c in (c for c in mine if status[c["id"]] == s):
+                cid = c["id"]
+                ids = _d(judg.get(cid)).get("facts") if c.get("kind") == "judgment" else c.get("facts")
+                text = _clip(reason[cid] or "no reason given", 140)
+                ptr = _pointer(f, ids)
+                out.append(f"- **{s}** {cid}: {text}" + (f" {_code(ptr)}" if ptr and ptr not in text else ""))
+        passed = [c["id"] for c in mine if status[c["id"]] == "pass"]
+        if passed:
+            if out[-1].startswith("- "):
+                out.append("")
+            out.append(f"Passed: {', '.join(passed)}")
+        for line in aware.get(p, []):
+            out += ["", _clip(line, 230)]
+
+    people = [c for c in checks if c.get("kind") == "person"]
+    if people:
+        out += ["", "**Needs a person**", ""]
+        out += [f"- {_s(c.get('title'), c.get('id'))}" for c in people]
+    if bad:
+        out += ["", "Not checked: " + "; ".join(bad)]
+    if full_path is not None:
+        out += ["", f"Full report: {full_path}"]
+    return "\n".join(out) + "\n"
+
+
+def render(facts_doc: dict, report: dict | None, unverified: bool = False, checks: list[dict] | None = None) -> str:
+    """The full report (saved as <R>/report.md). `checks` is the catalog (default checks.yaml); the rule checks
+    are decided here from the facts."""
+    f, checks, report, status, reason, judg, title = _prepare(facts_doc, report, checks)
 
     out: list[str] = []
     if unverified:
@@ -209,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="render.py", description="Render the readiness report as markdown")
     ap.add_argument("--out", required=True, help="directory with facts.json and report.json")
     ap.add_argument("--unverified", action="store_true", help="put the UNVERIFIED banner first")
+    ap.add_argument("--full", action="store_true", help="print the full report instead of the short one")
     args = ap.parse_args(argv)
     out = Path(args.out).expanduser()
     try:
@@ -220,7 +364,14 @@ def main(argv: list[str] | None = None) -> int:
         report = read_json(out / "report.json")
     except (OSError, ValueError):
         report = None
-    print(render(facts_doc, report, unverified=args.unverified), end="")
+    full = render(facts_doc, report, unverified=args.unverified)
+    full_path: Path | None = out / "report.md"
+    try:
+        full_path.write_text(full)
+    except OSError:
+        full_path = None
+    print(full if args.full else render_short(facts_doc, report, unverified=args.unverified, full_path=full_path),
+          end="")
     return 0
 
 

@@ -512,7 +512,11 @@ class RuleTableTest(unittest.TestCase):
                          "2 actively exploited (CISA KEV) with a fix; "
                          "1 critical with no fix yet (awareness, not counted)")
         self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(matched=[], unmatched=["reg/api:v2"])))[1],
-                         "the CVE report matched none of the rendered images (not scanned: reg/api:v2)")
+                         "the CVE report matched none of the rendered images (not scanned: api:v2)")
+        ecr = "852893458518.dkr.ecr.us-east-2.amazonaws.com/backstage-portal:v1.7.0@sha256:" + "a" * 64
+        self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(unmatched=[ecr, "valkey/valkey:9.1.2-alpine"])))[1],
+                         "not scanned: backstage-portal:v1.7.0; valkey:9.1.2-alpine")  # short names: registry and
+        # digest are in the fact
         self.assertEqual(run("sec.cve", doc(*DEPLOY, cve(kev=None)))[1],
                          "the CVE report gave no KEV count (portal older than v1.7.0)")
         self.assertEqual(run("cost.overprovision", doc(wl(), ctr(resources=res(None, None, None, None)), use()))[1],
