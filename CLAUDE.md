@@ -16,6 +16,7 @@ This file provides guidance for Claude Code when working with this repository.
 | **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
 | **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
 | **skills/explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact), with service, ticket and plan (one-pager) explainers sharing its scripts; retro of /code-review sessions |
+| **skills/readiness/** | Claude Code plugin skill | `/production-readiness <repo>`: scripted facts and rule checks over app repo, deploy folder, Backstage, cluster and GitHub; model judgments checked by `verify.py`; terminal report |
 
 ## Quick Commands
 
@@ -84,3 +85,4 @@ pytest tests/ -v          # Test
 - `pr-triage/calibration/*.md` - Triage calibration reports (re-run after changing thresholds, questions or the Jev model)
 - `docs/superpowers/specs/2026-09-30-pr-review-toolkit-design.md` - PR review toolkit design, with its plan under `docs/superpowers/plans/`
 - `docs/superpowers/specs/2026-10-15-explainer-plugin-design.md` - explainer plugin (pr, service, ticket) design and plan
+- `docs/superpowers/specs/2026-10-25-production-readiness-plugin-design.md` - readiness plugin design, with its plans `docs/superpowers/plans/2026-10-25-readiness-plugin.md` and `docs/superpowers/plans/2026-10-25-portal-scorecard.md` (Backstage scorecard)

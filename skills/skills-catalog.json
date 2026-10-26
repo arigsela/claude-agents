@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-10-21T00:00:00Z",
+  "lastUpdated": "2026-10-26T00:00:00Z",
   "skills": {
     "architect": {
       "name": "architect",
@@ -150,6 +150,16 @@
       "source": {
         "type": "local",
         "ref": "skills/prompt-engineering-patterns"
+      }
+    },
+    "readiness": {
+      "name": "readiness",
+      "version": "0.1.0",
+      "path": "./readiness",
+      "installedAt": "2026-10-26T00:00:00Z",
+      "source": {
+        "type": "local",
+        "ref": "skills/readiness"
       }
     },
     "review-retro": {
