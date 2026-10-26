@@ -43,11 +43,41 @@ class AppFactsTest(unittest.TestCase):
     def test_unpinned_from(self):
         facts = run({"Dockerfile": "FROM python:3.12\n"})
         self.assertFalse(facts["app.dockerfile.from.1"]["value"]["pinned"])
-        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": None})
+        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": None, "path": "Dockerfile"})
 
     def test_user(self):
         facts = run({"Dockerfile": DOCKERFILE})
-        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": "10001"})
+        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": "10001", "path": "Dockerfile"})
+        self.assertEqual(facts["app.dockerfile.files"]["value"], {"paths": ["Dockerfile"]})
+
+    def test_dockerfile_below_the_root(self):  # a Backstage repo keeps it at packages/backend/Dockerfile
+        facts = run({"packages/backend/Dockerfile": "FROM node:24-trixie-slim\nUSER node\n", "README.md": "x"})
+        self.assertEqual(facts["app.dockerfile.from.1"]["value"],
+                         {"image": "node:24-trixie-slim", "pinned": False})
+        self.assertEqual(facts["app.dockerfile.from.1"]["evidence"], "packages/backend/Dockerfile:1")
+        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": "node", "path": "packages/backend/Dockerfile"})
+
+    def test_several_dockerfiles(self):
+        facts = run({"Dockerfile": "FROM alpine:3\nUSER 10001\n",
+                     "tools/Dockerfile.dev": "FROM python:3.12\n",
+                     "deploy/api.Dockerfile": "FROM golang:1.25\n"})
+        self.assertEqual(facts["app.dockerfile.files"]["value"],
+                         {"paths": ["Dockerfile", "deploy/api.Dockerfile", "tools/Dockerfile.dev"]})
+        evidence = sorted(f["evidence"] for k, f in facts.items() if k.startswith("app.dockerfile.from."))
+        self.assertEqual(evidence, ["Dockerfile:1", "deploy/api.Dockerfile:1", "tools/Dockerfile.dev:1"])
+        self.assertEqual(facts["app.dockerfile.user"]["value"], {"user": "10001", "path": "Dockerfile"})  # the root's
+
+    def test_several_dockerfiles_none_at_the_root_names_no_user(self):
+        # Which one builds the deployed image is not knowable here, so no USER is claimed for it.
+        facts = run({"a/Dockerfile": "FROM alpine:3\nUSER 1\n", "b/Dockerfile": "FROM alpine:3\n"})
+        self.assertNotIn("app.dockerfile.user", facts)
+        self.assertEqual(facts["app.dockerfile.files"]["value"], {"paths": ["a/Dockerfile", "b/Dockerfile"]})
+
+    def test_dockerfiles_in_dependencies_and_fixtures_are_skipped(self):
+        facts = run({"node_modules/x/Dockerfile": "FROM evil:1\n", "vendor/y/Dockerfile": "FROM evil:1\n",
+                     "tests/fixtures/Dockerfile": "FROM evil:1\n", "Dockerfile.dockerignore": "node_modules\n",
+                     "README.md": "x"})
+        self.assertFalse([k for k in facts if k.startswith("app.dockerfile")])
 
     def test_workflow_on_true_key_and_uses(self):
         wf = """name: ci

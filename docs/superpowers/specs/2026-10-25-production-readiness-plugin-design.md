@@ -286,6 +286,12 @@ tests/readiness/                          pytest, fixtures only, no network
    resolves to `component:hk-demo/hk-demo`.
    - **No match:** the catalog check fails, and the report continues on the app repo alone.
    - **Several matches:** list them and stop, asking for `--entity`.
+   - **Amended 2026-10-26:** also `filter=kind=component,metadata.name=<repo name>`, merged with the
+     slug matches. `arigsela/backstage` showed why: only the stock create-app entity
+     (`backstage-scaffold`, from the portal's own `catalog-info.yaml`) carried the slug, so the review
+     silently used it, while the real `component:backstage/backstage` (catalogued from the GitOps
+     folder) carried none. Now both are listed and the user picks. A single match found only by name is
+     used, and collect logs that it matched by name.
 3. **Deploy folder.** It comes from the entity's `backstage.io/managed-by-location`, for example
    `url:https://github.com/arigsela/kubernetes/tree/main/base-apps/hk-demo/catalog-info.yaml` →
    repo `arigsela/kubernetes`, folder `base-apps/hk-demo/`.
@@ -323,7 +329,7 @@ Every fact has:
 
 | Source | Read | When it fails |
 |---|---|---|
-| App repo | Dockerfile; workflows (triggers, steps, `permissions`, `uses:` pins); lockfiles; tests dir; README, CODEOWNERS, SECURITY.md, `.github/dependabot.yml` / `renovate.json`; observability deps (OpenTelemetry, prometheus client) | Always available (it's the input) |
+| App repo | Dockerfiles anywhere in the tree (`Dockerfile`, `Dockerfile.*`, `*.Dockerfile`; not under `node_modules`, `vendor`, build output or test material; at most 10; the `USER` of the root one, else of the only one); workflows (triggers, steps, `permissions`, `uses:` pins); lockfiles; tests dir; README, CODEOWNERS, SECURITY.md, `.github/dependabot.yml` / `renovate.json`; observability deps (OpenTelemetry, prometheus client) | Always available (it's the input) |
 | Deploy folder | Rendered workloads (replicas, probes, resources, securityContext, image refs, SA token automount), NetworkPolicy, PDB, HPA, Secret/ExternalSecret kinds, HTTPRoute, runbook.md, docs.md | The checks that need it are unknown ("no deploy folder") |
 | Backstage | Entity (owner, lifecycle, system, dependsOn, providesApis); each dependsOn entity's lifecycle; `POST /api/cve/report {"images":[…]}`; `GET /api/scorecard/metrics/catalog/{kind}/{ns}/{name}` | The checks that need it are unknown, with the HTTP status. A 404 from scorecard means "not installed yet" |
 | Cluster | `kubectl get pods,deploy,statefulset,hpa,pdb -n <ns> -o json`; `kubectl top pods -n <ns>` (matched to rendered workloads, §7.3) | The checks that need it are unknown. They are also unknown with `--no-live`, or when the context can't reach the namespace within 5s |

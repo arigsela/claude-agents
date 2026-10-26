@@ -174,10 +174,17 @@ def _entity_step(bs: Backstage, slug: str | None, entity: str | None) -> tuple[d
             if doc is None:
                 _log(f"backstage: {ref} is not in the catalog")
         elif slug:
-            items = [e for e in bs.entities_by_slug(slug) if isinstance(e, dict)]
+            # By project-slug, and by a component named like the repo: a stray entity that happens to carry the
+            # slug (the stock create-app scaffold) must not be picked silently over the real one.
+            by_slug = {entity_ref(e): e for e in bs.entities_by_slug(slug) if isinstance(e, dict)}
+            by_name = {entity_ref(e): e for e in bs.components_named(slug.rsplit("/", 1)[-1])
+                       if isinstance(e, dict)}
+            items = {**by_name, **by_slug}
             if len(items) > 1:
-                raise Ambiguous(sorted(entity_ref(e) for e in items))
-            doc = items[0] if items else None
+                raise Ambiguous(sorted(items))
+            doc = next(iter(items.values()), None)
+            if doc is not None and not by_slug:
+                _log(f"backstage: matched {entity_ref(doc)} by name: no entity has github.com/project-slug {slug}")
         else:
             return None, [], "skipped: no GitHub remote"
     except Ambiguous:

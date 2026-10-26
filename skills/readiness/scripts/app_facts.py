@@ -6,6 +6,7 @@
 """readiness: facts from an exported app-repo tree (Dockerfile, workflows, hygiene files, telemetry deps)."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -31,6 +32,11 @@ _DIGEST = re.compile(r"@sha256:[0-9a-f]{64}\b")
 _SHA40 = re.compile(r"@[0-9a-f]{40}$")
 README_CAP = 20000
 RUN_CAP = 120
+# Dockerfiles anywhere in the tree (a Backstage repo keeps one at packages/backend/Dockerfile), but not in
+# dependencies, build output or test material, which do not build this app's image.
+DOCKERFILE_SKIP_DIRS = frozenset({".git", "node_modules", "vendor", "dist", "build", "testdata", "fixtures",
+                                  "__fixtures__", "examples", "test", "tests"})
+MAX_DOCKERFILES = 10
 
 
 def _read(p: Path) -> str:
@@ -53,19 +59,56 @@ def _expand(text: str, args: dict[str, str]) -> str:
                   text)
 
 
+def _is_dockerfile(name: str) -> bool:
+    if name.endswith(".dockerignore"):
+        return False
+    return name == "Dockerfile" or name.startswith("Dockerfile.") or name.lower().endswith(".dockerfile")
+
+
+def _dockerfiles(root: Path) -> list[str]:
+    """Repo-relative Dockerfile paths, the root's first, then sorted; at most MAX_DOCKERFILES."""
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in DOCKERFILE_SKIP_DIRS]
+        for name in filenames:
+            p = Path(dirpath) / name
+            if _is_dockerfile(name) and p.is_file() and not p.is_symlink():
+                found.append(p.relative_to(root).as_posix())
+    found.sort(key=lambda rel: ("/" in rel, rel))
+    return found[:MAX_DOCKERFILES]
+
+
 def _dockerfile_facts(root: Path) -> list[dict]:
-    path = root / "Dockerfile"
-    if not path.is_file():
+    paths = _dockerfiles(root)
+    if not paths:
         return []
+    out: list[dict] = [fact("app.dockerfile.files", "app", {"paths": paths}, ", ".join(paths))]
+    users: dict[str, str | None] = {}
+    n = 0
+    for rel in paths:
+        froms, users[rel] = _parse_dockerfile(_read(root / rel))
+        for lineno, image in froms:
+            n += 1
+            out.append(fact(f"app.dockerfile.from.{n}", "app",
+                            {"image": image, "pinned": bool(_DIGEST.search(image))}, f"{rel}:{lineno}"))
+    # The USER of the app's own image: the root Dockerfile's, else the only one's. With several and none at the
+    # root, which one builds the deployed image is not knowable here, so none is claimed.
+    primary = "Dockerfile" if "Dockerfile" in users else (paths[0] if len(paths) == 1 else None)
+    if primary:
+        out.append(fact("app.dockerfile.user", "app", {"user": users[primary], "path": primary}, primary))
+    return out
+
+
+def _parse_dockerfile(text: str) -> tuple[list[tuple[int, str]], str | None]:
+    """([(line, external base image)], the final stage's USER)."""
     args: dict[str, str] = {}
     aliases: set[str] = set()
-    out: list[dict] = []
+    froms: list[tuple[int, str]] = []
     user = None
     stage_users: dict[str, str | None] = {}
     cur_alias = None
     seen_from = False
-    n = 0
-    for lineno, line in enumerate(_read(path).splitlines(), 1):
+    for lineno, line in enumerate(text.splitlines(), 1):
         s = line.strip()
         word = s.split(None, 1)[0].upper() if s and not s.startswith("#") else ""
         if word == "ARG" and not seen_from:
@@ -92,16 +135,13 @@ def _dockerfile_facts(root: Path) -> list[dict]:
                 continue
             if alias:
                 aliases.add(alias)
-            n += 1
-            out.append(fact(f"app.dockerfile.from.{n}", "app",
-                            {"image": image, "pinned": bool(_DIGEST.search(image))}, f"Dockerfile:{lineno}"))
+            froms.append((lineno, image))
         elif word == "USER":
             parts = s.split(None, 1)
             user = parts[1].strip() if len(parts) > 1 else None
             if cur_alias:
                 stage_users[cur_alias] = user
-    out.append(fact("app.dockerfile.user", "app", {"user": user}, "Dockerfile"))
-    return out
+    return froms, user
 
 
 def _triggers(doc: dict) -> list[str]:
