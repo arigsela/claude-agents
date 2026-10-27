@@ -144,9 +144,8 @@ Read `CLAUDE.md`, `AGENTS.md` and `base-apps/kagent/docs.md` + `runbook.md` firs
 - **Gotchas from earlier agents** (docs-checker): Substrate runs the agent as uid 0; only stdout
   reaches the sandbox logs; startup gets 30 s to answer `/readyz` and imports are slow under gVisor.
   Model gateway (agentgateway 1.6): see `base-apps/model-gateway/docs.md` for the 429 handling.
-- **Known issue to avoid**: n8n's `POST /webhook/agent-findings` (the dispatcher's Slack path) is
-  publicly reachable and does not authenticate callers. Do not route new findings through it
-  without adding a token check (as the Interview Janitor workflow does).
+- **Findings delivery**: before routing new findings through any existing webhook, confirm with Ari
+  that it authenticates its callers.
 
 ## 4. What has to be built
 
