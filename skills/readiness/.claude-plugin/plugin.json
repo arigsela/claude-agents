@@ -1,6 +1,6 @@
 {
   "name": "readiness",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Production readiness review of an app repo: gathers evidence from the app repo, the GitOps repo, the Backstage portal and the live cluster, sorts it under the six AWS Well-Architected pillars, and prints a cited report with an Operational Readiness Review (ORR) checklist for the questions only a person can answer.",
   "author": {
     "name": "Arisela"
