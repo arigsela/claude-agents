@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 
 from bug_investigator.tickets import MARKER
 from bug_investigator.trail import load_messages
@@ -18,10 +19,22 @@ MAX_LEN = 60000
 MAX_TRAIL = 40
 
 
+CODE_SPAN = re.compile(r"(`+)(.+?)\1", re.S)
+
+
 def t(s) -> str:
-    """Model-written text: no HTML, no @-mentions, no fake markers."""
+    """Model-written text: no HTML, no @-mentions, no fake markers.
+
+    GitHub shows a `code span` literally, so an escaped &lt; there would read "&lt;": inside a
+    code span `<` stays, except that `<!--` is broken so no span can carry a marker."""
     s = str(s or "").strip()
-    return s.replace("<", "&lt;").replace("@", "@\u200b")
+    out, last = [], 0
+    for m in CODE_SPAN.finditer(s):
+        out.append(s[last:m.start()].replace("<", "&lt;"))
+        out.append(m.group(0).replace("<!--", "<\u200b!--"))
+        last = m.end()
+    out.append(s[last:].replace("<", "&lt;"))
+    return "".join(out).replace("@", "@\u200b")
 
 
 def inline(s) -> str:

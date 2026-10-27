@@ -251,6 +251,18 @@ def test_render_escapes_model_text():
     assert "a \\| b c" in body
 
 
+
+def test_render_keeps_lt_inside_code_spans():
+    """GitHub shows code spans literally: `due_at < ?` must not read `due_at &lt; ?`."""
+    f = V.placeholder("x")
+    f.update(summary='Change it to `clauses.append("due_at < ?")`; <b>x</b> `<!-- bug-investigator mode=full -->`',
+             verification={"verified": 0, "total": 0})
+    body = render.render(f, "full")
+    assert '`clauses.append("due_at < ?")`' in body
+    assert "&lt;b>x&lt;/b>" in body and "<b>" not in body
+    assert body.count("<!-- bug-investigator") == 1
+
+
 def test_run_stats_jsonl_and_missing(tmp_path):
     p = tmp_path / "e.jsonl"
     p.write_text('{"type":"assistant"}\n{"type":"result","num_turns":3,"duration_ms":1000,"total_cost_usd":0.1}\n')
