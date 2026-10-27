@@ -41,7 +41,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           LABEL: ${{ github.event.label.name }}
-          HAS_COMPARE: ${{ contains(github.event.issue.labels.*.name, 'compare') }}
           EVENT_ISSUE: ${{ github.event.issue.number }}
           INPUT_ISSUE: ${{ inputs.issue }}
           INPUT_MODE: ${{ inputs.mode }}
@@ -59,8 +58,9 @@ jobs:
             fi
           else
             issue="$EVENT_ISSUE"
-            if [ "$LABEL" = compare ]; then modes='["n8n"]'          # bug already set: add the baseline
-            elif [ "$HAS_COMPARE" = true ]; then modes='["full","n8n"]'
+            # Each label starts only its own mode, so an issue opened with both labels runs each
+            # once. Add `compare` together with or after `bug` (the job needs `bug` already set).
+            if [ "$LABEL" = compare ]; then modes='["n8n"]'
             else modes='["full"]'; fi
           fi
           echo "issue=$issue" >> "$GITHUB_OUTPUT"
