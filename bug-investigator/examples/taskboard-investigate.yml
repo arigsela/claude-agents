@@ -1,0 +1,124 @@
+# Copy to arigsela/taskboard as .github/workflows/investigate.yml.
+# Secrets: ANTHROPIC_API_KEY, GRAFANA_TOKEN (Grafana Viewer service account). Variable (optional): GRAFANA_URL.
+# Label an open issue `bug` to investigate it; add `compare` as well for the n8n-style baseline.
+# Never put GRAFANA_TOKEN in a job- or workflow-level env: Claude sees the whole environment.
+name: Investigate bug
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+      mode:
+        description: Which investigation to run
+        type: choice
+        options: [full, n8n, both]
+        default: full
+
+permissions: {}
+
+jobs:
+  plan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.state == 'open' &&
+       contains(github.event.issue.labels.*.name, 'bug') &&
+       (github.event.label.name == 'bug' || github.event.label.name == 'compare'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      issues: read
+    outputs:
+      issue: ${{ steps.plan.outputs.issue }}
+      modes: ${{ steps.plan.outputs.modes }}
+    steps:
+      - id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          HAS_COMPARE: ${{ contains(github.event.issue.labels.*.name, 'compare') }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          INPUT_ISSUE: ${{ inputs.issue }}
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          modes='[]'
+          if [ "$EVENT" = workflow_dispatch ]; then
+            issue="$INPUT_ISSUE"
+            [[ "$issue" =~ ^[0-9]+$ ]] || { echo "::error::issue must be a number"; exit 1; }
+            state=$(gh issue view "$issue" --repo "$GITHUB_REPOSITORY" --json state --jq .state)
+            if [ "$state" = OPEN ]; then
+              case "$INPUT_MODE" in both) modes='["full","n8n"]' ;; n8n) modes='["n8n"]' ;; *) modes='["full"]' ;; esac
+            else
+              echo "::notice::issue #$issue is $state; nothing to do"
+            fi
+          else
+            issue="$EVENT_ISSUE"
+            if [ "$LABEL" = compare ]; then modes='["n8n"]'          # bug already set: add the baseline
+            elif [ "$HAS_COMPARE" = true ]; then modes='["full","n8n"]'
+            else modes='["full"]'; fi
+          fi
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          echo "modes=$modes" >> "$GITHUB_OUTPUT"
+          echo "issue #$issue, modes $modes"
+
+  investigate:
+    needs: plan
+    if: needs.plan.outputs.modes != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Read-only: claude-code-action hands Claude the whole environment, GITHUB_TOKEN included.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(needs.plan.outputs.modes) }}
+    concurrency:
+      group: investigate-${{ needs.plan.outputs.issue }}-${{ matrix.mode }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: ${{ matrix.mode == 'full' && '0' || '1' }}
+          persist-credentials: false
+      - uses: arigsela/claude-agents/bug-investigator@REPLACE_WITH_SHA
+        with:
+          mode: ${{ matrix.mode }}
+          issue-number: ${{ needs.plan.outputs.issue }}
+          grafana-url: ${{ vars.GRAFANA_URL || 'https://grafana.arigsela.com' }}
+          grafana-token: ${{ matrix.mode == 'full' && secrets.GRAFANA_TOKEN || '' }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bug-investigation-${{ needs.plan.outputs.issue }}-${{ matrix.mode }}
+          path: ${{ runner.temp }}/bug-investigator-${{ matrix.mode }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+  post:
+    needs: [plan, investigate]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.modes != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: bug-investigation-${{ needs.plan.outputs.issue }}-*
+          path: investigation
+      - uses: arigsela/claude-agents/bug-investigator@REPLACE_WITH_SHA
+        with:
+          command: post
+          issue-number: ${{ needs.plan.outputs.issue }}
+          comment-dir: investigation

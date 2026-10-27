@@ -1,0 +1,251 @@
+name: bug-investigator
+description: Investigate a bug issue with Claude (docs, code, PRs, deploys, Loki, Prometheus), verify every link, render one comment
+inputs:
+  command:
+    description: "investigate (gather, Claude, verify, render) or post (write the rendered comments to the issue)"
+    default: investigate
+  mode:
+    description: "full (everything) or n8n (ticket and code at HEAD only, no docs/)"
+    default: full
+  issue-number:
+    description: Issue to investigate or to post on
+    required: true
+  app-repo:
+    description: owner/name of the app repo; the caller checks it out at $GITHUB_WORKSPACE (full history for full mode)
+    default: ${{ github.repository }}
+  deploy-repo:
+    description: Public GitOps repo with the deploy timeline
+    default: arigsela/kubernetes
+  deploy-path:
+    description: Folder of the app in the deploy repo (its code-configmap.yaml names the deployed commit)
+    default: base-apps/taskboard
+  grafana-url:
+    description: Grafana base URL
+    default: https://grafana.arigsela.com
+  grafana-token:
+    description: Grafana Viewer service-account token (full mode). Never exported to Claude's environment.
+    default: ""
+  anthropic-api-key:
+    description: Anthropic API key
+    default: ""
+  model:
+    description: Claude model
+    default: claude-sonnet-5-5
+  max-turns:
+    description: Claude turn limit
+    default: "40"
+  namespace:
+    description: The only Kubernetes namespace whose logs and metrics may be queried
+    default: taskboard
+  comment-dir:
+    description: "post: directory holding comment-<mode>.md files (searched recursively)"
+    default: investigation
+outputs:
+  work-dir:
+    description: Directory with facts, prompt, findings, comment and the Claude log (upload it as an artifact)
+    value: ${{ steps.dirs.outputs.work }}
+  findings-file:
+    description: Verified findings JSON
+    value: ${{ steps.dirs.outputs.work }}/findings-${{ inputs.mode }}.json
+  comment-file:
+    description: Rendered comment markdown
+    value: ${{ steps.dirs.outputs.work }}/comment-${{ inputs.mode }}.md
+runs:
+  using: composite
+  steps:
+    - name: Prepare directories
+      id: dirs
+      if: inputs.command == 'investigate'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ inputs.issue-number }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in full|n8n) ;; *) echo "::error::mode must be full or n8n, got '$MODE'"; exit 1 ;; esac
+        [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "::error::issue-number must be a number"; exit 1; }
+        work="$RUNNER_TEMP/bug-investigator-$MODE"
+        rm -rf "$work" && mkdir -p "$work" && chmod 700 "$work"
+        echo "work=$work" >> "$GITHUB_OUTPUT"
+        echo "deploy=$GITHUB_WORKSPACE/.bug-investigator-deploy" >> "$GITHUB_OUTPUT"
+        # Repo-provided Claude settings and MCP servers do not apply to this run.
+        rm -f "$GITHUB_WORKSPACE/.claude/settings.json" "$GITHUB_WORKSPACE/.claude/settings.local.json" "$GITHUB_WORKSPACE/.mcp.json"
+        # n8n mode sees what a ticket-to-LLM flow sees: the code, not the product docs.
+        if [ "$MODE" = n8n ]; then rm -rf "$GITHUB_WORKSPACE/docs"; fi
+        # Nothing Claude runs may rewrite the hook or the scope check.
+        chmod -R a-w "$GITHUB_ACTION_PATH/src" "$GITHUB_ACTION_PATH/run.py"
+
+    - name: Check out the deploy repo
+      if: inputs.command == 'investigate' && inputs.mode == 'full'
+      shell: bash
+      env:
+        DEPLOY_REPO: ${{ inputs.deploy-repo }}
+        DEPLOY_PATH: ${{ inputs.deploy-path }}
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+        GIT_TERMINAL_PROMPT: "0"
+      run: |
+        set -euo pipefail
+        rm -rf "$DEPLOY_DIR"
+        git clone --quiet --filter=blob:none --no-checkout --sparse "https://github.com/$DEPLOY_REPO.git" "$DEPLOY_DIR"
+        git -C "$DEPLOY_DIR" sparse-checkout set "$DEPLOY_PATH"
+        git -C "$DEPLOY_DIR" checkout --quiet
+        echo "deploy checkout: $(git -C "$DEPLOY_DIR" rev-parse --short HEAD), $(git -C "$DEPLOY_DIR" rev-list --count HEAD) commits"
+
+    - name: Install mcp-grafana
+      id: mcp
+      if: inputs.command == 'investigate' && inputs.mode == 'full'
+      shell: bash
+      env:
+        URL: https://github.com/grafana/mcp-grafana/releases/download/v2.1.1/mcp-grafana_Linux_x86_64.tar.gz
+        SHA256: fba3a5294fa07218dbf59944c75ca890ce9c59384bff1bb43cd28d63b0521bec
+      run: |
+        set -euo pipefail
+        [ "$RUNNER_OS" = Linux ] && [ "$RUNNER_ARCH" = X64 ] || { echo "::error::mcp-grafana is pinned for Linux X64 runners"; exit 1; }
+        bin="$RUNNER_TEMP/bug-investigator-bin"
+        mkdir -p "$bin"
+        curl -fsSL --retry 3 -o "$bin/mcp-grafana.tgz" "$URL"
+        echo "$SHA256  $bin/mcp-grafana.tgz" | sha256sum -c -
+        tar -xzf "$bin/mcp-grafana.tgz" -C "$bin" mcp-grafana
+        chmod 555 "$bin/mcp-grafana"
+        echo "binary=$bin/mcp-grafana" >> "$GITHUB_OUTPUT"
+
+    - name: Write the Grafana token file
+      id: token
+      if: inputs.command == 'investigate' && inputs.mode == 'full'
+      shell: bash
+      env:
+        GRAFANA_TOKEN: ${{ inputs.grafana-token }}
+      run: |
+        set -euo pipefail
+        [ -n "$GRAFANA_TOKEN" ] || { echo "::error::grafana-token is required in full mode"; exit 1; }
+        dir="$RUNNER_TEMP/bug-investigator-secret"
+        mkdir -p "$dir" && chmod 700 "$dir"
+        (umask 077 && printf '%s' "$GRAFANA_TOKEN" > "$dir/grafana-token")
+        echo "file=$dir/grafana-token" >> "$GITHUB_OUTPUT"
+
+    - name: Gather facts
+      if: inputs.command == 'investigate'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.app-repo }}
+        WORK: ${{ steps.dirs.outputs.work }}
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+        DEPLOY_REPO: ${{ inputs.deploy-repo }}
+        DEPLOY_PATH: ${{ inputs.deploy-path }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        args=(gather --mode "$MODE" --issue "$ISSUE" --repo "$REPO" --app-dir "$GITHUB_WORKSPACE"
+              --deploy-repo "$DEPLOY_REPO" --deploy-path "$DEPLOY_PATH" --namespace "$NAMESPACE" --out-dir "$WORK")
+        if [ "$MODE" = full ]; then args+=(--deploy-dir "$DEPLOY_DIR"); fi
+        python3 -I "$GITHUB_ACTION_PATH/run.py" "${args[@]}"
+
+    - name: Build settings, MCP config and prompt
+      id: prep
+      if: inputs.command == 'investigate'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.app-repo }}
+        WORK: ${{ steps.dirs.outputs.work }}
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+        TOKEN_FILE: ${{ steps.token.outputs.file }}
+        MCP_BINARY: ${{ steps.mcp.outputs.binary }}
+        GRAFANA_URL: ${{ inputs.grafana-url }}
+        MODEL: ${{ inputs.model }}
+        MAX_TURNS: ${{ inputs.max-turns }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        args=(prep --mode "$MODE" --issue "$ISSUE" --repo "$REPO" --app-dir "$GITHUB_WORKSPACE"
+              --action-path "$GITHUB_ACTION_PATH" --work-dir "$WORK" --deny-dir "$RUNNER_TEMP"
+              --model "$MODEL" --max-turns "$MAX_TURNS" --namespace "$NAMESPACE")
+        if [ "$MODE" = full ]; then
+          args+=(--deploy-dir "$DEPLOY_DIR" --token-file "$TOKEN_FILE" --mcp-binary "$MCP_BINARY" --grafana-url "$GRAFANA_URL")
+        fi
+        python3 -I "$GITHUB_ACTION_PATH/run.py" "${args[@]}"
+
+    - name: Self-test the scope hook
+      if: inputs.command == 'investigate'
+      shell: bash
+      env:
+        HOOK_COMMAND: ${{ steps.prep.outputs.hook_command }}
+        MODE: ${{ inputs.mode }}
+        TOKEN_FILE: ${{ steps.token.outputs.file }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: >-
+        python3 -I "$GITHUB_ACTION_PATH/run.py" selftest --hook-command "$HOOK_COMMAND" --mode "$MODE"
+        --token-file "$TOKEN_FILE" --namespace "$NAMESPACE"
+
+    - name: Investigate with Claude
+      id: claude
+      if: inputs.command == 'investigate'
+      continue-on-error: true
+      uses: anthropics/claude-code-action@8041f1d17e0e7d2f2cfe35002962e9f26237c0bb # v1.0.263
+      with:
+        anthropic_api_key: ${{ inputs.anthropic-api-key }}
+        github_token: ${{ github.token }}
+        prompt: ${{ steps.prep.outputs.prompt }}
+        settings: ${{ steps.prep.outputs.settings }}
+        claude_args: ${{ steps.prep.outputs.claude_args }}
+        track_progress: "false"
+        classify_inline_comments: "false"
+
+    - name: Verify findings
+      if: always() && inputs.command == 'investigate' && steps.prep.outcome == 'success'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        FINDINGS_JSON: ${{ steps.claude.outputs.structured_output }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.app-repo }}
+        WORK: ${{ steps.dirs.outputs.work }}
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+        DEPLOY_REPO: ${{ inputs.deploy-repo }}
+        TOKEN_FILE: ${{ steps.token.outputs.file }}
+        GRAFANA_URL: ${{ inputs.grafana-url }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$FINDINGS_JSON" > "$WORK/findings-raw-$MODE.json"
+        if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then cp "$EXECUTION_FILE" "$WORK/claude-execution-$MODE.json"; fi
+        args=(verify --mode "$MODE" --repo "$REPO" --issue "$ISSUE" --app-dir "$GITHUB_WORKSPACE"
+              --deploy-repo "$DEPLOY_REPO" --facts "$WORK/facts.json" --grafana-url "$GRAFANA_URL"
+              --namespace "$NAMESPACE" --out "$WORK/findings-$MODE.json")
+        if [ "$MODE" = full ]; then args+=(--deploy-dir "$DEPLOY_DIR" --token-file "$TOKEN_FILE"); fi
+        python3 -I "$GITHUB_ACTION_PATH/run.py" "${args[@]}"
+
+    - name: Render the comment
+      if: always() && inputs.command == 'investigate' && steps.prep.outcome == 'success'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        MODEL: ${{ inputs.model }}
+        WORK: ${{ steps.dirs.outputs.work }}
+      run: |
+        set -euo pipefail
+        python3 -I "$GITHUB_ACTION_PATH/run.py" render --mode "$MODE" --model "$MODEL" \
+          --findings "$WORK/findings-$MODE.json" --execution-file "$WORK/claude-execution-$MODE.json" \
+          --out "$WORK/comment-$MODE.md"
+        cat "$WORK/comment-$MODE.md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Remove the token file
+      if: always() && inputs.command == 'investigate'
+      shell: bash
+      run: rm -rf "$RUNNER_TEMP/bug-investigator-secret"
+
+    - name: Post the comments
+      if: inputs.command == 'post'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ inputs.app-repo }}
+        ISSUE: ${{ inputs.issue-number }}
+        DIR: ${{ inputs.comment-dir }}
+      run: python3 -I "$GITHUB_ACTION_PATH/run.py" post --repo "$REPO" --issue "$ISSUE" --dir "$DIR"
