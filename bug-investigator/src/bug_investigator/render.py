@@ -94,6 +94,11 @@ def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_u
             f"verified {v.get('verified', 0)} of {v.get('total', 0)} evidence links", "", t(f.get("summary")), ""]
 
     lc = f.get("likely_cause")
+    if not lc and f.get("verdict") == "likely_cause":
+        sup = [h for h in f.get("hypotheses") or [] if h.get("status") == "supported"]
+        if sup:
+            ids = ", ".join(sup[0].get("evidence_ids") or [])
+            out += ["### Likely cause", "", f"- {t(sup[0].get('statement'))}" + (f" ({ids})" if ids else ""), ""]
     if lc:
         out += ["### Likely cause" + (" (not confirmed)" if lc.get("unconfirmed") else ""), ""]
         cv, kv = lc.get("change_verified"), lc.get("code_verified")
@@ -107,6 +112,12 @@ def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_u
         out += [f"- {t(lc.get('explanation'))}", ""]
 
     dr = f.get("docs_rule")
+    if not dr:
+        # Fall back to the first verified doc quote among the evidence.
+        doc = next((e for e in f.get("evidence") or [] if e.get("kind") == "doc" and e.get("quote")
+                    and (e.get("verified") or {}).get("link")), None)
+        if doc:
+            dr = {"quote": doc["quote"], "rule_id": doc["id"], "verified": doc["verified"]}
     if dr:
         dv = dr.get("verified") or {}
         quote = "\n".join("> " + t(x) for x in str(dr.get("quote") or "").strip().splitlines())

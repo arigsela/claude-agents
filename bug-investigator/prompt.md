@@ -40,6 +40,11 @@ structured findings.
 7. Past bugs in the same area, and how they were fixed.
 8. Report per the schema. Say what you could not check. `next_step` is one concrete action for a
    developer (for example "revert line 42 of src/app.py to check the assignee").
+   - `docs_rule`: whenever a doc states the intended behavior, put that rule here (path, rule ID,
+     the verbatim quote). Null only when no doc covers it.
+   - `likely_cause`: required whenever `verdict` is `likely_cause`: `change_ref` (`#N` or a commit
+     SHA), `live_since` (from the deploy timeline), `code_ref` (`path:line` of the faulty line) and a
+     one-sentence `explanation`. Null for other verdicts.
 
 {{MODE_NOTES}}
 

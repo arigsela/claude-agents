@@ -325,6 +325,7 @@ def verify(findings: dict | None, ctx: Ctx) -> dict:
         out["docs_rule"] = None
 
     lc = out.get("likely_cause")
+    lc_failed = False  # a stated cause whose change and code both failed verification
     if isinstance(lc, dict):
         cref = str(lc.get("change_ref") or "")
         if NUM_RE.match(cref):
@@ -342,15 +343,19 @@ def verify(findings: dict | None, ctx: Ctx) -> dict:
         lc["code_verified"] = None if creason else cextra
         if reason and creason:
             out["likely_cause"] = None
+            lc_failed = True
     else:
         out["likely_cause"] = None
 
     supported = any(h.get("status") == "supported" for h in out["hypotheses"])
-    if out.get("verdict") == "likely_cause" and (not supported or not out.get("likely_cause")):
+    if out.get("verdict") == "likely_cause" and (not supported or lc_failed):
         notes.append("verdict likely_cause → unclear (no supported hypothesis with verified evidence)")
         out["verdict"] = "unclear"
         if out.get("likely_cause"):
             out["likely_cause"]["unconfirmed"] = True
+    elif out.get("verdict") == "likely_cause" and not out.get("likely_cause"):
+        # The verdict stands on the supported hypothesis; only the structured details are missing.
+        notes.append("likely_cause details missing; the supported hypothesis stands in for them")
     if out.get("verdict") == "not_a_bug" and not out.get("docs_rule"):
         notes.append("verdict not_a_bug → unclear (no verified docs rule saying this is intended)")
         dropped.append({"id": "verdict", "kind": "verdict", "ref": "not_a_bug",

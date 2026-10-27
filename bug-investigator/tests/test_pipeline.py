@@ -218,6 +218,20 @@ def test_render_full(app_repo, deploy_repo, tmp_path):
     assert "@\u200bann" in body  # no @-mentions from model text
 
 
+def test_render_falls_back_when_cause_and_docs_rule_are_omitted(app_repo, deploy_repo):
+    # Seen live (taskboard#16): the model left likely_cause and docs_rule null.
+    from test_verify import GH, FakeGrafana, findings
+    ctx = V.Ctx(mode="full", repo="o/app", app_dir=app_repo["dir"], deploy_dir=deploy_repo["dir"], issue=7,
+                grafana_url="https://g", token="glsa_x12345678", runner=FakeGh(GH), gquery=FakeGrafana())
+    out = V.verify(findings(app_repo, likely_cause=None, docs_rule=None), ctx)
+    body = render.render(out, "full")
+    assert "**Likely cause found**" in body
+    assert "### Likely cause" in body
+    assert "### What the docs say should happen" in body
+    docs = [e for e in out["evidence"] if e["kind"] == "doc"]
+    assert docs and f"> {docs[0]['quote']}" in body
+
+
 def test_render_n8n_and_placeholder(app_repo):
     out = V.verify(V.placeholder("Claude produced no structured findings"),
                    V.Ctx(mode="n8n", repo="o/app", app_dir=app_repo["dir"], runner=FakeGh({})))

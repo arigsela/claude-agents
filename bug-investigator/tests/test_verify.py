@@ -162,6 +162,19 @@ def test_likely_cause_without_support_becomes_unclear(ctx, app_repo):
     assert out["likely_cause"]["unconfirmed"] is True
 
 
+def test_omitted_likely_cause_keeps_a_supported_verdict(ctx, app_repo):
+    # Seen live (taskboard#16): verdict likely_cause, H1 supported, likely_cause left null.
+    out = V.verify(findings(app_repo, likely_cause=None), ctx)
+    assert out["verdict"] == "likely_cause" and out["likely_cause"] is None
+    assert any("likely_cause details missing" in n for n in out["verification"]["notes"])
+
+
+def test_omitted_likely_cause_without_support_becomes_unclear(ctx, app_repo):
+    f = findings(app_repo, likely_cause=None)
+    f["hypotheses"] = [{"id": "H1", "statement": "s", "test": "t", "status": "supported", "evidence_ids": ["E2"]}]
+    assert V.verify(f, ctx)["verdict"] == "unclear"
+
+
 def test_bad_docs_rule_and_cause_dropped(ctx, app_repo):
     f = findings(app_repo, docs_rule={"path": "docs/permissions.md", "rule_id": "P3", "quote": "Editors may do anything"},
                  likely_cause={"change_ref": "#99", "live_since": "", "code_ref": "src/nope.py:1", "explanation": "x"})
