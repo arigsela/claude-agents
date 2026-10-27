@@ -2,8 +2,9 @@
 
 commit: exists in the app (or deploy) checkout. pr/issue: exists (a PR claimed merged is merged).
 file: exists, line in range, quote within ±3 lines. doc: quote verbatim (whitespace-normalized).
-logql/promql: the shared scope check, then a re-run through Grafana in [start, end] (default:
-report window ±2 h, at most 24 h); "found" needs data, "none" needs none.
+logql/promql: the shared scope check, then a re-run in [start, end] (default: report window ±2 h,
+at most 24 h) through Grafana (`--telemetry grafana`, the Action) or straight against Loki and
+Prometheus (`--telemetry direct`, the in-cluster trigger: no token); "found" needs data, "none" none.
 Then: hypotheses without verified evidence become untested; likely_cause without a supported
 hypothesis becomes unclear; secrets are scrubbed from every string.
 """
@@ -19,7 +20,7 @@ import sys
 from datetime import timedelta
 from typing import Callable
 
-from bug_investigator import grafana, scope
+from bug_investigator import grafana, scope, telemetry
 from bug_investigator.tickets import Gh, label_names
 from bug_investigator.util import (CommandError, Runner, iso, ms, parse_time, read_json, read_secret, run, scrub,
                                    utc_now, window, write_json)
@@ -28,19 +29,27 @@ SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 NUM_RE = re.compile(r"^\s*(?:PR\s*|issue\s*)?#?(\d{1,7})\s*$", re.I)
 LINE_SUFFIX_RE = re.compile(r"^(.*?)(?::|#L)(\d+)(?:-L?\d+)?$")
 PAD = timedelta(hours=2)
+DEFAULT_GRAFANA_URL = "https://grafana.arigsela.com"
 
 
 class Ctx:
     def __init__(self, *, mode: str, repo: str, app_dir: str, deploy_dir: str | None = None,
                  deploy_repo: str = "arigsela/kubernetes", issue: int = 0, issue_created: str | None = None,
                  grafana_url: str = "", token: str = "", namespace: str = scope.NAMESPACE,
-                 runner: Runner = run, gquery: Callable | None = None):
+                 runner: Runner = run, gquery: Callable | None = None, telemetry_mode: str = "grafana"):
         self.mode, self.repo, self.app_dir, self.deploy_dir = mode, repo, app_dir, deploy_dir
         self.deploy_repo, self.issue, self.namespace = deploy_repo, issue, namespace
         self.issue_created = parse_time(issue_created)
-        self.grafana_url, self.token = grafana_url, token
+        if telemetry_mode not in ("grafana", "direct"):
+            raise ValueError(f"telemetry_mode must be grafana or direct, got {telemetry_mode!r}")
+        self.telemetry_mode = telemetry_mode
+        # Direct mode has no Grafana token; its links still open Grafana Explore.
+        self.grafana_url = grafana_url or (DEFAULT_GRAFANA_URL if telemetry_mode == "direct" else "")
+        self.token = token
         self.run = runner
         self.gh = Gh(repo, runner)
+        if gquery is None and telemetry_mode == "direct":
+            gquery = lambda kind, expr, s, e: telemetry.query(kind, expr, s, e, namespace)  # noqa: E731
         self.gquery = gquery or (lambda kind, expr, s, e: grafana.query(grafana_url, token, kind, expr, s, e, namespace))
         self.heads = {k: self._head(d) for k, d in (("app", app_dir), ("deploy", deploy_dir)) if d}
         self.repos = {"app": repo, "deploy": deploy_repo}
@@ -222,7 +231,7 @@ def check_query(ctx: Ctx, item: dict, findings: dict) -> tuple[str | None, dict]
     bad = scope.check_query(kind, expr, ctx.namespace)
     if bad:
         return f"out of scope: {bad}", {}
-    if ctx.mode != "full" or not ctx.token:
+    if ctx.mode != "full" or (ctx.telemetry_mode == "grafana" and not ctx.token):
         return "telemetry is not available in this run", {}
     s, e = parse_time(item.get("start")), parse_time(item.get("end"))
     if s or e:
@@ -231,8 +240,9 @@ def check_query(ctx: Ctx, item: dict, findings: dict) -> tuple[str | None, dict]
         start, end = report_window(findings, ctx)
     try:
         resp = ctx.gquery(kind, expr, ms(start), ms(end))
-    except grafana.GrafanaError as err:
-        return f"Grafana query failed: {err}", {}
+    except grafana.GrafanaError as err:  # telemetry.TelemetryError is a subclass
+        source = "Grafana" if ctx.telemetry_mode == "grafana" else "Loki/Prometheus"
+        return f"{source} query failed: {err}", {}
     n = grafana.count_results(resp)
     expect = item.get("expect") or "found"
     if expect == "found" and n == 0:
@@ -408,6 +418,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--facts", help="facts.json, for the issue's created time")
     p.add_argument("--grafana-url", default="")
     p.add_argument("--token-file")
+    p.add_argument("--telemetry", choices=("grafana", "direct"), default="grafana",
+                   help="grafana: re-run queries through Grafana with --token-file (the Action); "
+                        "direct: query Loki and Prometheus at LOKI_URL / PROMETHEUS_URL, no token (in-cluster)")
     p.add_argument("--namespace", default=scope.NAMESPACE)
     p.add_argument("--out", required=True)
     a = p.parse_args(argv)
@@ -418,7 +431,8 @@ def main(argv: list[str] | None = None) -> int:
     findings, problem = load_findings(a.findings, os.environ.get("FINDINGS_JSON"))
     ctx = Ctx(mode=a.mode, repo=a.repo, app_dir=a.app_dir, deploy_dir=a.deploy_dir if a.mode == "full" else None,
               deploy_repo=a.deploy_repo, issue=a.issue, issue_created=created, grafana_url=a.grafana_url,
-              token=read_secret(a.token_file) if a.mode == "full" else "", namespace=a.namespace)
+              token=read_secret(a.token_file) if a.mode == "full" else "", namespace=a.namespace,
+              telemetry_mode=a.telemetry)
     result = verify(findings if findings else placeholder(problem), ctx)
     write_json(a.out, result)
     v = result["verification"]

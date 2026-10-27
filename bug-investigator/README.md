@@ -114,6 +114,20 @@ environment to Claude. So:
 | `telemetry` for verify (`grafana.py`) | `POST /api/ds/query`, Explore links | `POST /api/v2/logs/events/search`, `/api/v2/spans/events/search`, metrics `query` API; Datadog log/trace explorer links. |
 | `code` | two checkouts + `gh` | their backend and frontend repos + `gh` (same). |
 
+## In the cluster (the kagent version)
+
+Two modules serve the platform version, where there is no PreToolUse hook and no Grafana token:
+
+- `telemetry.py` queries Loki and Prometheus directly (`LOKI_URL`, `PROMETHEUS_URL`; defaults are
+  the in-cluster services in `logging`). `query()` returns the same data frames as `grafana.query`,
+  so `verify --telemetry direct` re-runs every query with no token; links still open Grafana Explore.
+  Every function runs the scope check before any HTTP request.
+- `mcp_server.py` is a stdio MCP server (newline-delimited JSON-RPC) with mcp-grafana's tool names
+  and arguments: `query_loki_logs`, `query_loki_stats`, `query_prometheus`, `list_loki_label_names`,
+  `list_loki_label_values`. Every call runs `scope.check_tool_call`, exactly as the hook does; a
+  refused or failed call is a tool result with `isError: true`. Run it as
+  `python3 -I /core/src/bug_investigator/mcp_server.py` (stdlib only; agentgateway serves it over HTTP).
+
 ## Local runs
 
 ```bash
