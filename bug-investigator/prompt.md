@@ -23,6 +23,9 @@ structured findings.
   A hypothesis marked `supported` or `ruled_out` with no verified evidence becomes `untested`, and a
   `likely_cause` verdict with no supported hypothesis becomes `unclear`. So cite carefully.
 - Keep it to what matters: about 4 to 12 evidence items, at most 3 hypotheses.
+- Think out loud, briefly. Before each tool call, write one sentence saying what you are checking
+  and why. After a result that changes your view, write one sentence saying what it means. No
+  essays: one sentence each. These sentences are shown to the reader as the trail of your work.
 
 ## Method
 

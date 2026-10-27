@@ -228,10 +228,21 @@ runs:
         MODE: ${{ inputs.mode }}
         MODEL: ${{ inputs.model }}
         WORK: ${{ steps.dirs.outputs.work }}
+        REPO: ${{ inputs.app-repo }}
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+        DEPLOY_REPO: ${{ inputs.deploy-repo }}
+        GRAFANA_URL: ${{ inputs.grafana-url }}
+        NAMESPACE: ${{ inputs.namespace }}
       run: |
         set -euo pipefail
+        # The reasoning trail (narration + each tool call, counts only); a failure never blocks the comment.
+        python3 -I "$GITHUB_ACTION_PATH/run.py" trail --execution-file "$WORK/claude-execution-$MODE.json" \
+          --findings "$WORK/findings-$MODE.json" --repo "$REPO" --deploy-repo "$DEPLOY_REPO" \
+          --app-dir "$GITHUB_WORKSPACE" --deploy-dir "$DEPLOY_DIR" --grafana-url "$GRAFANA_URL" \
+          --namespace "$NAMESPACE" --out "$WORK/trail-$MODE.json" || echo "::warning::could not build the reasoning trail"
         python3 -I "$GITHUB_ACTION_PATH/run.py" render --mode "$MODE" --model "$MODEL" \
           --findings "$WORK/findings-$MODE.json" --execution-file "$WORK/claude-execution-$MODE.json" \
+          --trail "$WORK/trail-$MODE.json" --fix "$WORK/fix-$MODE.json" \
           --out "$WORK/comment-$MODE.md"
         cat "$WORK/comment-$MODE.md" >> "$GITHUB_STEP_SUMMARY"
 

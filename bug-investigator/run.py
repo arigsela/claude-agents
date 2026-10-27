@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
-COMMANDS = ("hook", "gather", "prep", "verify", "render", "post", "selftest")
+COMMANDS = ("hook", "gather", "prep", "verify", "trail", "render", "post", "selftest")
 
 
 def main() -> int:
@@ -26,6 +26,8 @@ def main() -> int:
             return m.selftest_main(rest)
     elif cmd == "verify":
         from bug_investigator import verify as m
+    elif cmd == "trail":
+        from bug_investigator import trail as m
     elif cmd == "render":
         from bug_investigator import render as m
     else:

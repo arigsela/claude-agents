@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 
 from bug_investigator.tickets import MARKER
+from bug_investigator.trail import load_messages
 from bug_investigator.util import parse_time, read_json, scrub_text
 
 HEADERS = {"full": "🔎 Bug investigation — full", "n8n": "🔎 n8n-style baseline (ticket + code only)"}
@@ -15,6 +15,7 @@ VERDICTS = {"likely_cause": "Likely cause found", "not_a_bug": "Not a bug: works
 STATUS = {"supported": "✅ supported", "ruled_out": "❌ ruled out", "untested": "❔ untested"}
 KIND_LABEL = {"logql": "Loki", "promql": "Prometheus"}
 MAX_LEN = 60000
+MAX_TRAIL = 40
 
 
 def t(s) -> str:
@@ -44,26 +45,60 @@ def hm(s) -> str:
 
 
 def run_stats(execution_file: str | None) -> dict:
-    if not execution_file or not os.path.isfile(execution_file):
-        return {}
-    with open(execution_file) as f:
-        text = f.read()
-    try:
-        msgs = json.loads(text)
-    except ValueError:
-        msgs = []
-        for line in text.splitlines():
-            try:
-                msgs.append(json.loads(line))
-            except ValueError:
-                continue
-    if isinstance(msgs, dict):
-        msgs = [msgs]
-    result = next((m for m in reversed(msgs) if isinstance(m, dict) and m.get("type") == "result"), None)
+    msgs = load_messages(execution_file)
+    result = next((m for m in reversed(msgs) if m.get("type") == "result"), None)
     if not result:
         return {}
     return {"turns": result.get("num_turns"), "duration_ms": result.get("duration_ms"),
             "cost": result.get("total_cost_usd"), "denials": len(result.get("permission_denials") or [])}
+
+
+def code(s, limit: int = 160) -> str:
+    """A one-line code span; backticks inside become quotes so the span cannot break."""
+    s = " ".join(str(s or "").split()).replace("`", "'")
+    if len(s) > limit:
+        s = s[: limit - 1] + "…"
+    return f"`{s}`"
+
+
+def trail_lines(trail, cap: int = MAX_TRAIL) -> list[str]:
+    """The collapsed step list; anything that is not {"steps": [{...}, ...]} renders nothing."""
+    steps = trail.get("steps") if isinstance(trail, dict) else None
+    steps = [x for x in steps if isinstance(x, dict)] if isinstance(steps, list) else []
+    if not steps:
+        return []
+    out = [f"<details><summary>How the agent worked ({len(steps)} steps)</summary>", ""]
+    for s in steps[:cap]:
+        parts = []
+        if s.get("narration"):
+            parts.append(inline(s["narration"]))
+        if s.get("tool"):
+            target = code(s.get("input"))
+            link = s.get("link")
+            if isinstance(link, str) and link.startswith("https://") and not any(c in link for c in " ()<>\n"):
+                target = f"[{target}]({link})"
+            if s.get("window"):
+                target += f" {inline(s['window'])}"
+            mark = "⛔ " if s.get("status") == "blocked" else ""
+            parts.append(f"{mark}{inline(s['tool'])}: {target} → {inline(s.get('result'))}")
+        n = s.get("n") if isinstance(s.get("n"), int) else "?"
+        out.append(f"{n}. " + " — ".join(parts))
+    if len(steps) > cap:
+        out.append(f"\n… {len(steps) - cap} more steps (all of them are in `trail-<mode>.json` in the run artifacts)")
+    out += ["", "</details>", ""]
+    return out
+
+
+def fix_lines(fix) -> list[str]:
+    """One line about the automatic fix; anything that is not a fix-<mode>.json object renders nothing."""
+    if not isinstance(fix, dict) or fix.get("status") not in ("proposed", "skipped", "rejected"):
+        return []
+    if fix["status"] == "proposed":
+        tests = fix.get("tests") if isinstance(fix.get("tests"), dict) else {}
+        tests = tests.get("summary") or "passed"
+        return ["### Proposed fix", "", f"🛠 {inline(fix.get('summary'))} Tests: {inline(tests)}. "
+                "A pull request follows in the next comment; a person must review and merge it.", ""]
+    return [f"No fix proposed: {inline(fix.get('reason') or fix['status'])}", ""]
 
 
 def evidence_link(e: dict) -> str:
@@ -84,7 +119,8 @@ def evidence_link(e: dict) -> str:
     return f"[{label}]({link})" if link else label
 
 
-def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_url: str = "") -> str:
+def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_url: str = "",
+           trail: dict | None = None, fix: dict | None = None) -> str:
     stats = stats or {}
     v = f.get("verification") or {}
     ev = {e["id"]: e for e in f.get("evidence") or []}
@@ -155,8 +191,10 @@ def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_u
 
     if f.get("next_step"):
         out += ["### Suggested next step", "", t(f["next_step"]), ""]
+    out += fix_lines(fix)
     if f.get("could_not_check"):
         out += ["### Couldn't check", ""] + [f"- {t(x)}" for x in f["could_not_check"]] + [""]
+    out += trail_lines(trail)
 
     rest = [e for e in f.get("evidence") or [] if e.get("kind") not in ("logql", "promql")]
     if f.get("evidence"):
@@ -204,17 +242,31 @@ def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_u
     return body
 
 
+def _optional_json(path: str | None) -> dict | None:
+    """An optional JSON object (trail, fix); missing, unreadable or not an object counts as unavailable."""
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        data = read_json(path)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="render")
     p.add_argument("--findings", required=True)
     p.add_argument("--mode", choices=("full", "n8n"), required=True)
     p.add_argument("--model", default="")
     p.add_argument("--execution-file")
+    p.add_argument("--trail", help="trail-<mode>.json (optional)")
+    p.add_argument("--fix", help="fix-<mode>.json (optional)")
     p.add_argument("--out", required=True)
     a = p.parse_args(argv)
     server, repo, run_id = (os.environ.get(k) for k in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"))
     run_url = f"{server}/{repo}/actions/runs/{run_id}" if server and repo and run_id else ""
-    body = render(read_json(a.findings), a.mode, a.model, run_stats(a.execution_file), run_url)
+    body = render(read_json(a.findings), a.mode, a.model, run_stats(a.execution_file), run_url,
+                  _optional_json(a.trail), _optional_json(a.fix))
     with open(a.out, "w") as f:
         f.write(body)
     print(f"render: {len(body)} chars -> {a.out}")

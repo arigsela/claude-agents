@@ -16,7 +16,13 @@ every link has been checked by a script. Design: `docs/superpowers/specs/2026-10
    and listed; unsupported hypotheses become `untested`; `likely_cause` without a supported
    hypothesis and `not_a_bug` without a verified docs rule become `unclear`. Secrets are scrubbed.
 4. **Render** (script): `comment-<mode>.md` with GitHub and Grafana Explore links and a footer
-   (mode, model, turns, duration, cost, "verified N of M evidence links", run link).
+   (mode, model, turns, duration, cost, "verified N of M evidence links", run link). It includes a
+   collapsed **"How the agent worked"** trail (`trail.py`, saved as `trail-<mode>.json`): the agent's
+   one-sentence narration before each tool call (the prompt asks it to think out loud), then the tool,
+   a compact input (repo-relative path, pattern, command, LogQL/PromQL and window) and a compact result
+   (`74 lines`, `5 log lines`, `no results`, `error: …`, `⛔ blocked: …`). Counts only: never file
+   contents or log lines. Grafana queries link to Explore and file reads to the blob at the
+   investigated SHA; capped at 40 lines.
 5. **Post** (separate job, `issues: write`): edits this mode's earlier comment (hidden marker) or
    creates one, and adds the `investigated` label. Nothing else writes.
 
