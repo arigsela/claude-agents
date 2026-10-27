@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Proposed fix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "root_cause", "files_changed", "test_command", "tests_passed", "risk", "notes"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One line, imperative, under 70 characters, for example: check the assignee for rule P4. It becomes the pull request title."
+    },
+    "root_cause": {
+      "type": "string",
+      "description": "One or two sentences: what was wrong and which documented rule it broke"
+    },
+    "files_changed": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Repo-relative paths you changed or added, the regression test included. Empty when you made no change."
+    },
+    "test_command": {
+      "type": "string",
+      "description": "The command you ran for the full test suite"
+    },
+    "tests_passed": {
+      "type": "boolean",
+      "description": "True only if the full suite passed after your change"
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "How likely the change breaks something else"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Anything a reviewer should know; if you made no change, why not"
+    }
+  }
+}

@@ -2,6 +2,13 @@
 # Secrets: ANTHROPIC_API_KEY, GRAFANA_TOKEN (Grafana Viewer service account). Variable (optional): GRAFANA_URL.
 # Label an open issue `bug` to investigate it; add `compare` as well for the n8n-style baseline.
 # Never put GRAFANA_TOKEN in a job- or workflow-level env: Claude sees the whole environment.
+# Fix PRs: when the full investigation finds a verified cause, Claude proposes a patch inside the
+# read-only investigate job (tests run only in a sandbox container); the `propose` job (no Claude)
+# re-checks it and opens a PR on bug-investigator/issue-<N> that a person reviews and merges.
+# Needs: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+# CI does not start on the fix branch by itself (PRs opened with GITHUB_TOKEN trigger no pull_request
+# runs, and agent-written code should run in CI only after a person has read it): the reviewer starts
+# it from Actions → ci → Run workflow on bug-investigator/issue-<N>, so ci.yml needs workflow_dispatch.
 name: Investigate bug
 
 on:
@@ -71,8 +78,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.modes != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     # Read-only: claude-code-action hands Claude the whole environment, GITHUB_TOKEN included.
+    # This also holds for the fix agent: it only writes files here; the patch leaves as an artifact.
     permissions:
       contents: read
       issues: read
@@ -122,3 +130,46 @@ jobs:
           command: post
           issue-number: ${{ needs.plan.outputs.issue }}
           comment-dir: investigation
+
+  propose:
+    needs: [plan, investigate, post]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      contains(fromJSON(needs.plan.outputs.modes), 'full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that can write code. It runs no Claude: the action's propose script re-checks the
+    # patch from the investigate job, pushes bug-investigator/issue-<N> and opens or updates the PR.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: propose-${{ needs.plan.outputs.issue }}
+      cancel-in-progress: false
+    steps:
+      # Outside the workspace: the checkout below cleans the workspace.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: bug-investigation-${{ needs.plan.outputs.issue }}-full
+          path: ${{ runner.temp }}/investigation
+      - id: fix
+        shell: bash
+        env:
+          FIX_FILE: ${{ runner.temp }}/investigation/fix-full.json
+        run: |
+          status=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$FIX_FILE" 2>/dev/null || true)
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "fix status: ${status:-none}"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        if: steps.fix.outputs.status == 'proposed'
+        with:
+          fetch-depth: 0
+          persist-credentials: true  # only this job pushes, and only the fix branch
+      - uses: arigsela/claude-agents/bug-investigator@REPLACE_WITH_SHA
+        if: steps.fix.outputs.status == 'proposed'
+        with:
+          command: propose
+          issue-number: ${{ needs.plan.outputs.issue }}
+          comment-dir: ${{ runner.temp }}/investigation

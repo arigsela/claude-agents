@@ -8,7 +8,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
-COMMANDS = ("hook", "gather", "prep", "verify", "trail", "render", "post", "selftest")
+COMMANDS = ("hook", "gather", "prep", "verify", "trail", "render", "post", "selftest",
+            "fix-prep", "fix-check", "propose")
 
 
 def main() -> int:
@@ -30,6 +31,9 @@ def main() -> int:
         from bug_investigator import trail as m
     elif cmd == "render":
         from bug_investigator import render as m
+    elif cmd in ("fix-prep", "fix-check", "propose"):
+        from bug_investigator import fix as m
+        return {"fix-prep": m.prep_main, "fix-check": m.check_main, "propose": m.propose_main}[cmd](rest)
     else:
         from bug_investigator import tickets as m
     return m.main(rest)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -26,6 +27,11 @@ FULL_TOOLS = [
 ] + [f"mcp__grafana__{t}" for t in scope.GRAFANA_TOOLS]
 N8N_TOOLS = ["Read", "Grep", "Glob"]
 DISALLOWED = ["WebFetch", "WebSearch", "Write", "Edit", "MultiEdit", "NotebookEdit", "Task"]
+# The fix agent: read, edit the app checkout, look at its diff, and run the tests only through the
+# exact run-tests.sh command (a sandbox container). No MCP, no web, no gh, no other commands.
+FIX_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash(git diff:*)", "Bash(git status:*)"]
+FIX_DISALLOWED = ["WebFetch", "WebSearch", "MultiEdit", "NotebookEdit", "Task"]
+SAFE_COMMAND = re.compile(r"^[A-Za-z0-9_./=:+-]+( [A-Za-z0-9_./=:+-]+)*$")
 
 FULL_NOTES = """## Tools in this run
 
@@ -49,26 +55,53 @@ can only be `file` items. Put everything you would have needed into `could_not_c
 """
 
 
-def hook_command(run_py: str, mode: str, roots: list[str], namespace: str) -> str:
+def hook_command(run_py: str, mode: str, roots: list[str], namespace: str, allow_commands: tuple = ()) -> str:
     parts = ["python3", "-I", run_py, "hook", "--mode", mode, "--namespace", namespace]
     for r in roots:
         parts += ["--root", r]
+    for c in allow_commands:
+        parts += ["--allow-command", c]
     return " ".join(shlex.quote(p) for p in parts)
 
 
-def build_settings(run_py: str, mode: str, roots: list[str], namespace: str, deny_dirs: list[str]) -> dict:
-    cmd = hook_command(run_py, mode, roots, namespace)
+def check_test_command(cmd: str) -> str | None:
+    """The test command goes into --allowedTools and the hook: plain words only."""
+    if not isinstance(cmd, str) or not SAFE_COMMAND.match(cmd.strip()):
+        return f"test-command {cmd!r} must be plain words (letters, digits, _ . / = : + -), no shell syntax"
+    return None
+
+
+def run_tests_command(action_path: str, app_dir: str, test_command: str) -> str:
+    """The one test command the fix agent may run: the sandbox script with fixed arguments."""
+    cmd = f"bash {os.path.join(action_path, 'run-tests.sh')} {app_dir} {test_command.strip()}"
+    problem = check_test_command(cmd)
+    if problem:
+        raise ValueError(problem)
+    return cmd
+
+
+def build_settings(run_py: str, mode: str, roots: list[str], namespace: str, deny_dirs: list[str],
+                   run_command: str | None = None) -> dict:
+    allow = (run_command,) if mode == "fix" and run_command else ()
+    cmd = hook_command(run_py, mode, roots, namespace, allow)
     entry = {"type": "command", "command": cmd, "timeout": 10}
     # Read rules also cover Grep and Glob. A leading // means an absolute path.
     deny = [f"Read(/{d.rstrip('/')}/**)" for d in deny_dirs if d]
-    return {
-        "permissions": {"blockReadsOutsideWorkingDirectories": True, "deny": deny},
-        "hooks": {"PreToolUse": [
-            {"matcher": "mcp__.*", "hooks": [entry]},
-            {"matcher": "Bash", "hooks": [entry]},
-            {"matcher": "Read|Grep|Glob", "hooks": [entry]},
-        ]},
-    }
+    hooks = [
+        {"matcher": "mcp__.*", "hooks": [entry]},
+        {"matcher": "Bash", "hooks": [entry]},
+        {"matcher": "Read|Grep|Glob", "hooks": [entry]},
+    ]
+    if mode == "fix":
+        app = roots[0].rstrip("/")
+        for tool in ("Edit", "Write"):
+            deny += [f"{tool}(/{d.rstrip('/')}/**)" for d in deny_dirs if d]
+            # The hook checks every protected path; these rules are a second layer for the main ones.
+            deny += [f"{tool}(/{app}/{p}/**)" for p in scope.PROTECTED_DIRS + (".git",)]
+            deny += [f"{tool}(/{app}/{p})" for p in sorted(scope.PROTECTED_NAMES)]
+        hooks.append({"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [entry]})
+    return {"permissions": {"blockReadsOutsideWorkingDirectories": True, "deny": deny},
+            "hooks": {"PreToolUse": hooks}}
 
 
 def build_mcp_config(binary: str, grafana_url: str, token_file: str, namespace: str) -> dict:
@@ -82,13 +115,21 @@ def build_mcp_config(binary: str, grafana_url: str, token_file: str, namespace: 
 
 
 def build_claude_args(mode: str, model: str, max_turns: int, schema: dict, mcp_config: str | None,
-                      add_dirs: list[str]) -> str:
+                      add_dirs: list[str], run_command: str | None = None) -> str:
     schema_json = json.dumps(schema, separators=(",", ":"))
     if "'" in schema_json:
         raise ValueError("findings schema must not contain single quotes (claude_args quoting)")
-    tools = FULL_TOOLS if mode == "full" else N8N_TOOLS
+    if mode == "fix":
+        tools, disallowed = list(FIX_TOOLS), FIX_DISALLOWED
+        if run_command:
+            if check_test_command(run_command):
+                raise ValueError(check_test_command(run_command))
+            tools.append(f"Bash({run_command})")  # exact: no other arguments
+        mcp_config, add_dirs = None, []  # the fix agent gets no MCP servers and no other directories
+    else:
+        tools, disallowed = (FULL_TOOLS if mode == "full" else N8N_TOOLS), DISALLOWED
     args = [f"--model {shlex.quote(model)}", f"--max-turns {int(max_turns)}",
-            f'--allowedTools "{",".join(tools)}"', f'--disallowedTools "{",".join(DISALLOWED)}"',
+            f'--allowedTools "{",".join(tools)}"', f'--disallowedTools "{",".join(disallowed)}"',
             f"--json-schema '{schema_json}'"]
     if mcp_config:
         args.append(f"--mcp-config {shlex.quote(mcp_config)}")

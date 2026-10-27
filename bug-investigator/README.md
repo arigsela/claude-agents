@@ -26,6 +26,43 @@ every link has been checked by a script. Design: `docs/superpowers/specs/2026-10
 5. **Post** (separate job, `issues: write`): edits this mode's earlier comment (hidden marker) or
    creates one, and adds the `investigated` label. Nothing else writes.
 
+6. **Fix** (full mode only, input `fix`, default on): when the *verified* verdict is `likely_cause`
+   and there is a verified code location (`likely_cause.code_verified`, or a supported hypothesis
+   citing verified `file` evidence), a second Claude step in the same read-only job edits the app
+   checkout (`fix_prompt.md`, `fix.schema.json`): the smallest change that restores the documented
+   rule plus one regression test. `fix-check` (no Claude) turns the changes into `fix.patch` and
+   writes `fix-full.json` (`proposed` / `skipped` / `rejected` with the reason); the comment shows
+   "Proposed fix" or "No fix proposed: <reason>".
+7. **Propose** (separate `propose` job: `contents`, `pull-requests`, `issues: write`; no Claude):
+   re-checks the patch, applies it on `bug-investigator/issue-<N>` (from the investigated commit),
+   re-checks what was applied, commits as `github-actions[bot]`, force-pushes, opens the PR (label
+   `bug-investigator`) or, on a re-run, edits the open one, and posts or edits one short comment
+   ("🛠 Proposed fix: #PR …"). It starts **no CI**: the reviewer reads the diff, then runs CI from
+   Actions → ci → Run workflow on the branch. Nothing merges automatically.
+
+**Fix safety.** Claude never holds a write token, and no code it writes runs on the runner:
+
+| Check | Where |
+|---|---|
+| The Grafana token file and the deploy checkout are deleted after verify; fix-prep refuses to start if the token file or a Grafana token variable exists | action step, `fix.secrets_gone` |
+| Tests run only through `run-tests.sh`: a copy of the tree without `.git`, mounted read-only into `python:3.12-slim@sha256:…` with `--network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 65534:65534`, no runner environment, tmpfs `/tmp`, 300 s limit; the image is pulled before Claude starts (`--pull never` after) | `run-tests.sh` |
+| The fix agent's tools: Read/Grep/Glob, Edit/Write, `git diff`, `git status`, and the one exact `bash <action>/run-tests.sh <checkout> <test-command>`; no MCP, no web, no gh. The hook enforces it (fix mode) and fix-prep self-tests the hook | `settings.py`, `hook.py`, `scope.py` |
+| Edit/Write only inside the app checkout, never `.github/`, `.claude/`, `docs/`, any `.git/`, root dotfiles and `*.cfg/*.ini/*.toml`, or build/test config at any depth (`pyproject.toml`, `setup.*`, `tox.ini`, `pytest.ini`, `conftest.py`, `requirements*`, lock files, `Makefile`, `Dockerfile*`, `.pre-commit-config.yaml`, `.gitattributes`, `.gitmodules`) | `scope.protected_reason` (hook and patch filter) |
+| `.git/config` must be unchanged after the fix (else restored and rejected); the scripts run git with `core.fsmonitor=false`, `core.hooksPath=/dev/null`, no system/global config | `fix.py` |
+| The patch is rejected if it is empty, touches a protected path, has a symlink/submodule/binary/rename, more than 400 changed lines, a secret-looking added line, or anything the strict parser does not recognise | `fix.check_patch_text` |
+| Tests must not be weakened: at least one new `def test_…`; in existing test files only additions; no deleted test files; no added skip/xfail/expectedFailure/skipTest/SkipTest; existing test functions unchanged (AST); no test defined twice; no new test that returns first | `fix.check_test_integrity`, `fix.check_test_sources` |
+| Sandbox runs: the original tree and the patched tree (`-v`): after must pass, report `Ran N` with N ≥ before + 1 (0 always fails), keep every test name that ran before, skip no more than before; then the original code plus the new tests must **fail** (else rejected). Only a sandbox error on that last run lets a fix through unproven, and the PR says so | `fix.evaluate` |
+| Only a proposed patch is kept in the artifacts; a rejected one leaves its file list, line counts and reason. The agent's log is kept scrubbed, and not at all when the patch held a secret | `fix.check_main` |
+| The propose job re-checks the patch (checksum, the same parser and test rules) and, after `git apply --index`, the staged paths and modes; it runs no tests and no Claude | `fix.propose` |
+
+Repo setting needed: Settings → Actions → General → "Allow GitHub Actions to create and approve pull
+requests". `ci.yml` needs `workflow_dispatch` so a reviewer can start CI on the fix branch.
+
+Residual risks: the fix agent sees issue-derived text (prompt injection), so its edits are only as
+trustworthy as a stranger's PR: that is why the patch is filtered, tested in a sandbox, and merged
+only by a person. Within the investigate job the agent's environment still holds the Anthropic key
+and the read-only job token (as in the investigation step).
+
 **Modes.** `full` sees everything above plus Grafana. `n8n` is the baseline a ticket-to-LLM flow
 gets: the ticket and the code at HEAD (shallow checkout, `docs/` removed), Read/Grep/Glob only.
 Its findings go through the same verify step.
@@ -47,9 +84,11 @@ See `examples/taskboard-investigate.yml` (labels `bug` and `compare`, `workflow_
 
 Inputs: `mode`, `issue-number`, `app-repo` (default: this repo), `deploy-repo`
 (`arigsela/kubernetes`), `deploy-path` (`base-apps/taskboard`), `grafana-url`, `grafana-token`,
-`anthropic-api-key`, `model` (`claude-sonnet-5-5`), `max-turns` (40), `namespace` (`taskboard`);
-`command: post` with `comment-dir` for the post job. Outputs: `work-dir`, `findings-file`,
-`comment-file`.
+`anthropic-api-key`, `model` (`claude-sonnet-5-5`), `max-turns` (40), `namespace` (`taskboard`),
+`fix` (`true`), `test-command` (`python3 -m unittest discover -s tests`, plain words; runs only in
+the sandbox), `fix-max-turns` (30); `command: post` with `comment-dir` for the post job;
+`command: propose` with `comment-dir` (the downloaded full-mode artifact) for the propose job.
+Outputs: `work-dir`, `findings-file`, `comment-file`.
 
 ## What keeps the agent in bounds
 
@@ -58,7 +97,7 @@ environment to Claude. So:
 
 | Layer | What it does |
 |---|---|
-| Job token | The investigate job is read-only (`contents`, `issues`, `pull-requests: read`); only the `post` job can write, and only from the rendered artifact. Checkout uses `persist-credentials: false`. |
+| Job token | The investigate job (the investigation and the fix agent) is read-only (`contents`, `issues`, `pull-requests: read`); only the `post` job (comments) and the `propose` job (the fix branch and PR, no Claude) can write, and only from the artifacts. The investigate checkout uses `persist-credentials: false`. |
 | Grafana token | Never in an environment variable: written to a 0600 file under `$RUNNER_TEMP`, read by mcp-grafana through `GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE` and by verify. The self-test fails the run if any variable holds it. Deleted at the end. |
 | mcp-grafana 2.1.1 (pinned binary, sha256 checked) | `--enabled-tools loki,prometheus --disable-write --disable-api --disable-rendering`, and `--loki-enforced-matchers 'namespace="taskboard"'`: the server ANDs that matcher into every Loki selector, so Loki stays scoped even if everything else failed. |
 | PreToolUse hook (`run.py hook`, `scope.py`) | Grafana: only `query_loki_logs`, `query_loki_stats`, `query_prometheus`, and the label-list tools with a scoped matcher; fixed datasource uids; every LogQL stream selector needs `namespace="taskboard"` exactly; every PromQL selector needs it or a `taskboard_` metric name; unknown syntax is rejected. Bash: one read-only `git log/show/blame/diff` or `gh pr/issue view/list/diff` at a time, no shell operators, no paths outside the checkouts, no `--output`/`--no-index`/`--contents`. Read/Grep/Glob: inside the checkouts (symlinks resolved). Any hook error blocks. |

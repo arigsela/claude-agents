@@ -13,6 +13,7 @@ Read/Grep/Glob path check. Every function returns None when allowed, else a reas
 from __future__ import annotations
 
 import os
+import re
 import shlex
 
 NAMESPACE = "taskboard"
@@ -406,13 +407,18 @@ DANGEROUS_OPTIONS = (
     "--ignore-revs-file", "--exec", "--upload-pack", "--web",
 )
 SHORT_BANNED = {("git", "blame"): {"-S"}}
+# The fix agent (mode "fix") may look at its own diff and run the exact sandboxed test command
+# (run-tests.sh, passed in as `exact`), nothing else. Tests never run on the runner itself.
+FIX_COMMANDS = (("git", "diff"), ("git", "status"))
 SHELL_META = set(";&|<>(){}$`\n\r\\")
 
 
-def check_bash(command, roots: list[str], mode: str = "full") -> str | None:
-    """Read-only git/gh commands only; no shell operators; no paths outside the checkouts."""
-    if mode != "full":
+def check_bash(command, roots: list[str], mode: str = "full", exact: tuple[tuple[str, ...], ...] = ()) -> str | None:
+    """Read-only git/gh commands only (fix mode: git diff/status, plus the commands in `exact`, matched
+    argument for argument); no shell operators; no paths outside the checkouts."""
+    if mode not in ("full", "fix"):
         return f"Bash is not available in {mode} mode"
+    allowed_cmds = FIX_COMMANDS if mode == "fix" else ALLOWED_COMMANDS
     if not isinstance(command, str) or not command.strip():
         return "empty command"
     quote = None
@@ -438,9 +444,11 @@ def check_bash(command, roots: list[str], mode: str = "full") -> str | None:
         if os.path.realpath(argv[2]) not in real_roots:
             return "git -C is only allowed with one of the checkouts"
         argv = ["git"] + argv[3:]
-    prefix = next((p for p in ALLOWED_COMMANDS if tuple(argv[: len(p)]) == p), None)
+    if mode == "fix" and tuple(argv) in {tuple(x) for x in exact}:
+        return None
+    prefix = next((p for p in allowed_cmds if tuple(argv[: len(p)]) == p), None)
     if prefix is None:
-        allowed = ", ".join(" ".join(p) for p in ALLOWED_COMMANDS)
+        allowed = ", ".join([" ".join(p) for p in allowed_cmds] + [" ".join(x) + " (exactly)" for x in exact])
         return f"only these commands are allowed: {allowed}"
     for arg in argv[len(prefix):]:
         opt = arg.split("=", 1)[0]
@@ -487,3 +495,55 @@ def check_path_tool(tool_name: str, tool_input, roots: list[str]) -> str | None:
         if isinstance(pat, str) and (pat.startswith(("/", "~")) or ".." in pat.split("/")):
             return f"glob pattern {pat} reaches outside the checkouts"
     return None
+
+
+# ---------------------------------------------------------------------------------- writes (fix mode)
+
+# The docs are the spec; workflows, agent settings, git internals, build and test configuration are
+# never the fix. The Edit/Write hook and the patch filter both use protected_reason.
+PROTECTED_DIRS = (".github", ".claude", "docs")
+PROTECTED_NAMES = {
+    "pyproject.toml", "setup.cfg", "setup.py", "tox.ini", "pytest.ini", "conftest.py", "uv.lock", "poetry.lock",
+    "Pipfile", "Pipfile.lock", "Makefile", "GNUmakefile", ".pre-commit-config.yaml", ".gitattributes", ".gitmodules",
+    ".gitignore", ".mcp.json",
+}
+PROTECTED_PATTERNS = (re.compile(r"^requirements.*\.(txt|in)$"), re.compile(r"^Dockerfile"), re.compile(r"^Containerfile"))
+
+
+def protected_reason(rel: str) -> str | None:
+    """Why a repo-relative path may not be changed by a fix, or None."""
+    if not isinstance(rel, str) or not rel or rel.startswith(("/", "~")) or "\\" in rel or "\0" in rel:
+        return f"{rel!r} is not a plain repo-relative path"
+    parts = rel.split("/")
+    if any(x in ("", ".", "..") for x in parts):
+        return f"{rel} is not a normalized repo-relative path"
+    if ".git" in parts:
+        return f"{rel} is inside a .git directory"
+    if parts[0] in PROTECTED_DIRS:
+        return f"{rel} is under {parts[0]}/, which a fix may not change"
+    name = parts[-1]
+    if name in PROTECTED_NAMES or any(p.match(name) for p in PROTECTED_PATTERNS):
+        return f"{rel} is build, test or tool configuration, which a fix may not change"
+    if len(parts) == 1 and (name.startswith(".") or name.endswith((".cfg", ".ini", ".toml"))):
+        return f"{rel} is configuration at the repo root, which a fix may not change"
+    if parts[0].startswith("."):
+        return f"{rel} is under a hidden directory at the repo root, which a fix may not change"
+    return None
+
+
+def check_write_path(tool_name: str, tool_input, root: str) -> str | None:
+    """Edit/Write/MultiEdit/NotebookEdit: inside the app checkout, never a protected path."""
+    if not isinstance(tool_input, dict):
+        return "tool input is not an object"
+    if not root:
+        return "no checkout configured"
+    p = tool_input.get("notebook_path") if tool_name == "NotebookEdit" else tool_input.get("file_path")
+    if not isinstance(p, str) or not p:
+        return "file_path is missing"
+    full = p if os.path.isabs(p) else os.path.join(root, p)
+    if not _inside(full, [root]):
+        return f"{p} is outside the app checkout"
+    real, rroot = os.path.realpath(full), os.path.realpath(root)
+    if real == rroot:
+        return "cannot write the checkout directory itself"
+    return protected_reason(os.path.relpath(real, rroot).replace(os.sep, "/"))

@@ -2,7 +2,7 @@ name: bug-investigator
 description: Investigate a bug issue with Claude (docs, code, PRs, deploys, Loki, Prometheus), verify every link, render one comment
 inputs:
   command:
-    description: "investigate (gather, Claude, verify, render) or post (write the rendered comments to the issue)"
+    description: "investigate (gather, Claude, verify, fix, render), post (write the rendered comments to the issue) or propose (open the fix PR; needs contents and pull-requests write)"
     default: investigate
   mode:
     description: "full (everything) or n8n (ticket and code at HEAD only, no docs/)"
@@ -38,8 +38,17 @@ inputs:
     description: The only Kubernetes namespace whose logs and metrics may be queried
     default: taskboard
   comment-dir:
-    description: "post: directory holding comment-<mode>.md files (searched recursively)"
+    description: "post/propose: directory holding the downloaded artifacts (comment-<mode>.md, fix-full.json, fix.patch; searched recursively)"
     default: investigation
+  fix:
+    description: "full mode: when the verified verdict is likely_cause with a verified code location, let Claude propose a fix (as a patch; the propose job opens the PR)"
+    default: "true"
+  test-command:
+    description: The app's test command (plain words); it only ever runs in the sandbox container (run-tests.sh)
+    default: python3 -m unittest discover -s tests
+  fix-max-turns:
+    description: Turn limit for the fix agent
+    default: "30"
 outputs:
   work-dir:
     description: Directory with facts, prompt, findings, comment and the Claude log (upload it as an artifact)
@@ -73,7 +82,7 @@ runs:
         # n8n mode sees what a ticket-to-LLM flow sees: the code, not the product docs.
         if [ "$MODE" = n8n ]; then rm -rf "$GITHUB_WORKSPACE/docs"; fi
         # Nothing Claude runs may rewrite the hook or the scope check.
-        chmod -R a-w "$GITHUB_ACTION_PATH/src" "$GITHUB_ACTION_PATH/run.py"
+        chmod -R a-w "$GITHUB_ACTION_PATH/src" "$GITHUB_ACTION_PATH/run.py" "$GITHUB_ACTION_PATH/run-tests.sh"
 
     - name: Check out the deploy repo
       if: inputs.command == 'investigate' && inputs.mode == 'full'
@@ -221,6 +230,68 @@ runs:
         if [ "$MODE" = full ]; then args+=(--deploy-dir "$DEPLOY_DIR" --token-file "$TOKEN_FILE"); fi
         python3 -I "$GITHUB_ACTION_PATH/run.py" "${args[@]}"
 
+    - name: Remove the Grafana token and the deploy checkout
+      # Nothing after verify needs them, and the fix agent must never be near the token.
+      if: always() && inputs.command == 'investigate'
+      shell: bash
+      env:
+        DEPLOY_DIR: ${{ steps.dirs.outputs.deploy }}
+      run: rm -rf "$RUNNER_TEMP/bug-investigator-secret" "$DEPLOY_DIR"
+
+    - name: Prepare the fix
+      id: fixprep
+      if: always() && inputs.command == 'investigate' && inputs.mode == 'full' && steps.prep.outcome == 'success'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        FIX: ${{ inputs.fix }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.app-repo }}
+        WORK: ${{ steps.dirs.outputs.work }}
+        MODEL: ${{ inputs.model }}
+        MAX_TURNS: ${{ inputs.fix-max-turns }}
+        TEST_COMMAND: ${{ inputs.test-command }}
+      run: |
+        set -euo pipefail
+        python3 -I "$GITHUB_ACTION_PATH/run.py" fix-prep --mode "$MODE" --enabled "$FIX" \
+          --findings "$WORK/findings-$MODE.json" --issue "$ISSUE" --repo "$REPO" --app-dir "$GITHUB_WORKSPACE" \
+          --action-path "$GITHUB_ACTION_PATH" --work-dir "$WORK" --deny-dir "$RUNNER_TEMP" \
+          --token-file "$RUNNER_TEMP/bug-investigator-secret/grafana-token" \
+          --model "$MODEL" --max-turns "$MAX_TURNS" --test-command "$TEST_COMMAND"
+
+    - name: Propose a fix with Claude
+      id: fix
+      if: always() && steps.fixprep.outputs.eligible == 'true'
+      continue-on-error: true
+      uses: anthropics/claude-code-action@8041f1d17e0e7d2f2cfe35002962e9f26237c0bb # v1.0.263
+      with:
+        anthropic_api_key: ${{ inputs.anthropic-api-key }}
+        github_token: ${{ github.token }}
+        prompt: ${{ steps.fixprep.outputs.prompt }}
+        settings: ${{ steps.fixprep.outputs.settings }}
+        claude_args: ${{ steps.fixprep.outputs.claude_args }}
+        track_progress: "false"
+        classify_inline_comments: "false"
+
+    - name: Check the fix and make the patch
+      if: always() && steps.fixprep.outputs.eligible == 'true'
+      shell: bash
+      env:
+        FIX_JSON: ${{ steps.fix.outputs.structured_output }}
+        EXECUTION_FILE: ${{ steps.fix.outputs.execution_file }}
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.app-repo }}
+        WORK: ${{ steps.dirs.outputs.work }}
+        TEST_COMMAND: ${{ inputs.test-command }}
+      run: |
+        set -euo pipefail
+        # fix-check keeps the patch only when it proposes it, and a scrubbed copy of the agent's log
+        # (none when the patch held a secret).
+        python3 -I "$GITHUB_ACTION_PATH/run.py" fix-check --mode "$MODE" --work-dir "$WORK" \
+          --app-dir "$GITHUB_WORKSPACE" --action-path "$GITHUB_ACTION_PATH" --findings "$WORK/findings-$MODE.json" \
+          --issue "$ISSUE" --repo "$REPO" --test-command "$TEST_COMMAND" --execution-file "$EXECUTION_FILE"
+
     - name: Render the comment
       if: always() && inputs.command == 'investigate' && steps.prep.outcome == 'success'
       shell: bash
@@ -260,3 +331,18 @@ runs:
         ISSUE: ${{ inputs.issue-number }}
         DIR: ${{ inputs.comment-dir }}
       run: python3 -I "$GITHUB_ACTION_PATH/run.py" post --repo "$REPO" --issue "$ISSUE" --dir "$DIR"
+
+    - name: Propose the fix as a pull request
+      # No Claude here. Re-checks the patch, applies it on bug-investigator/issue-<N>, pushes with the
+      # job token (the caller's checkout persists it), opens or updates the PR. It starts no CI: a
+      # person reads the diff first, then runs CI on the branch.
+      if: inputs.command == 'propose'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ inputs.app-repo }}
+        ISSUE: ${{ inputs.issue-number }}
+        DIR: ${{ inputs.comment-dir }}
+      run: >-
+        python3 -I "$GITHUB_ACTION_PATH/run.py" propose --repo "$REPO" --issue "$ISSUE" --dir "$DIR"
+        --app-dir "$GITHUB_WORKSPACE"
