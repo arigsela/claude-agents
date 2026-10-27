@@ -773,6 +773,26 @@ def selftest_fix_hook(hook_cmd: str, app_dir: str, run_command: str, test_comman
     return problems
 
 
+def install_run_tests(action_path: str, app_dir: str, test_command: str, work_dir: str) -> str:
+    """Write the `run-tests` wrapper into a bin dir under RUNNER_TEMP (Claude may not read or edit
+    there) and put that dir on PATH for the later steps through GITHUB_PATH. Returns the wrapper's path."""
+    # Never inside work_dir: that folder is uploaded as the run's artifact.
+    base = os.environ.get("RUNNER_TEMP") or os.path.dirname(os.path.abspath(work_dir))
+    bin_dir = os.path.join(base, "bug-investigator-bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    path = os.path.join(bin_dir, settings.RUN_TESTS)
+    if os.path.exists(path):
+        os.chmod(path, 0o755)
+    with open(path, "w") as f:
+        f.write(settings.run_tests_wrapper(action_path, app_dir, test_command))
+    os.chmod(path, 0o555)
+    gh_path = os.environ.get("GITHUB_PATH")
+    if gh_path:
+        with open(gh_path, "a") as f:
+            f.write(bin_dir + "\n")
+    return path
+
+
 def secrets_gone(token_file: str | None, env: dict) -> str | None:
     """The fix agent starts only after the Grafana token is deleted and in no environment variable."""
     if token_file and os.path.exists(token_file):
@@ -818,7 +838,8 @@ def prep_main(argv: list[str] | None = None) -> int:
     if not reason:
         try:
             run_command = settings.run_tests_command(a.action_path, a.app_dir, a.test_command)
-        except ValueError as e:
+            install_run_tests(a.action_path, a.app_dir, a.test_command, a.work_dir)
+        except (ValueError, OSError) as e:
             reason = str(e)
     if not reason and not a.skip_pull:
         r = subprocess.run(["bash", script, "--pull"], capture_output=True, text=True, timeout=600)

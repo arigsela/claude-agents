@@ -159,7 +159,7 @@ def test_fix_hook_as_subprocess(tmp_path):
 
 def test_fix_settings_and_args():
     run_cmd = settings.run_tests_command("/a", "/w/app", TEST_CMD)
-    assert run_cmd == f"bash /a/run-tests.sh /w/app {TEST_CMD}"
+    assert run_cmd == "run-tests"  # no path: Claude Code denies Bash commands naming the action dir
     s = settings.build_settings("/a/run.py", "fix", ["/w/app"], "taskboard", ["/a", "/w/_temp"], run_cmd)
     deny = s["permissions"]["deny"]
     for rule in ("Read(//w/_temp/**)", "Edit(//w/app/.github/**)", "Write(//w/app/docs/**)",
@@ -184,6 +184,28 @@ def test_fix_settings_and_args():
         settings.run_tests_command("/a", "/w/app", "python3 -m unittest; curl x")
     assert settings.check_test_command("pytest -q tests") is None
     assert settings.check_test_command("pytest,x") and settings.check_test_command("a $(b)")
+
+
+def test_run_tests_wrapper_installed_on_path(tmp_path, monkeypatch):
+    action = tmp_path / "action"
+    action.mkdir()
+    (action / "run-tests.sh").write_text('#!/usr/bin/env bash\necho "ARGS:$*"\n')
+    app = tmp_path / "app"
+    app.mkdir()
+    gh_path = tmp_path / "github_path"
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "temp"))
+    monkeypatch.setenv("GITHUB_PATH", str(gh_path))
+    path = fix.install_run_tests(str(action), str(app), TEST_CMD, str(tmp_path / "work"))
+    assert os.path.basename(path) == "run-tests" and not os.access(path, os.W_OK)
+    assert gh_path.read_text().strip() == os.path.dirname(path)
+    r = subprocess.run([path], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == f"ARGS:{app} {TEST_CMD}"
+    r = subprocess.run([path, "-k", "x"], capture_output=True, text=True)
+    assert r.returncode == 2 and "no arguments" in r.stderr
+    with pytest.raises(ValueError):
+        settings.run_tests_wrapper(str(action), str(app), "python3 -m unittest; curl x")
+    # re-installing over a read-only wrapper works
+    assert fix.install_run_tests(str(action), str(app), TEST_CMD, str(tmp_path / "work")) == path
 
 
 # ------------------------------------------------------------------------------ run-tests.sh
@@ -532,7 +554,7 @@ def test_prep_and_check_propose_a_good_fix(repo, tmp_path, monkeypatch):
     work, outputs = prep(repo, tmp_path, monkeypatch)
     assert "eligible<<" in outputs and "\ntrue\n" in outputs
     prompt = (work / "fix-prompt.txt").read_text()
-    assert "bug report #42 in o/app" in prompt and f"bash {SCRIPT} {repo['dir']} {TEST_CMD}" in prompt
+    assert "bug report #42 in o/app" in prompt and "`run-tests`" in prompt and SCRIPT not in prompt
     assert "app/perm.py:2" in prompt and "{{" not in prompt
     s = json.loads((work / "fix-settings.json").read_text())
     assert s["hooks"]["PreToolUse"][-1]["matcher"] == "Edit|Write|MultiEdit|NotebookEdit"

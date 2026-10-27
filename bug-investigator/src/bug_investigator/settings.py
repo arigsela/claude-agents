@@ -71,13 +71,31 @@ def check_test_command(cmd: str) -> str | None:
     return None
 
 
+RUN_TESTS = "run-tests"
+
+
 def run_tests_command(action_path: str, app_dir: str, test_command: str) -> str:
-    """The one test command the fix agent may run: the sandbox script with fixed arguments."""
-    cmd = f"bash {os.path.join(action_path, 'run-tests.sh')} {app_dir} {test_command.strip()}"
-    problem = check_test_command(cmd)
-    if problem:
-        raise ValueError(problem)
-    return cmd
+    """The one test command the fix agent may run: `run-tests`, a wrapper on PATH (run_tests_wrapper).
+
+    It names no path on purpose: Claude Code refuses Bash commands that mention a path outside the
+    working directory (or under a denied Read rule), and the action dir is both, so a command like
+    `bash <action>/run-tests.sh …` is always denied (seen on taskboard#26)."""
+    for part in (os.path.join(action_path, "run-tests.sh"), app_dir, test_command):
+        problem = check_test_command(part)
+        if problem:
+            raise ValueError(problem)
+    return RUN_TESTS
+
+
+def run_tests_wrapper(action_path: str, app_dir: str, test_command: str) -> str:
+    """The script installed as `run-tests` on PATH: the sandbox script with fixed arguments, no others."""
+    run_tests_command(action_path, app_dir, test_command)  # same checks
+    argv = [os.path.join(action_path, "run-tests.sh"), app_dir] + test_command.split()
+    return ("#!/usr/bin/env bash\n"
+            "# The fix agent's only way to run tests: the sandbox container (run-tests.sh), fixed arguments.\n"
+            "set -euo pipefail\n"
+            'if [ "$#" -ne 0 ]; then echo "run-tests takes no arguments" >&2; exit 2; fi\n'
+            f"exec bash {' '.join(shlex.quote(x) for x in argv)}\n")
 
 
 def build_settings(run_py: str, mode: str, roots: list[str], namespace: str, deny_dirs: list[str],
