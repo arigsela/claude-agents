@@ -1,0 +1,280 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bug investigation findings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "verdict",
+    "confidence",
+    "report",
+    "hypotheses",
+    "evidence",
+    "next_step",
+    "could_not_check",
+    "docs_rule",
+    "likely_cause"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "2 to 3 sentences for the reporter and the developer"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "likely_cause",
+        "not_a_bug",
+        "needs_info",
+        "unclear"
+      ]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "report": {
+      "type": "object",
+      "description": "The report restated. Times in UTC, RFC 3339.",
+      "additionalProperties": false,
+      "required": [
+        "who",
+        "what",
+        "when_start",
+        "when_end",
+        "where",
+        "expected",
+        "actual"
+      ],
+      "properties": {
+        "who": {
+          "type": "string"
+        },
+        "what": {
+          "type": "string"
+        },
+        "when_start": {
+          "type": "string",
+          "description": "RFC 3339 UTC, earliest time the symptom may have started"
+        },
+        "when_end": {
+          "type": "string",
+          "description": "RFC 3339 UTC, latest time in the report"
+        },
+        "where": {
+          "type": "string",
+          "description": "route, page or action"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "actual": {
+          "type": "string"
+        }
+      }
+    },
+    "docs_rule": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The documented rule for the intended behavior, quoted verbatim. Fill it whenever a doc states the intended behavior; null only when no doc covers it.",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "rule_id",
+        "quote"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "path in the app checkout, or deploy checkout path as given in the docs index"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string",
+          "description": "verbatim text from the doc, one to three lines"
+        }
+      }
+    },
+    "likely_cause": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "change_ref",
+        "live_since",
+        "code_ref",
+        "explanation"
+      ],
+      "properties": {
+        "change_ref": {
+          "type": "string",
+          "description": "PR as #N, or a commit SHA"
+        },
+        "live_since": {
+          "type": "string",
+          "description": "RFC 3339 UTC, from the deploy timeline"
+        },
+        "code_ref": {
+          "type": "string",
+          "description": "path:line in the app checkout"
+        },
+        "explanation": {
+          "type": "string"
+        }
+      },
+      "description": "Required (not null) when verdict is likely_cause: the change, when it went live, the code line, and why. Null otherwise."
+    },
+    "hypotheses": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "statement",
+          "test",
+          "status",
+          "evidence_ids"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "H1, H2, H3"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "test": {
+            "type": "string",
+            "description": "what would confirm or refute it"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "ruled_out",
+              "untested"
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "ref",
+          "detail"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "E1, E2, ..."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "commit",
+              "pr",
+              "issue",
+              "file",
+              "doc",
+              "logql",
+              "promql"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "description": "commit: SHA. pr or issue: #N. file or doc: path. logql or promql: the exact query."
+          },
+          "detail": {
+            "type": "string",
+            "description": "what this shows, with counts and times"
+          },
+          "repo": {
+            "type": "string",
+            "enum": [
+              "app",
+              "deploy"
+            ],
+            "description": "for commit, file and doc: which checkout (default app)"
+          },
+          "line": {
+            "type": "integer",
+            "description": "for file and doc: 1-based line"
+          },
+          "quote": {
+            "type": "string",
+            "description": "for file and doc: verbatim text at that line"
+          },
+          "start": {
+            "type": "string",
+            "description": "for queries: RFC 3339 UTC window start"
+          },
+          "end": {
+            "type": "string",
+            "description": "for queries: RFC 3339 UTC window end"
+          },
+          "expect": {
+            "type": "string",
+            "enum": [
+              "found",
+              "none"
+            ],
+            "description": "for queries: found = returned data, none = returned nothing"
+          }
+        }
+      }
+    },
+    "similar_past_bugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issue",
+          "why"
+        ],
+        "properties": {
+          "issue": {
+            "type": "string",
+            "description": "#N"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "next_step": {
+      "type": "string"
+    },
+    "could_not_check": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
