@@ -16,7 +16,7 @@ This file provides guidance for Claude Code when working with this repository.
 | **youtube-mcp/** | MCP Server | YouTube transcript extraction and summarization |
 | **pr-triage/** | GitHub composite action + Anthropic API + Jev | Labels PRs review:skip/skim/read from policy rules; calibration CLI |
 | **skills/explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact), with service, ticket and plan (one-pager) explainers sharing its scripts; retro of /code-review sessions |
-| **skills/readiness/** | Claude Code plugin skill | `/production-readiness <repo>`: scripted facts and rule checks over app repo, deploy folder, Backstage, cluster and GitHub; model judgments checked by `verify.py`; terminal report |
+| **skills/readiness/** | Claude Code plugin skill | `/production-readiness <repo>`: scripted facts and rule checks over app repo, deploy folder, Backstage, cluster and GitHub; model judgments checked by `verify.py`; terminal report, or with `--html` an interactive HTML page (Artifact) |
 
 ## Quick Commands
 

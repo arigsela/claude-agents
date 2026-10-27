@@ -130,7 +130,7 @@ skills/review-retro/          # /review-retro <PR> | --since 14d
 | crewai-memory-knowledge | learning | CrewAI unified memory (scopes, slices, scoring) and knowledge (RAG sources, embedders) |
 | pr-explainer | development | Grounded HTML explainer for GitOps PRs: rendered-manifest resource map, risks, must-read hunks |
 | review-retro | development | Retro of a /code-review session against later fixes: misses, causes, cost, proposals |
-| readiness | development | `/production-readiness <repo>`: Well-Architected-style readiness review with a verdict, top fixes and findings per pillar |
+| readiness | development | `/production-readiness <repo>`: Well-Architected-style readiness review with a verdict, top fixes and findings per pillar, in the terminal or with `--html` as an interactive page |
 
 #### Install Skills from the Marketplace
 

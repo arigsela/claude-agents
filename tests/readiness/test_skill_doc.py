@@ -23,7 +23,7 @@ class SkillDocTest(unittest.TestCase):
     def test_frontmatter(self):
         fm = frontmatter(SKILL.read_text())
         self.assertEqual(fm["name"], "production-readiness")
-        self.assertEqual(fm["version"], "0.2.4")
+        self.assertEqual(fm["version"], "0.3.0")
         self.assertEqual(fm["requires"]["tools"], ["git", "gh", "uv", "kubectl"])
         self.assertNotIn("model", fm)
 
@@ -73,6 +73,17 @@ class SkillDocTest(unittest.TestCase):
             line = next(l for l in text.splitlines() if f"scripts/{script}" in l)
             self.assertIn("--out <R>", line, script)
 
+    def test_html_publish_step(self):
+        text = SKILL.read_text()
+        render = re.search(r"5\. \*\*Render\*\*.*?(?=\n6\. )", text, re.S).group(0)
+        self.assertIn("[--unverified] [--html]", render)
+        publish = re.search(r"6\. \*\*Publish\*\* \(only with `--html`\).*?(?=\n7\. )", text, re.S).group(0)
+        for needle in ("artifact-design", "<R>/report.html", '"composer_only": true', "Never edit"):
+            self.assertIn(needle, publish, needle)
+        fallback = next(l for l in publish.splitlines() if "--standalone" in l)
+        self.assertIn("[--unverified]", fallback)  # the local page keeps the UNVERIFIED banner verify asked for
+        self.assertIn("exactly when step 5 used it", publish)
+
     def test_readme_read_only_guarantees(self):  # final review M2
         readme = (PLUGIN / "README.md").read_text()
         section = readme.split("## Read-only guarantees", 1)[1].split("\n## ", 1)[0]
@@ -100,7 +111,7 @@ class SkillDocTest(unittest.TestCase):
         self.assertEqual(len(entry), 1)
         self.assertEqual(entry[0]["source"], "./skills/readiness")
         cat = json.loads((ROOT / "skills" / "skills-catalog.json").read_text())
-        self.assertEqual(cat["skills"]["readiness"]["version"], "0.2.4")
+        self.assertEqual(cat["skills"]["readiness"]["version"], "0.3.0")
         plugin = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(plugin["name"], "readiness")
 
