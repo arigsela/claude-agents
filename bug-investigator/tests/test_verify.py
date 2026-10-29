@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from bug_investigator import steps as stepfmt
 from bug_investigator import verify as V
 from bug_investigator.grafana import count_results, explore_link, query_body
 from bug_investigator.util import CommandError, scrub_text
@@ -340,3 +341,190 @@ def test_scrub_text_keeps_shas_and_metric_names():
     assert "[redacted]" in scrub_text("key sk-ant-api03-abcdefghijkl")
     assert "[redacted]" in scrub_text("ghs_abcdefghijklmnopqrstuv")
     assert "[redacted]" in scrub_text("blob QWxhZGRpbjpvcGVuIHNlc2FtZQ1234567890abcdefghijklmnopq")
+
+
+# ------------------------------------------------------------------------------ ui evidence
+
+PNG = b"\x89PNG\r\n\x1a\n"
+LIVE = "0123456789abcdef0123456789abcdef01234567"
+UI_STEPS = [
+    {"do": "goto", "value": "/"},
+    {"do": "click", "target": {"role": "button", "name": "Start",
+                               "within": {"css": ".card", "text": "Write copy for the pricing page"}},
+     "note": "dana starts her task"},
+    {"do": "expect_text", "target": {"role": "status"}, "value": "moved to in progress"},
+]
+MISMATCH = 'no match for status contains "moved to in progress"'
+
+
+def ui_item(fails_at=3, steps=None, **over):
+    item = {"id": "E1", "kind": "ui", "ref": "dana starts her own open task", "detail": "Start leaves the task open",
+            "steps": UI_STEPS if steps is None else steps, "fails_at": fails_at}
+    item.update(over)
+    return item
+
+
+def replay(steps, failed_at=None, failure="mismatch", error=MISMATCH):
+    """What mcp_client.replay_via_mcp returns: the replay stops at the first failing step; one PNG per step."""
+    ran = steps[:failed_at] if failed_at else steps
+    out = [{"n": n, "text": stepfmt.describe(s), "ok": n != failed_at, "error": error if n == failed_at else None,
+            "failure": failure if n == failed_at else None} for n, s in enumerate(ran, 1)]
+    return {"ok": failed_at is None, "failed_at": failed_at, "matches_claim": None, "commit": LIVE, "steps": out,
+            "snapshot": '- button "Start"', "app_log": ["GET / 200"], "console": [],
+            "screenshots": [(s["n"], PNG + bytes([s["n"]])) for s in out], "error": None}
+
+
+TOOL_ERROR = {"ok": False, "failed_at": None, "matches_claim": None, "commit": None, "steps": [], "snapshot": None,
+              "app_log": None, "console": [], "screenshots": [], "error": "Chromium did not launch: libnss3.so missing"}
+
+
+class FakeReplay:
+    """ctx.ui_replay: `result` is a dict, an exception to raise, or a function of the steps."""
+
+    def __init__(self, result):
+        self.result, self.calls = result, []
+
+    def __call__(self, steps, fails_at):
+        self.calls.append((steps, fails_at))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result(steps) if callable(self.result) else self.result
+
+
+def ui_verify(app_repo, items, ui_replay):
+    c = V.Ctx(mode="full", repo="o/app", app_dir=app_repo["dir"], issue=7, runner=FakeGh(GH), ui_replay=ui_replay)
+    f = findings(app_repo, evidence=items, hypotheses=[], likely_cause=None, docs_rule=None, verdict="unclear")
+    return V.verify(f, c), c
+
+
+def reasons(out):
+    return {d["id"]: d["reason"] for d in out["verification"]["dropped"]}
+
+
+def test_ui_verified_when_claimed_step_fails(app_repo):
+    fake = FakeReplay(lambda s: replay(s, failed_at=3))
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)], fake)
+    assert fake.calls == [(UI_STEPS, 3)]
+    e = by_id(out)["E1"]
+    assert e["verified"] == {
+        "commit": LIVE, "failed_at": 3,
+        "steps": [{"n": 1, "text": "open /", "ok": True, "error": None, "failure": None},
+                  {"n": 2, "text": 'click button "Start" in .card "Write copy for the pricing page"', "ok": True,
+                   "error": None, "failure": None},
+                  {"n": 3, "text": 'expect status to contain "moved to in progress"', "ok": False,
+                   "error": MISMATCH, "failure": "mismatch"}]}
+    assert e["steps"] == UI_STEPS and e["fails_at"] == 3  # the agent's item is kept as written
+    assert out["verification"]["verified"] == 1 and out["verification"]["total"] == 1
+    assert c.ui_shots == {"E1": [(1, PNG + b"\x01"), (2, PNG + b"\x02"), (3, PNG + b"\x03")]}
+
+
+def test_ui_dropped_when_other_step_fails(app_repo):
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)],
+                       FakeReplay(lambda s: replay(s, failed_at=2, failure="missing", error='no button "Start"')))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == 'expected step 3 to fail; step 2 failed: no button "Start"'
+
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=2)], FakeReplay(lambda s: replay(s)))
+    assert reasons(out)["E1"] == "expected step 2 to fail; every step passed"
+
+
+def test_ui_ambiguous_failure_is_never_evidence(app_repo):
+    # Ruling R8: a target that matched two elements is a badly written step, not a reproduction.
+    out, c = ui_verify(app_repo, [ui_item(fails_at=2)],
+                       FakeReplay(lambda s: replay(s, failed_at=2, failure="ambiguous", error="matched 2 elements")))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == ("step 2 failed only because its target matched more than one element: "
+                                  "matched 2 elements")
+
+
+def test_ui_null_fails_at_needs_all_pass(app_repo):
+    fake = FakeReplay(lambda s: replay(s))
+    out, c = ui_verify(app_repo, [ui_item(fails_at=None)], fake)
+    v = by_id(out)["E1"]["verified"]
+    assert fake.calls == [(UI_STEPS, None)]
+    assert v["failed_at"] is None and [s["ok"] for s in v["steps"]] == [True, True, True]
+    assert [n for n, _ in c.ui_shots["E1"]] == [1, 2, 3]
+
+    out, c = ui_verify(app_repo, [ui_item(fails_at=None)], FakeReplay(lambda s: replay(s, failed_at=3)))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == f"step 3 failed: {MISMATCH}"
+
+    item = ui_item()
+    del item["fails_at"]  # an absent fails_at is null
+    fake = FakeReplay(lambda s: replay(s))
+    out, _ = ui_verify(app_repo, [item], fake)
+    assert fake.calls == [(UI_STEPS, None)] and by_id(out)["E1"]["verified"]["failed_at"] is None
+
+
+def test_ui_without_browser_dropped(app_repo):
+    out, c = ui_verify(app_repo, [ui_item()], None)
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == "the browser is not available in this run"
+    # The Action and the n8n mode build their Ctx without a browser.
+    action = V.Ctx(mode="n8n", repo="o/app", app_dir=app_repo["dir"], runner=FakeGh(GH))
+    assert action.ui_replay is None and action.ui_shots == {}
+
+
+def test_ui_invalid_steps_dropped(app_repo):
+    fake = FakeReplay(lambda s: pytest.fail("invalid steps are never replayed"))
+    items = [ui_item(id="E1", steps=[{"do": "goto", "value": "//evil.example"}], fails_at=None),
+             ui_item(id="E2", fails_at=4),
+             ui_item(id="E3", steps=[]),
+             ui_item(id="E4", steps=[{"do": "click"}, {"do": "fill", "target": {"text": "Title"}}], fails_at=None),
+             ui_item(id="E5", steps="click Start")]
+    out, c = ui_verify(app_repo, items, fake)
+    assert out["evidence"] == [] and fake.calls == [] and c.ui_shots == {}
+    r = reasons(out)
+    assert r["E1"] == "step 1: goto value must be a path starting with / (not //)"
+    assert r["E2"] == "fails_at must be null or a step number from 1 to 3"
+    assert r["E3"] == r["E5"] == "steps must be a non-empty list"
+    assert r["E4"] == "step 1: click needs a target; step 2: fill needs a value"  # every problem, joined
+
+
+def test_ui_replay_failures_dropped(app_repo):
+    from bug_investigator.mcp_client import McpError
+
+    out, _ = ui_verify(app_repo, [ui_item()], FakeReplay(McpError("MCP tools/call: HTTP 502 bad gateway")))
+    assert reasons(out)["E1"] == "replay failed: MCP tools/call: HTTP 502 bad gateway"
+    out, _ = ui_verify(app_repo, [ui_item()], FakeReplay(TOOL_ERROR))
+    assert reasons(out)["E1"] == "replay failed: Chromium did not launch: libnss3.so missing"
+
+
+def test_ui_garbled_result_fails_only_that_item(app_repo):
+    garbled = {"ok": False, "failed_at": 3, "steps": "not a list", "screenshots": None, "error": None}
+    items = [ui_item(id="E1"), {"id": "E2", "kind": "commit", "ref": app_repo["second"][:10], "detail": "the change"}]
+    out, c = ui_verify(app_repo, items, FakeReplay(garbled))
+    assert [e["id"] for e in out["evidence"]] == ["E2"] and c.ui_shots == {}
+    assert reasons(out)["E1"] == "replay failed: the result does not show step 3"
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=None)], FakeReplay({"ok": False, "failed_at": None, "error": None}))
+    assert reasons(out)["E1"] == "the replay failed without naming a step"
+    out, _ = ui_verify(app_repo, [ui_item()], FakeReplay(["not", "a", "dict"]))
+    assert reasons(out)["E1"] == "replay failed: the browser returned no result"
+
+
+def test_ui_shots_keyed_by_the_kept_id(app_repo):
+    two = UI_STEPS[:2]
+    items = [ui_item(id="E1", fails_at=None),
+             ui_item(id="", steps=two, fails_at=None),  # verify names it E2
+             ui_item(id="E1", steps=two[:1], fails_at=None)]  # a duplicate id is dropped, never replayed
+    fake = FakeReplay(lambda s: replay(s))
+    out, c = ui_verify(app_repo, items, fake)
+    assert [e["id"] for e in out["evidence"]] == ["E1", "E2"]
+    assert reasons(out)["E1"] == "duplicate id" and len(fake.calls) == 2
+    assert [n for n, _ in c.ui_shots["E1"]] == [1, 2, 3]
+    assert [n for n, _ in c.ui_shots["E2"]] == [1, 2]
+    assert set(c.ui_shots) == {e["id"] for e in out["evidence"]}
+
+
+def test_ui_shots_kept_off_the_json(app_repo):
+    def with_bytes(s):
+        r = replay(s, failed_at=3)
+        for step in r["steps"]:
+            step["png"] = PNG  # anything beyond {n, text, ok, error, failure} stays behind
+        return r
+
+    out, c = ui_verify(app_repo, [ui_item()], FakeReplay(with_bytes))
+    text = json.dumps(out)  # bytes anywhere would raise TypeError
+    assert "png" not in text and "snapshot" not in text and "app_log" not in text
+    assert set(by_id(out)["E1"]["verified"]) == {"commit", "failed_at", "steps"}
+    assert all(isinstance(png, bytes) and png.startswith(PNG) for _, png in c.ui_shots["E1"])

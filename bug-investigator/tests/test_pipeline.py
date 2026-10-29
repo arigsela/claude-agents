@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from bug_investigator import gather, render, settings, tickets
+from bug_investigator import steps as stepfmt
 from bug_investigator import verify as V
 from conftest import FakeGh
 
@@ -311,4 +312,155 @@ def test_schema_has_no_single_quotes_and_required_fields():
     assert "'" not in json.dumps(schema)
     assert set(schema["required"]) >= {"summary", "verdict", "evidence", "hypotheses"}
     assert schema["properties"]["evidence"]["items"]["properties"]["kind"]["enum"] == \
-        ["commit", "pr", "issue", "file", "doc", "logql", "promql"]
+        ["commit", "pr", "issue", "file", "doc", "logql", "promql", "ui"]
+
+
+def conforms(value, schema, path="$") -> list[str]:
+    """A minimal draft-07 check for the keywords findings.schema.json uses (no jsonschema dependency)."""
+    types = schema.get("type")
+    types = [types] if isinstance(types, str) else types or []
+    kinds = {"object": dict, "array": list, "string": str, "null": type(None), "boolean": bool}
+    ok = any((t == "integer" and isinstance(value, int) and not isinstance(value, bool))
+             or (t in kinds and isinstance(value, kinds[t])) for t in types) if types else True
+    if not ok:
+        return [f"{path}: not {'/'.join(types)}"]
+    probs = []
+    if "enum" in schema and value not in schema["enum"]:
+        probs.append(f"{path}: {value!r} not in enum")
+    if isinstance(value, int) and "minimum" in schema and value < schema["minimum"]:
+        probs.append(f"{path}: below minimum")
+    if isinstance(value, str) and "maxLength" in schema and len(value) > schema["maxLength"]:
+        probs.append(f"{path}: too long")
+    if isinstance(value, dict):
+        props = schema.get("properties", {})
+        probs += [f"{path}: missing {k}" for k in schema.get("required", []) if k not in value]
+        if schema.get("additionalProperties") is False:
+            probs += [f"{path}: unknown {k}" for k in value if k not in props]
+        for k, v in value.items():
+            if k in props:
+                probs += conforms(v, props[k], f"{path}.{k}")
+    if isinstance(value, list):
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            probs.append(f"{path}: too many items")
+        for i, v in enumerate(value):
+            probs += conforms(v, schema.get("items", {}), f"{path}[{i}]")
+    return probs
+
+
+def test_schema_accepts_ui_item():
+    from test_verify import ui_item
+    with open(os.path.join(ROOT, "findings.schema.json")) as f:
+        evidence = json.load(f)["properties"]["evidence"]["items"]
+    props = evidence["properties"]
+    assert props["fails_at"]["type"] == ["integer", "null"] and props["fails_at"]["minimum"] == 1
+    step = props["steps"]["items"]
+    assert props["steps"]["type"] == "array" and step["additionalProperties"] is False
+    assert set(step["properties"]) == {"do", "target", "value", "note"}
+    assert step["properties"]["do"]["enum"] == list(stepfmt.ACTIONS + stepfmt.CHECKS)
+    target = step["properties"]["target"]
+    assert target["additionalProperties"] is False
+    assert set(target["properties"]) == {"role", "name", "label", "placeholder", "text", "within"}
+    within = target["properties"]["within"]
+    assert within["additionalProperties"] is False and set(within["properties"]) == {"css", "text"}
+    assert "ui:" in props["ref"]["description"] and "ui" in props["detail"]["description"]
+
+    for fails_at in (3, None):
+        item = ui_item(fails_at=fails_at)
+        assert conforms(item, evidence) == [] and stepfmt.validate(item["steps"], fails_at) == []
+    bad = ui_item(fails_at=0, steps=[{"do": "hover", "target": {"role": "button", "xpath": "//b"}, "wait": 1}])
+    assert sorted(conforms(bad, evidence)) == ["$.fails_at: below minimum", "$.steps[0].do: 'hover' not in enum",
+                                               "$.steps[0].target: unknown xpath", "$.steps[0]: unknown wait"]
+
+
+def test_prompt_says_there_is_no_browser():
+    with open(os.path.join(ROOT, "prompt.md")) as f:
+        assert "There is no browser in this run: never cite `ui` evidence." in f.read()
+
+
+def test_browser_requirements_are_pinned():
+    with open(os.path.join(ROOT, "browser-requirements.txt")) as f:
+        lines = [x.strip() for x in f if x.strip() and not x.lstrip().startswith("#")]
+    assert lines == [
+        "playwright==1.64.0 --hash=sha256:5a59af1b230b234008524a5d42b613b233d4256f73bc1dd25bf3f11db0c81b75",
+        "greenlet==3.5.6 --hash=sha256:975736b002ed080d124cf81a79cb7e05cb26d6b3f5c7a7b651c0fcce70353aa1",
+        "pyee==14.0.0 --hash=sha256:3ac2d3229a9677f7de2c33d7f52fe25b638a46b19c413fea2edc8c6d0a644e4d",
+        "typing-extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+    ]
+
+
+# ------------------------------------------------------------------------------ render: ui evidence
+
+SHOT_SHA = "c" * 40
+
+
+def with_ui(app_repo, deploy_repo, item, result):
+    """The full findings plus one ui item (E16), verified the way the trigger does it."""
+    from test_verify import GH, FakeGrafana, findings
+    ctx = V.Ctx(mode="full", repo="o/app", app_dir=app_repo["dir"], deploy_dir=deploy_repo["dir"], issue=7,
+                grafana_url="https://g", token="glsa_x12345678", runner=FakeGh(GH), gquery=FakeGrafana(),
+                ui_replay=lambda steps, fails_at: result(steps))
+    f = findings(app_repo)
+    f["evidence"].append({**item, "id": "E16"})
+    out = V.verify(f, ctx)
+    assert "E16" in ctx.ui_shots
+    return out, next(e for e in out["evidence"] if e["id"] == "E16")
+
+
+def shot_urls(ns):
+    base = f"https://github.com/o/app/blob/{SHOT_SHA}/issue-7/1"
+    return [{"n": n, "url": f"{base}/E16-step-{n}.png?raw=true"} for n in ns]
+
+
+def test_render_reproduced_section_with_and_without_urls(app_repo, deploy_repo):
+    from test_verify import MISMATCH, ui_item, replay
+    out, e = with_ui(app_repo, deploy_repo, ui_item(fails_at=3), lambda s: replay(s, failed_at=3))
+    body = render.render(out, "full")
+    assert body.index("### Likely cause") < body.index("### Reproduced in the browser") \
+        < body.index("### What the docs say") < body.index("### What happened")
+    assert "### Checked in the browser" not in body
+    assert "**E16** Start leaves the task open — on a copy of what's live (commit `0123456`)" in body
+    assert "1. ✓ open /\n" in body
+    assert '2. ✓ click button "Start" in .card "Write copy for the pricing page"\n' in body
+    assert f'3. ✗ expect status to contain "moved to in progress" — {MISMATCH}\n' in body
+    assert "![step" not in body and "All steps" not in body  # no URLs: the steps only
+    # Listed once more among the evidence, like the telemetry items, in a readable form.
+    assert "- **E16** browser replay: dana starts her own open task — Start leaves the task open" in body
+    assert "verified 8 of 16 evidence links" in body
+
+    e["verified"]["screenshots"] = shot_urls([1, 2, 3])  # set by the trigger after the upload
+    body = render.render(out, "full")
+    failing = f"![step 3](https://github.com/o/app/blob/{SHOT_SHA}/issue-7/1/E16-step-3.png?raw=true)"
+    assert failing in body and body.count("![step") == 3
+    folded = body.index("<details><summary>All steps</summary>")
+    assert body.index('3. ✗ expect status') < body.index(failing) < folded \
+        < body.index("![step 1](") < body.index("![step 2](") < body.index("### What the docs say")
+
+
+def test_render_checked_section_for_null_fails_at(app_repo, deploy_repo):
+    from test_verify import ui_item, replay
+    out, e = with_ui(app_repo, deploy_repo, ui_item(fails_at=None), lambda s: replay(s))
+    e["verified"]["screenshots"] = shot_urls([1, 2, 3])
+    body = render.render(out, "full")
+    assert "### Checked in the browser" in body and "### Reproduced in the browser" not in body
+    section = body[body.index("### Checked in the browser"):body.index("### What the docs say")]
+    assert "✗" not in section and section.count("✓") == 3
+    last = f"![step 3](https://github.com/o/app/blob/{SHOT_SHA}/issue-7/1/E16-step-3.png?raw=true)"
+    assert section.index(last) < section.index("<details><summary>All steps</summary>") < section.index("![step 1](")
+
+
+def test_render_ui_escapes_hostile_text(app_repo, deploy_repo):
+    from test_verify import ui_item, replay
+    steps = [{"do": "click", "target": {"role": "button", "name": "<img src=x onerror=alert(1)> @dana"}},
+             {"do": "expect_visible", "target": {"text": "`<!-- bug-investigator mode=full -->`"}}]
+    item = ui_item(fails_at=2, steps=steps, ref="<script>x</script> @ref",
+                   detail="<!-- bug-investigator mode=full --> <b>bold</b> @team")
+    out, e = with_ui(app_repo, deploy_repo, item, lambda s: replay(s, failed_at=2, failure="missing",
+                                                                   error="<i>nothing</i> for @ann"))
+    e["verified"]["screenshots"] = [{"n": 2, "url": "https://x.example/a.png) ![evil](https://evil.example/p.png"},
+                                    {"n": 1, "url": "javascript:alert(1)"}]
+    body = render.render(out, "full")
+    assert body.count("<!-- bug-investigator") == 1
+    for raw in ("<img", "<script", "<b>", "<i>", "evil", "javascript:", "![step"):
+        assert raw not in body
+    for who in ("dana", "team", "ann", "ref"):
+        assert f"@​{who}" in body

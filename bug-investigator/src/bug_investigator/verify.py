@@ -5,6 +5,10 @@ file: exists, line in range, quote within ±3 lines. doc: quote verbatim (whites
 logql/promql: the shared scope check, then a re-run in [start, end] (default: report window ±2 h,
 at most 24 h) through Grafana (`--telemetry grafana`, the Action) or straight against Loki and
 Prometheus (`--telemetry direct`, the in-cluster trigger: no token); "found" needs data, "none" none.
+ui: valid steps (steps.py), then a replay through `Ctx.ui_replay` (the in-cluster trigger only; the
+Action and n8n mode have no browser): `fails_at` k needs step k to be the first failure, and not
+because its target matched more than one element; null needs every step to pass. The verified item
+keeps the commit and per-step outcomes; the screenshots go to `ctx.ui_shots[id]`, never the JSON.
 Then: hypotheses without verified evidence become untested; likely_cause without a supported
 hypothesis becomes unclear; secrets are scrubbed from every string.
 """
@@ -21,6 +25,7 @@ from datetime import timedelta
 from typing import Callable
 
 from bug_investigator import grafana, scope, telemetry
+from bug_investigator import steps as stepfmt
 from bug_investigator.tickets import Gh, label_names
 from bug_investigator.util import (CommandError, Runner, iso, ms, parse_time, read_json, read_secret, run, scrub,
                                    utc_now, window, write_json)
@@ -36,7 +41,8 @@ class Ctx:
     def __init__(self, *, mode: str, repo: str, app_dir: str, deploy_dir: str | None = None,
                  deploy_repo: str = "arigsela/kubernetes", issue: int = 0, issue_created: str | None = None,
                  grafana_url: str = "", token: str = "", namespace: str = scope.NAMESPACE,
-                 runner: Runner = run, gquery: Callable | None = None, telemetry_mode: str = "grafana"):
+                 runner: Runner = run, gquery: Callable | None = None, telemetry_mode: str = "grafana",
+                 ui_replay: Callable[[list, int | None], dict] | None = None):
         self.mode, self.repo, self.app_dir, self.deploy_dir = mode, repo, app_dir, deploy_dir
         self.deploy_repo, self.issue, self.namespace = deploy_repo, issue, namespace
         self.issue_created = parse_time(issue_created)
@@ -54,6 +60,9 @@ class Ctx:
         self.heads = {k: self._head(d) for k, d in (("app", app_dir), ("deploy", deploy_dir)) if d}
         self.repos = {"app": repo, "deploy": deploy_repo}
         self._cache: dict = {}
+        # ui evidence: replay(steps, fails_at) -> mcp_client.replay_via_mcp's dict; None = no browser in this run.
+        self.ui_replay = ui_replay
+        self.ui_shots: dict[str, list[tuple[int, bytes]]] = {}  # verified ui item id -> [(step, PNG)]
 
     def _head(self, d: str) -> str | None:
         try:
@@ -253,6 +262,54 @@ def check_query(ctx: Ctx, item: dict, findings: dict) -> tuple[str | None, dict]
                   "link": grafana.explore_link(ctx.grafana_url, kind, expr, ms(start), ms(end))}
 
 
+def _ui_step(s: dict) -> dict:
+    """One replayed step as JSON-safe fields only (the replay result may carry more)."""
+    n, err, failure = s.get("n"), s.get("error"), s.get("failure")
+    return {"n": n if isinstance(n, int) and not isinstance(n, bool) else None, "text": str(s.get("text") or ""),
+            "ok": s.get("ok") is True, "error": None if err in (None, "") else str(err),
+            "failure": failure if isinstance(failure, str) else None}
+
+
+def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
+    """Replay the item's steps; verified when the replay fails exactly where `fails_at` says (null: nowhere)."""
+    steps, fails_at = item.get("steps"), item.get("fails_at")
+    problems = stepfmt.validate(steps, fails_at)
+    if problems:
+        return "; ".join(problems), {}
+    if ctx.ui_replay is None:
+        return "the browser is not available in this run", {}
+    try:
+        r = ctx.ui_replay(copy.deepcopy(steps), fails_at)
+    except Exception as e:  # noqa: BLE001 - an unreachable server or a protocol error fails this item only
+        return f"replay failed: {e}", {}
+    if not isinstance(r, dict):
+        return "replay failed: the browser returned no result", {}
+    if r.get("error"):
+        return f"replay failed: {r['error']}", {}
+    ran = [_ui_step(s) for s in r.get("steps") if isinstance(s, dict)] if isinstance(r.get("steps"), list) else []
+    ok, failed_at = r.get("ok") is True, r.get("failed_at")
+    failed = next((s for s in ran if s["n"] == failed_at), None) if failed_at is not None else None
+    error = (failed or {}).get("error") or "no error reported"
+    what = f"step {failed_at} failed: {error}" if failed_at is not None else "the replay failed without naming a step"
+    if fails_at is None:
+        if not ok or failed_at is not None:
+            return what, {}
+    elif ok:
+        return f"expected step {fails_at} to fail; every step passed", {}
+    elif failed_at != fails_at:
+        return f"expected step {fails_at} to fail; {what}", {}
+    elif failed is None:
+        return f"replay failed: the result does not show step {fails_at}", {}
+    elif failed["failure"] == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
+        return f"step {fails_at} failed only because its target matched more than one element: {error}", {}
+    shots = r.get("screenshots") if isinstance(r.get("screenshots"), list) else []
+    ctx.ui_shots[str(item.get("id"))] = [(x[0], bytes(x[1])) for x in shots if isinstance(x, (list, tuple))
+                                         and len(x) == 2 and isinstance(x[0], int)
+                                         and isinstance(x[1], (bytes, bytearray))]
+    commit = r.get("commit")
+    return None, {"commit": commit if isinstance(commit, str) else None, "failed_at": failed_at, "steps": ran}
+
+
 def check_item(ctx: Ctx, item: dict, findings: dict) -> tuple[str | None, dict]:
     kind, ref = item.get("kind"), str(item.get("ref") or "")
     prefer = item.get("repo")
@@ -268,6 +325,8 @@ def check_item(ctx: Ctx, item: dict, findings: dict) -> tuple[str | None, dict]:
         return check_doc(ctx, ref, item.get("quote"), prefer)
     if kind in ("logql", "promql"):
         return check_query(ctx, item, findings)
+    if kind == "ui":
+        return check_ui(ctx, item)
     return f"unknown evidence kind {kind!r}", {}
 
 
@@ -302,7 +361,8 @@ def verify(findings: dict | None, ctx: Ctx) -> dict:
             continue
         seen.add(iid)
         try:
-            reason, extra = check_item(ctx, item, out)
+            # With the id it will be kept under, so ctx.ui_shots pairs with the kept item.
+            reason, extra = check_item(ctx, {**item, "id": iid}, out)
         except Exception as e:  # a check that crashes fails the item, not the run
             reason, extra = f"check failed: {e}", {}
         if reason:
