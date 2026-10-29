@@ -20,6 +20,7 @@ MAX_TRAIL = 40
 
 
 CODE_SPAN = re.compile(r"(`+)(.+?)\1", re.S)
+HEX_RE = re.compile(r"[0-9a-fA-F]{7,64}")
 
 
 def t(s) -> str:
@@ -74,6 +75,11 @@ def code(s, limit: int = 160) -> str:
     return f"`{s}`"
 
 
+def plain_https(link) -> bool:
+    """A URL safe to put in a markdown link or image: https, nothing that could end the link early."""
+    return isinstance(link, str) and link.startswith("https://") and not any(c in link for c in " ()<>\n\r\t")
+
+
 def trail_lines(trail, cap: int = MAX_TRAIL) -> list[str]:
     """The collapsed step list; anything that is not {"steps": [{...}, ...]} renders nothing."""
     steps = trail.get("steps") if isinstance(trail, dict) else None
@@ -88,7 +94,7 @@ def trail_lines(trail, cap: int = MAX_TRAIL) -> list[str]:
         if s.get("tool"):
             target = code(s.get("input"))
             link = s.get("link")
-            if isinstance(link, str) and link.startswith("https://") and not any(c in link for c in " ()<>\n"):
+            if plain_https(link):
                 target = f"[{target}]({link})"
             if s.get("window"):
                 target += f" {inline(s['window'])}"
@@ -114,6 +120,42 @@ def fix_lines(fix) -> list[str]:
     return [f"No fix proposed: {inline(fix.get('reason') or fix['status'])}", ""]
 
 
+def ui_lines(evidence) -> list[str]:
+    """The browser section: per verified ui item its steps as replayed and, once the trigger has uploaded
+    them (verified.screenshots = [{n, url}]), the failing (else the last) step's screenshot, the rest folded."""
+    items = [e for e in evidence if e.get("kind") == "ui" and isinstance(e.get("verified"), dict)]
+    if not items:
+        return []
+    reproduced = any(e.get("fails_at") is not None for e in items)
+    out = [f"### {'Reproduced' if reproduced else 'Checked'} in the browser", ""]
+    for e in items:
+        v = e["verified"]
+        commit = v.get("commit")
+        live = f" (commit `{commit[:7]}`)" if isinstance(commit, str) and HEX_RE.fullmatch(commit) else ""
+        out += [f"**{inline(e.get('id'))}** {inline(e.get('detail'))} — on a copy of what's live{live}", ""]
+        steps = [s for s in v.get("steps") or [] if isinstance(s, dict)]
+        for s in steps:
+            n = s.get("n") if isinstance(s.get("n"), int) else "?"
+            line = f"{n}. {'✓' if s.get('ok') else '✗'} {inline(s.get('text'))}"
+            if not s.get("ok") and s.get("error"):
+                line += f" — {inline(s['error'])}"
+            out.append(line)
+        if steps:
+            out.append("")
+        shots = {x["n"]: x["url"] for x in v.get("screenshots") or []
+                 if isinstance(x, dict) and isinstance(x.get("n"), int) and plain_https(x.get("url"))}
+        focus = v.get("failed_at") or (steps[-1].get("n") if steps else None)
+        if focus in shots:
+            out += [f"![step {focus}]({shots[focus]})", ""]
+        others = [n for n in sorted(shots) if n != focus]
+        if others:
+            out += ["<details><summary>All steps</summary>", ""]
+            for n in others:
+                out += [f"![step {n}]({shots[n]})", ""]
+            out += ["</details>", ""]
+    return out
+
+
 def evidence_link(e: dict) -> str:
     v = e.get("verified") or {}
     kind, ref, link = e.get("kind"), str(e.get("ref") or ""), v.get("link")
@@ -127,6 +169,8 @@ def evidence_link(e: dict) -> str:
         label = f"`{v.get('path')}" + (f"#L{v['line']}" if v.get("line") else "") + "`"
     elif kind in ("logql", "promql"):
         label = f"{KIND_LABEL[kind]} query"
+    elif kind == "ui":
+        label = f"browser replay: {cell(ref)}"  # the steps and screenshots are in their own section
     else:
         label = cell(ref)
     return f"[{label}]({link})" if link else label
@@ -159,6 +203,8 @@ def render(f: dict, mode: str, model: str = "", stats: dict | None = None, run_u
         if kv:
             out.append(f"- **Code:** [`{kv['path']}" + (f"#L{kv['line']}" if kv.get("line") else "") + f"`]({kv['link']})")
         out += [f"- {t(lc.get('explanation'))}", ""]
+
+    out += ui_lines(f.get("evidence") or [])
 
     dr = f.get("docs_rule")
     if not dr:

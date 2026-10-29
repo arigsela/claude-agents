@@ -20,6 +20,7 @@ structured findings.
   - `logql` / `promql`: the exact query is re-run over [`start`, `end`] (at most 24 h). `expect:
     "found"` needs at least one log line or one non-zero sample; `expect: "none"` needs none.
     Use the same query you ran, and a window that covers what you saw.
+  - `ui`: There is no browser in this run: never cite `ui` evidence.
   A hypothesis marked `supported` or `ruled_out` with no verified evidence becomes `untested`, and a
   `likely_cause` verdict with no supported hypothesis becomes `unclear`. So cite carefully.
 - Keep it to what matters: about 4 to 12 evidence items, at most 3 hypotheses.

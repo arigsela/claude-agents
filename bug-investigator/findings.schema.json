@@ -201,16 +201,17 @@
               "file",
               "doc",
               "logql",
-              "promql"
+              "promql",
+              "ui"
             ]
           },
           "ref": {
             "type": "string",
-            "description": "commit: SHA. pr or issue: #N. file or doc: path. logql or promql: the exact query."
+            "description": "commit: SHA. pr or issue: #N. file or doc: path. logql or promql: the exact query. ui: one line naming the scenario."
           },
           "detail": {
             "type": "string",
-            "description": "what this shows, with counts and times"
+            "description": "what this shows, with counts and times. ui: what the replay shows, for example which step fails and how"
           },
           "repo": {
             "type": "string",
@@ -243,6 +244,92 @@
               "none"
             ],
             "description": "for queries: found = returned data, none = returned nothing"
+          },
+          "steps": {
+            "type": "array",
+            "description": "for ui: the steps replayed in a browser on a copy of the live app (at most 15), in the replay_ui_steps format",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "do"
+              ],
+              "properties": {
+                "do": {
+                  "type": "string",
+                  "enum": [
+                    "click",
+                    "fill",
+                    "select",
+                    "press",
+                    "goto",
+                    "expect_visible",
+                    "expect_absent",
+                    "expect_text"
+                  ]
+                },
+                "target": {
+                  "type": "object",
+                  "description": "exactly one of role, label, placeholder, text; optional within. name, label and placeholder match the whole text exactly; text and within.text match a case-insensitive substring. goto has no target",
+                  "additionalProperties": false,
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "description": "an ARIA role Playwright knows, such as button, link, textbox, heading, status"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "with role only: the accessible name, matched exactly"
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "the field label, matched exactly"
+                    },
+                    "placeholder": {
+                      "type": "string",
+                      "description": "the field placeholder, matched exactly"
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "text the element contains: a case-insensitive substring"
+                    },
+                    "within": {
+                      "type": "object",
+                      "description": "a CSS selector and a text (a case-insensitive substring) that together match exactly one element",
+                      "additionalProperties": false,
+                      "required": [
+                        "css",
+                        "text"
+                      ],
+                      "properties": {
+                        "css": {
+                          "type": "string",
+                          "description": "one CSS selector (no >>)"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "value": {
+                  "type": "string",
+                  "description": "fill: the text. select: the option label. press: a Playwright key name such as Enter. goto: a path starting with /. expect_text: text the target must contain (case-sensitive)"
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "fails_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "for ui: the 1-based step that fails on the live code; null when every step passes"
           }
         }
       }
