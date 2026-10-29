@@ -161,8 +161,9 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
   fails and it did not fail `ambiguous` or `invalid`: a step whose target matched more than one
   element, or one that cannot run on any page, is badly written, never evidence. `fails_at: null`
-  ("works as documented") is verified only when every step passes. Invalid steps, a replay error or
-  no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the commit and
+  ("works as documented") is verified only when every step passes. The result must show exactly
+  steps 1 to k (all of them for null), in order: an empty, partial or reordered result is dropped.
+  Invalid steps, a replay error or no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the commit and
   each step's outcome; the screenshots stay out of the JSON, in `ctx.ui_shots[<id>]`.
 - **Screenshots.** The trigger commits them to the orphan branch `bug-investigator-evidence` of the
   app repo (`evidence.Uploader`: the Git Data API, that one ref only, PNGs of at most 2 MiB, 30 per

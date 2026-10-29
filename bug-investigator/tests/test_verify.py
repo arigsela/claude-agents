@@ -466,6 +466,50 @@ def test_ui_null_fails_at_needs_all_pass(app_repo):
     assert fake.calls == [(UI_STEPS, None)] and by_id(out)["E1"]["verified"]["failed_at"] is None
 
 
+def reshaped(keep, failed_at=None, **set_ok):
+    """replay(), then its step list rebuilt from `keep` (indexes, or a dict for a step it never ran) and step
+    `n`'s ok overridden by ok<n>=..."""
+    def f(s):
+        r = replay(s, failed_at=failed_at)
+        r["steps"] = [dict(r["steps"][i]) if isinstance(i, int) else i for i in keep]
+        for key, ok in set_ok.items():
+            next(x for x in r["steps"] if x["n"] == int(key[2:]))["ok"] = ok
+        return r
+    return f
+
+
+def test_ui_null_claim_needs_every_step_reported_passing(app_repo):
+    # "Works as documented" needs steps 1..N, in order, every one passing: an empty or partial result proves
+    # nothing (the review's probe: {ok: true, failed_at: null, steps: []} verified).
+    extra = {"n": 4, "text": "open /", "ok": True, "error": None, "failure": None}
+    for keep, shown in (([], "none"), ([0], "1"), ([0, 1], "1, 2"), ([1, 0, 2], "2, 1, 3"),
+                        ([0, 0, 1, 2], "1, 1, 2, 3"), ([0, 1, 2, extra], "1, 2, 3, 4")):
+        out, c = ui_verify(app_repo, [ui_item(fails_at=None)], FakeReplay(reshaped(keep)))
+        assert out["evidence"] == [] and c.ui_shots == {}, keep
+        assert reasons(out)["E1"] == f"replay failed: the result shows steps {shown}, not 1 to 3", keep
+    out, c = ui_verify(app_repo, [ui_item(fails_at=None)], FakeReplay(reshaped([0, 1, 2], ok2=False)))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == "replay failed: the result says every step passed, but step 2 did not"
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=None)], FakeReplay(reshaped([0, 1, 2])))
+    assert by_id(out)["E1"]["verified"]["failed_at"] is None  # the complete result still verifies
+
+
+def test_ui_claim_needs_steps_up_to_the_claimed_one(app_repo):
+    # A claim of step k needs steps 1..k, in order: 1..k-1 passing, k failing.
+    extra = {"n": 4, "text": "open /", "ok": False, "error": "x", "failure": "missing"}
+    for keep, shown in (([2], "3"), ([0, 2], "1, 3"), ([1, 0, 2], "2, 1, 3"), ([0, 1, 2, extra], "1, 2, 3, 4")):
+        out, c = ui_verify(app_repo, [ui_item(fails_at=3)], FakeReplay(reshaped(keep, failed_at=3)))
+        assert out["evidence"] == [] and c.ui_shots == {}, keep
+        assert reasons(out)["E1"] == f"replay failed: the result shows steps {shown}, not 1 to 3", keep
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)], FakeReplay(reshaped([0, 1, 2], failed_at=3, ok1=False)))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == "replay failed: step 1 did not pass, yet the result names step 3 as the first failure"
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=3)], FakeReplay(reshaped([0, 1, 2], failed_at=3, ok3=True)))
+    assert reasons(out)["E1"] == "replay failed: the result names step 3 as the first failure, yet it passed"
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=1)], FakeReplay(reshaped([0], failed_at=1)))
+    assert by_id(out)["E1"]["verified"]["failed_at"] == 1  # a claim of step 1 needs step 1 only
+
+
 def test_ui_without_browser_dropped(app_repo):
     out, c = ui_verify(app_repo, [ui_item()], None)
     assert out["evidence"] == [] and c.ui_shots == {}

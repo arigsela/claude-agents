@@ -8,7 +8,8 @@ Prometheus (`--telemetry direct`, the in-cluster trigger: no token); "found" nee
 ui: valid steps (steps.py), then a replay through `Ctx.ui_replay` (the in-cluster trigger only; the
 Action and n8n mode have no browser): `fails_at` k needs step k to be the first failure, and not
 because its target matched more than one element (`ambiguous`) or because the step cannot run on any
-page (`invalid`); null needs every step to pass. The verified item
+page (`invalid`); null needs every step to pass. The result must show exactly steps 1..k (null: all of
+them), in order, every one before the claimed step passing. The verified item
 keeps the commit and per-step outcomes; the screenshots go to `ctx.ui_shots[id]`, never the JSON.
 Then: hypotheses without verified evidence become untested; likely_cause without a supported
 hypothesis becomes unclear; secrets are scrubbed from every string.
@@ -271,6 +272,23 @@ def _ui_step(s: dict) -> dict:
             "failure": failure if isinstance(failure, str) else None}
 
 
+def _ui_shape(ran: list[dict], want: int, fails_at: int | None) -> str | None:
+    """Why the replayed steps are not exactly what the verdict rests on, or None. They must be steps 1..want in
+    order (want: every step for a null claim, k for a claim of step k), each passing but the claimed one, which
+    failed: an empty, partial or reordered result proves nothing."""
+    ns = [s["n"] for s in ran]
+    if ns != list(range(1, want + 1)):
+        return f"replay failed: the result shows steps {', '.join(map(str, ns)) or 'none'}, not 1 to {want}"
+    bad = next((s["n"] for s in ran if not s["ok"] and s["n"] != fails_at), None)
+    if bad is not None and fails_at is None:
+        return f"replay failed: the result says every step passed, but step {bad} did not"
+    if bad is not None:
+        return f"replay failed: step {bad} did not pass, yet the result names step {fails_at} as the first failure"
+    if fails_at is not None and ran[-1]["ok"]:
+        return f"replay failed: the result names step {fails_at} as the first failure, yet it passed"
+    return None
+
+
 def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
     """Replay the item's steps; verified when the replay fails exactly where `fails_at` says (null: nowhere)."""
     steps, fails_at = item.get("steps"), item.get("fails_at")
@@ -301,9 +319,12 @@ def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
         return f"expected step {fails_at} to fail; {what}", {}
     elif failed is None:
         return f"replay failed: the result does not show step {fails_at}", {}
-    elif failed["failure"] == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
+    shape = _ui_shape(ran, len(steps) if fails_at is None else fails_at, fails_at)
+    if shape:
+        return shape, {}
+    if failed and failed["failure"] == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
         return f"step {fails_at} failed only because its target matched more than one element: {error}", {}
-    elif failed["failure"] == "invalid":  # ruling R13: nor does one that can never pass on any code
+    if failed and failed["failure"] == "invalid":  # ruling R13: nor does one that can never pass on any code
         return f"step {fails_at} failed only because the step itself is invalid: {error}", {}
     shots = r.get("screenshots") if isinstance(r.get("screenshots"), list) else []
     ctx.ui_shots[str(item.get("id"))] = [(x[0], bytes(x[1])) for x in shots if isinstance(x, (list, tuple))
