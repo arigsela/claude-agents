@@ -147,11 +147,12 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   `browser._App` mirrors it. Playwright is imported only inside a call (`browser.py`, from `/deps`),
   so a Chromium that cannot start is a tool error, never a failed `initialize`. A server killed
   mid-call (agentgateway does that when a session is deleted) runs no teardown, so the copy is
-  stopped two other ways: on Linux it gets SIGKILL when the server's thread that started it exits
-  (`PR_SET_PDEATHSIG`; calls run on the main thread), and its process group is recorded in
-  `$TMPDIR/bug-investigator-browser.pgid` while it runs, so the next call, once it holds the replay
-  lock, kills that group (anything the copy started) and removes the engine's leftover
-  `$TMPDIR/bug-investigator-replay-*` directories.
+  stopped two other ways. On Linux it gets SIGKILL when the server's thread that started it exits
+  (`PR_SET_PDEATHSIG`). And its process group is recorded in `$TMPDIR/bug-investigator-browser.pgid`
+  while it runs: the next call, once it holds the replay lock, kills that group (anything the copy
+  started; only with the group leader's start time from `/proc`, which tells it from a reused id)
+  and removes the engine's leftover `$TMPDIR/bug-investigator-replay-*` directories. Clearing up is
+  best effort and logs to stderr only.
   `browser-requirements.txt` pins the four wheels (with hashes) that the server's init container and
   the `ui-check` workflow install.
 - **The steps** (`steps.py`): at most 15 of `{do, target, value, note}`. `do` is an action (`click`,

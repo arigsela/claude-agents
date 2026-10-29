@@ -23,9 +23,10 @@ on a background thread and tool calls run on the main thread, one at a time (rep
 machine-wide lock anyway). SIGTERM raises SystemExit there, so a running replay unwinds through its
 finally blocks, which close Chromium and stop the app's process group, before the process exits.
 A SIGKILL (agentgateway ending a deleted session) runs no finally block: the app then dies by its
-parent-death signal, and the next call kills its recorded process group and removes the replay's
-temp dir (browser.py, ruling R19). That signal follows the thread that started the app, so calls
-must stay on the main thread.
+parent-death signal, which follows whichever thread runs the replay (here the main thread, which
+lives as long as the process), and the next call kills its recorded process group and removes the
+replay's temp dir (browser.py, ruling R19). Calls stay on the main thread for SIGTERM's sake, not
+for that signal's.
 
     python3 -I /core/src/bug_investigator/browser_server.py      # env APP_DIR, DEPS_DIR
 """
@@ -112,6 +113,7 @@ TOOL = {
 
 INSTRUCTIONS = (f"One tool, {TOOL_NAME}: it replays UI steps in headless Chromium on a throwaway copy of the live "
                 "Taskboard (a fresh database with the demo data). Nothing persists between calls.")
+
 
 def matches_claim(r: browser.Replay, fails_at: int) -> bool:
     """Did the replay fail at the step the caller named, with a failure that can show a bug? Only `missing`,

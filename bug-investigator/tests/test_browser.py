@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -118,7 +119,8 @@ def test_all_steps_pass_on_fixture(tmp_path):
         {"do": "goto", "value": "/nope"},  # a 404 is a page like any other
         {"do": "expect_visible", "target": {"text": "not found"}},
         {"do": "goto", "value": "/"},
-        {"do": "expect_visible", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": REPORT}}},
+        {"do": "expect_visible",
+         "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": REPORT}}},
         {"do": "expect_absent", "target": {"text": "Buy milk"}},
     ]
     r = browser.replay(make_app(tmp_path), steps, commit="abc123", shots="none")
@@ -148,7 +150,8 @@ def test_two_matches_fail_not_click(tmp_path):
     assert r.failed_at == 2 and r.steps[1].error == 'button "Start" matched 2 elements'
     assert r.steps[1].failure == "ambiguous"
     assert not any("/api/act" in line for line in r.app_log), r.app_log  # nothing was clicked
-    two_cards = {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": "the"}}}
+    two_cards = {"do": "click",
+                 "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": "the"}}}
     r = browser.replay(make_app(tmp_path / "2"), [two_cards], shots="none")
     assert r.failed_at == 1 and r.steps[0].error == '.card "the" matched 2 elements'
     assert r.steps[0].failure == "ambiguous"
@@ -245,8 +248,9 @@ def test_malformed_steps_fail_invalid(tmp_path):
         assert second(within(css), name) == (
             2, "invalid", f'within css "{css}" is not a valid CSS selector, so no step ran ({native(css)})'), css
     # querySelector reads a pseudo-element; the unforgiving parse does not (ruling R23).
-    assert second(within(".card::after"), "pseudo-element") == (
-        2, "invalid", f'within css ".card::after" is not a valid CSS selector, so no step ran ({unforgiving(".card::after")})')
+    after = ".card::after"
+    assert second(within(after), "pseudo-element") == (
+        2, "invalid", f'within css "{after}" is not a valid CSS selector, so no step ran ({unforgiving(after)})')
     # Both of the browser's parses read a namespace wildcard; Playwright's parser does not. Also tried before the run.
     failed_at, failure, error = second(within("*|div"), "namespace")
     assert (failed_at, failure) == (2, "invalid"), error
@@ -269,7 +273,8 @@ def test_lazy_selectors_fail_invalid_before_anything_runs(tmp_path):
     # Ruling R23: querySelector forgives a malformed argument inside :is() and :where() (it matches nothing), so
     # these passed it and read `missing`; the browser's unforgiving parse, CSS.supports('selector(:is(<css>))'),
     # refuses them too.
-    for name, css, why in (("nth-match", ".nosuch:nth-match(x)", native), ("unknown-pseudo", "#board:foo .nosuch", native),
+    for name, css, why in (("nth-match", ".nosuch:nth-match(x)", native),
+                           ("unknown-pseudo", "#board:foo .nosuch", native),
                            ("is", ".nosuch:is(:bogus)", unforgiving),
                            ("where", ".nosuch:where(:contains('x'))", unforgiving)):
         r = browser.replay(make_app(tmp_path / name), [START, within(css)], shots="all")
@@ -496,10 +501,13 @@ def _stop_after_the_lock(monkeypatch) -> None:
     monkeypatch.setattr(browser, "_playwright", no_browser)
 
 
+@linux_only
+@pytest.mark.browser
 def test_a_stale_app_group_is_killed_at_the_next_replay(tmp_path, monkeypatch, engine_tmpdir):
     # Ruling R19: a replay whose server was killed mid-call leaves the app's process group (recorded in the pgid
     # file) and its temp dir behind. The next replay, holding the lock, kills that group and removes the engine's
-    # own leftover temp dirs, and nothing else. No browser needed.
+    # own leftover temp dirs, and nothing else. No browser needed; Linux only, since the record needs the group
+    # leader's start time from /proc (ruling R23).
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
     try:
         browser._record_app(sleeper.pid)
@@ -524,6 +532,106 @@ def test_a_stale_app_group_is_killed_at_the_next_replay(tmp_path, monkeypatch, e
             sleeper.wait()
 
 
+# The tests below need no browser and run on the host and, marked `browser`, in the Playwright image too.
+
+
+@pytest.mark.browser
+def test_a_record_without_a_start_time_is_never_killed(tmp_path, monkeypatch, engine_tmpdir):
+    # Ruling R23: without the leader's start time (no /proc: macOS) nothing tells our group from an id reused since,
+    # so the group is left alone. The record is still forgotten and the leftover temp dirs still removed.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    try:
+        Path(browser._pgid_path()).write_text(f"{sleeper.pid} -\n")
+        stale = engine_tmpdir / "bug-investigator-replay-k1lled"
+        stale.mkdir()
+        _stop_after_the_lock(monkeypatch)
+        with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+            browser.replay(make_app(tmp_path), [START])
+        time.sleep(0.3)
+        assert sleeper.poll() is None
+        assert not Path(browser._pgid_path()).exists() and not stale.exists()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def _open_fds() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
+@pytest.mark.browser
+def test_odd_things_at_the_record_path_never_stop_or_block_a_replay(tmp_path, monkeypatch, engine_tmpdir):
+    # Ruling R23: clearing up is best effort. A directory at the record path is not read (and its descriptor not
+    # leaked); a FIFO is opened without blocking (no writer would ever come, and the lock is held); a pgid too big
+    # for a pid_t is not an OverflowError. Each replay still gets past the lock.
+    _stop_after_the_lock(monkeypatch)
+    record = Path(browser._pgid_path())
+
+    def replay_once(name):
+        done = []
+
+        def run():
+            with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+                browser.replay(make_app(tmp_path / name), [START])
+            done.append(True)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(10)
+        return t, done
+
+    record.mkdir()
+    before = _open_fds()
+    t, done = replay_once("directory")
+    assert done and _open_fds() == before
+    record.rmdir()
+
+    os.mkfifo(record)
+    try:
+        t, done = replay_once("fifo")
+        assert not t.is_alive(), "the replay blocked opening a FIFO at the record path"
+        assert done and not record.exists()  # a FIFO is no record: forgotten
+    finally:
+        if t.is_alive():  # unblock the reader so the thread ends
+            os.close(os.open(record, os.O_WRONLY | os.O_NONBLOCK))
+            t.join(5)
+
+    record.write_text("99999999999999999999 12345\n")  # with a start time, so the kill is tried
+    t, done = replay_once("huge")
+    assert done and not record.exists()
+
+
+@pytest.mark.browser
+def test_a_failure_while_clearing_up_is_logged_and_the_rest_still_runs(tmp_path, monkeypatch, engine_tmpdir, capfd):
+    # Ruling R23: whatever goes wrong while clearing up is logged to stderr (stdout is the MCP channel), the record is
+    # forgotten anyway, and one temp dir that cannot be removed does not stop the others being removed.
+    Path(browser._pgid_path()).write_text("4242 12345\n")
+    stale = [engine_tmpdir / f"bug-investigator-replay-{n}" for n in ("a", "b", "c")]
+    for d in stale:
+        d.mkdir()
+
+    def broken_start_time(pid):
+        raise RuntimeError("no /proc today")
+
+    rmtree = browser.shutil.rmtree
+
+    def rmtree_fails_on_b(path, **kw):
+        if path.endswith("-b"):
+            raise PermissionError(1, "Operation not permitted", path)
+        rmtree(path, **kw)
+
+    monkeypatch.setattr(browser, "_start_time", broken_start_time)
+    monkeypatch.setattr(browser.shutil, "rmtree", rmtree_fails_on_b)
+    _stop_after_the_lock(monkeypatch)
+    with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+        browser.replay(make_app(tmp_path), [START])
+    out, err = capfd.readouterr()
+    assert out == "" and "no /proc today" in err, (out, err)
+    assert not Path(browser._pgid_path()).exists()
+    assert [d.exists() for d in stale] == [False, True, False]
+
+
+@pytest.mark.browser
 def test_a_record_that_cannot_be_read_or_removed_never_stops_a_replay(tmp_path, monkeypatch):
     # Clearing up is best effort: a malformed record, or one that cannot be removed (another user's file in a
     # shared /tmp), must not fail the replay that found it.
@@ -636,7 +744,8 @@ def test_check_cli_summary(tmp_path):
     repros.mkdir()
     (repros / "good.json").write_text(json.dumps({"title": "Dana starts her task", "issue": 7,
                                                   "steps": [AS_DANA, START, STARTED]}))
-    archive = {"do": "click", "target": {"role": "button", "name": "Archive", "within": {"css": ".card", "text": REPORT}}}
+    archive = {"do": "click",
+               "target": {"role": "button", "name": "Archive", "within": {"css": ".card", "text": REPORT}}}
     (repros / "broken.json").write_text(json.dumps({"title": "Archive the report card", "issue": 12,
                                                     "steps": [AS_DANA, archive]}))
     (repros / "bad.json").write_text(json.dumps({"title": "No steps", "steps": []}))

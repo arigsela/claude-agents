@@ -11,10 +11,10 @@ later step runs, so a call answers within agentgateway's 90 s.
 
 A replay whose process is killed mid-call (agentgateway kills the server when a session is deleted)
 runs no finally block, so the app is stopped two other ways (ruling R19). On Linux the app gets
-SIGKILL when the thread that started it exits (PR_SET_PDEATHSIG). And the app's process group is
+SIGKILL when the thread that ran replay() exits (PR_SET_PDEATHSIG). And the app's process group is
 recorded in $TMPDIR/bug-investigator-browser.pgid while it runs: the next replay, once it holds the
-lock, kills a group still recorded there and removes this engine's leftover temp dirs
-($TMPDIR/bug-investigator-replay-*).
+lock, kills a group still recorded there (only with its leader's start time from /proc, so Linux
+only) and removes this engine's leftover temp dirs ($TMPDIR/bug-investigator-replay-*).
 
     python3 -I browser.py replay --app-dir D --steps F [--commit SHA] --out DIR
     python3 -I browser.py check --app-dir D --repros DIR --out DIR [--changed a.json,b.json]
@@ -32,8 +32,9 @@ step says why in `failure`: ambiguous (an action target or `within` matched more
 missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
 some), invalid (the step cannot run on any page: `within.css` is not CSS that the browser parses
 strictly, with document.querySelector and CSS.supports('selector(:is(<css>))'), so Playwright's
-own pseudo-classes such as :has-text or :visible are refused too, or Playwright's parser refuses it, read as `css=<css>` so another selector engine does
-not parse either; or `press` names a key Playwright does not know), timeout (the replay's REPLAY_S
+own pseudo-classes such as :has-text or :visible are refused too, or Playwright's parser refuses it,
+read as `css=<css>` so another selector engine does not parse either; or `press` names a key
+Playwright does not know), timeout (the replay's REPLAY_S
 ran out during or before the step), error (anything else, such as a disabled button).
 
 Before the app starts, every step's within.css and press key is tried on a blank page (ruling R16):
@@ -282,43 +283,65 @@ def _forget_app() -> None:
 
 
 def _read_record() -> tuple[int, str] | None:
-    """(pgid, start time or "-") from the pgid file; None when there is none or it is not ours to trust."""
+    """(pgid, start time or "-") from the pgid file; None when there is none or it is not ours to trust: anything but
+    a regular file of this user. Opened non-blocking, so a FIFO there never blocks the replay holding the lock."""
     try:
-        fd = os.open(_pgid_path(), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(_pgid_path(), os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     except OSError:
         return None
-    with os.fdopen(fd, encoding="ascii", errors="replace") as f:
-        st = os.fstat(f.fileno())
-        if not (stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid()):  # a file someone else planted
+    try:
+        st = os.fstat(fd)
+        if not (stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid()):  # a directory, a FIFO, someone else's file
             return None
-        words = f.read(200).split()
+        words = os.read(fd, 200).decode("ascii", "replace").split()
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
     if len(words) != 2 or not words[0].isdigit():
         return None
     return int(words[0]), words[1]
 
 
+def _kill_recorded_group() -> None:
+    record = _read_record()
+    if record is None:
+        return
+    pgid, started = record
+    # Only with the leader's start time (ruling R23): without it (no /proc: macOS) nothing tells our group from an id
+    # reused since. A group's id is not reused while any member lives, so if a process with that id runs but started at
+    # another time, the recorded group is gone and the id is someone else's. Never our own group.
+    if started == "-" or pgid <= 1 or pgid == os.getpgrp():
+        return
+    now = _start_time(pgid)
+    if now is not None and now != started:
+        return
+    # OverflowError: a pgid too big for a pid_t.
+    with contextlib.suppress(ProcessLookupError, PermissionError, OverflowError):
+        os.killpg(pgid, signal.SIGKILL)
+        print(f"browser.py: killed process group {pgid}, the app of a replay that did not finish", file=sys.stderr)
+
+
 def _reap() -> None:
     """Clear what a replay killed mid-call left behind: kill the app's process group still recorded in the pgid
-    file, and remove this engine's temp dirs. Runs with the lock held, so no other replay is using either. Logs to
-    stderr only: stdout is browser_server's MCP channel."""
-    record = _read_record()
-    if record is not None:
-        pgid, started = record
-        now = _start_time(pgid)
-        # A group's id is not reused while any member lives. If a process with that id runs but started at another
-        # time, the recorded group is gone and the id is someone else's: leave it alone. Never our own group.
-        reused = started != "-" and now is not None and now != started
-        if pgid > 1 and pgid != os.getpgrp() and not reused:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(pgid, signal.SIGKILL)
-                print(f"browser.py: killed process group {pgid}, the app of a replay that did not finish",
-                      file=sys.stderr)
-    _forget_app()
-    with contextlib.suppress(OSError), os.scandir(tempfile.gettempdir()) as entries:
-        for entry in entries:
-            if (entry.name.startswith(TMP_PREFIX) and entry.is_dir(follow_symlinks=False)
-                    and entry.stat(follow_symlinks=False).st_uid == os.getuid()):
-                shutil.rmtree(entry.path, ignore_errors=True)
+    file, and remove this engine's temp dirs. Runs with the lock held, so no other replay is using either. Best
+    effort: nothing here fails the replay; what goes wrong is logged to stderr only (stdout is browser_server's MCP
+    channel), and the record is forgotten either way."""
+    try:
+        _kill_recorded_group()
+    except Exception as e:  # noqa: BLE001
+        print(f"browser.py: could not stop the app a replay left behind: {e!r}", file=sys.stderr)
+    finally:
+        _forget_app()
+    try:
+        with os.scandir(tempfile.gettempdir()) as entries:
+            for entry in entries:
+                with contextlib.suppress(OSError):  # one entry gone or unremovable: go on with the others
+                    if (entry.name.startswith(TMP_PREFIX) and entry.is_dir(follow_symlinks=False)
+                            and entry.stat(follow_symlinks=False).st_uid == os.getuid()):
+                        shutil.rmtree(entry.path, ignore_errors=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"browser.py: could not remove the temp dirs a replay left behind: {e!r}", file=sys.stderr)
 
 
 @contextlib.contextmanager
@@ -356,9 +379,10 @@ def _die_with_parent():
     cannot be found. Never fails the start: an error inside is ignored.
 
     prctl is looked up here, in the parent, so the forked child runs as little Python as possible. PR_SET_PDEATHSIG
-    fires when the *thread* that forked the app exits, not the process: replay() must run on a thread that lives as
-    long as the replay. browser_server runs every call on its main thread (MainThreadCalls, A3), and the CLI and
-    the tests call replay() from theirs.
+    follows the *thread* that forks the app, whichever thread runs replay(), not the process: the app gets SIGKILL
+    when that thread exits. So replay() must run on a thread that lives at least as long as the replay; any such
+    thread will do. (browser_server runs calls on its main thread for another reason: so SIGTERM's SystemExit can
+    unwind a running replay.)
     """
     if not sys.platform.startswith("linux"):
         return None
@@ -402,8 +426,9 @@ class _App:
         if not os.path.isfile(os.path.join(self.dir, "server.py")):
             raise BrowserError(f"no server.py in {self.dir}")
         # Not -I: Taskboard's server.py imports its sibling modules. Its own process group, so stop()
-        # also ends anything it started; SIGKILL when this thread dies, so a killed replay does not leave it
-        # running (ruling R19); and the group recorded until stop(), for the next replay to kill if we never get there.
+        # also ends anything it started; SIGKILL when the thread running this replay exits, so a killed replay
+        # does not leave it running (ruling R19); and the group recorded until stop(), for the next replay to kill
+        # if we never get there.
         self.proc = subprocess.Popen([sys.executable, "server.py"], cwd=self.dir, env=self.env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, encoding="utf-8", errors="replace", start_new_session=True,
