@@ -68,10 +68,11 @@ DESCRIPTION = (
     f"value); at most {stepfmt.MAX_STEPS} steps. A failed step says why in `failure`: "
     "`ambiguous` (an action target or within matched more than one element), `missing` (nothing matched), "
     "`mismatch` (no match had the text; for expect_absent, something matched), `invalid` (the step cannot run "
-    "on any page: a css that does not parse, a key Playwright does not know), `error` (anything else, such as "
-    f"a disabled button, or a replay that took longer than {browser.REPLAY_S} s, which stops there). Set "
-    "`fails_at` to the step you expect to fail and the result says whether it matches (`matches_claim`); an "
-    "`ambiguous` or `invalid` failure never matches a claim, since it shows a badly written step, not a bug; "
+    "on any page: a css that does not parse, a key Playwright does not know), `timeout` (the replay took "
+    f"longer than {browser.REPLAY_S} s and stopped at that step), `error` (anything else, such as a disabled "
+    "button). Set `fails_at` to the step you expect to fail and the result says whether it matches "
+    "(`matches_claim`); an `ambiguous`, `invalid` or `timeout` failure never matches a claim, since it shows a "
+    "badly written step or a slow replay, not a bug; "
     "omit `fails_at` when you expect every step to pass, and read `ok`. `screenshots`: failure (the default: "
     "the failing step, or the last one), all, or none. The result holds each step's outcome, the page's "
     "accessibility snapshot, the app's last log lines and the browser console, then the screenshots."
@@ -105,11 +106,13 @@ TOOL = {
 INSTRUCTIONS = (f"One tool, {TOOL_NAME}: it replays UI steps in headless Chromium on a throwaway copy of the live "
                 "Taskboard (a fresh database with the demo data). Nothing persists between calls.")
 
-NOT_EVIDENCE = ("ambiguous", "invalid")  # a badly written step (rulings R8, R13), never a reproduction
+# A badly written step (rulings R8, R13) or a replay that ran out of time (R14b): never a reproduction.
+NOT_EVIDENCE = ("ambiguous", "invalid", "timeout")
 
 
 def matches_claim(r: browser.Replay, fails_at: int) -> bool:
-    """Did the replay fail at the step the caller named? An ambiguous or invalid step is never evidence."""
+    """Did the replay fail at the step the caller named? An ambiguous, invalid or timed-out step is never
+    evidence."""
     if r.failed_at != fails_at:
         return False
     failed = next((s for s in r.steps if s.n == fails_at), None)

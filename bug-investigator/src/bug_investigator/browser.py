@@ -6,8 +6,8 @@ database and HOME in a temporary directory and a fixed environment, loads `/`, r
 navigation or WebSocket to any other origin is aborted and noted in `console`. One replay runs at a
 time on a machine (a lock in $TMPDIR). Only this module imports Playwright, lazily, from $DEPS_DIR
 (default /deps). A replay has REPLAY_S (75 s) from Chromium's launch, app start and load included:
-when it runs out, the current step fails (`error`, "the replay took longer than 75 s") and no later
-step runs, so a call answers within agentgateway's 90 s.
+when it runs out, the current step fails (`timeout`, "the replay took longer than 75 s") and no
+later step runs, so a call answers within agentgateway's 90 s.
 
     python3 -I browser.py replay --app-dir D --steps F [--commit SHA] --out DIR
     python3 -I browser.py check --app-dir D --repros DIR --out DIR [--changed a.json,b.json]
@@ -25,8 +25,8 @@ step says why in `failure`: ambiguous (an action target or `within` matched more
 missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
 some), invalid (the step cannot run on any page: `within.css` is not a CSS selector, read as
 `css=<css>` so another selector engine does not parse either, or `press` names a key Playwright does
-not know; the key is checked before the target is looked for), error (anything else, such as a
-disabled button, or the replay's time running out).
+not know; the key is checked before the target is looked for), timeout (the replay's REPLAY_S ran
+out during or before the step), error (anything else, such as a disabled button).
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ SNAPSHOT_CHARS = 6000
 APP_LOG_LINES = 50
 CONSOLE_LINES = 50
 SHOTS = ("all", "failure", "none")
-FAILURES = ("ambiguous", "missing", "mismatch", "invalid", "error")  # a failed StepResult's `failure`
+FAILURES = ("ambiguous", "missing", "mismatch", "invalid", "timeout", "error")  # a failed StepResult's `failure`
 # Playwright's words when the step itself is malformed, whatever the page: a selector that does not parse
 # (its own CSS parser, an engine after >>, a pseudo-class's arguments, the browser's querySelectorAll) or a
 # key its keyboard does not know.
@@ -483,7 +483,7 @@ class _Session:
             error = failure = None
             try:
                 if time.monotonic() >= self.deadline:
-                    raise _StepFailed(_overtime(), "error")
+                    raise _StepFailed(_overtime(), "timeout")
                 self._do(step)
             except _StepFailed as e:
                 error, failure = str(e), e.failure
@@ -497,7 +497,7 @@ class _Session:
             if failure in ("missing", "mismatch", "error") and time.monotonic() >= self.deadline:
                 # Its wait was cut short at the deadline, so its own reason says nothing about the page.
                 # (ambiguous and invalid are known at once and stand.)
-                error, failure = _overtime(), "error"
+                error, failure = _overtime(), "timeout"
             last = error is not None or n == len(steps)
             shot = self._screenshot() if shots == "all" or (shots == "failure" and last) else None
             results.append(StepResult(n, stepfmt.describe(step), error is None, error, shot, failure))

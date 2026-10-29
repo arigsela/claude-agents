@@ -72,8 +72,9 @@ def ctx_with(ui_replay, tmp_path) -> V.Ctx:
 @pytest.mark.parametrize("failure, reason", [
     ("ambiguous", f"step 2 failed only because its target matched more than one element: {ERROR}"),
     ("invalid", f"step 2 failed only because the step itself is invalid: {ERROR}"),
+    ("timeout", f"step 2 failed only because the replay ran out of time: {ERROR}"),
     ("missing", None),
-], ids=["ambiguous", "invalid", "missing"])
+], ids=["ambiguous", "invalid", "timeout", "missing"])
 def test_server_result_through_the_mcp_client_into_verify(tmp_path, mcp, failure, reason):
     make, calls = mcp
     ctx = ctx_with(make(canned(STEPS, failed_at=2, failure=failure)), tmp_path)

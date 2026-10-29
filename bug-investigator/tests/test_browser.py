@@ -222,11 +222,11 @@ def test_malformed_steps_fail_invalid(tmp_path):
 @pytest.mark.browser
 def test_replay_deadline_counts_app_start_and_load(tmp_path, monkeypatch):
     # Ruling R14: the whole replay has REPLAY_S, from Chromium's launch on. The board's data answers 4 s late and
-    # the replay has 2 s, so the time is up before step 1: it fails `error`, and no later step runs.
+    # the replay has 2 s, so the time is up before step 1: it fails `timeout`, and no later step runs.
     monkeypatch.setattr(browser, "REPLAY_S", 2)
     r = browser.replay(make_app(tmp_path, FIXTURE_DELAY_MS="4000"), [AS_DANA, START, STARTED], shots="none")
     assert r.failed_at == 1 and len(r.steps) == 1, r.to_json()
-    assert (r.steps[0].failure, r.steps[0].error) == ("error", "the replay took longer than 2 s")
+    assert (r.steps[0].failure, r.steps[0].error) == ("timeout", "the replay took longer than 2 s")
     assert r.seconds < 2 + 4  # the load's wait for the network stopped at the deadline too
 
 
@@ -234,12 +234,12 @@ def test_replay_deadline_counts_app_start_and_load(tmp_path, monkeypatch):
 @pytest.mark.browser
 def test_replay_deadline_cuts_the_current_step_short(tmp_path, monkeypatch):
     # /api/act does not answer within the replay's 8 s: Start's click goes through, the network never settles,
-    # and the status check runs out of time: step 3 fails `error` (not `mismatch`), step 4 never runs.
+    # and the status check runs out of time: step 3 fails `timeout` (not `mismatch`), step 4 never runs.
     monkeypatch.setattr(browser, "REPLAY_S", 8)
     steps = [AS_DANA, START, STARTED, {"do": "expect_visible", "target": {"role": "heading", "name": "Fixture board"}}]
     r = browser.replay(make_app(tmp_path, FIXTURE_ACT_DELAY_MS="30000"), steps, shots="none")
     assert r.failed_at == 3 and len(r.steps) == 3 and r.steps[1].ok, r.to_json()
-    assert (r.steps[2].failure, r.steps[2].error) == ("error", "the replay took longer than 8 s")
+    assert (r.steps[2].failure, r.steps[2].error) == ("timeout", "the replay took longer than 8 s")
     assert r.seconds < 8 + 5
 
 

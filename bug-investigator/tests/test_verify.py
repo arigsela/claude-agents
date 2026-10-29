@@ -447,6 +447,15 @@ def test_ui_invalid_failure_is_never_evidence(app_repo):
     assert reasons(out)["E1"] == f"step 2 failed only because the step itself is invalid: {error}"
 
 
+def test_ui_timeout_failure_is_never_evidence(app_repo):
+    # Ruling R14b: a replay that ran out of time at the claimed step says nothing about the page.
+    error = "the replay took longer than 75 s"
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)],
+                       FakeReplay(lambda s: replay(s, failed_at=3, failure="timeout", error=error)))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == f"step 3 failed only because the replay ran out of time: {error}"
+
+
 def test_ui_null_fails_at_needs_all_pass(app_repo):
     fake = FakeReplay(lambda s: replay(s))
     out, c = ui_verify(app_repo, [ui_item(fails_at=None)], fake)

@@ -162,20 +162,20 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   `within` matched more than one element), `missing` (nothing matched), `mismatch` (no match had the
   text; for `expect_absent`, something matched), `invalid` (the step cannot run on any page: a `css`
   that does not parse, a key Playwright does not know; `press` tries its key before looking for the
-  target) or `error` (anything else, such as a disabled button). A replay has 75 s
-  (`browser.REPLAY_S`) from Chromium's launch, app start and load included, so a call answers within
-  agentgateway's 90 s: when they run out, the current step fails `error` ("the replay took longer
-  than 75 s") and no later step runs.
+  target), `timeout` (the replay ran out of time at that step) or `error` (anything else, such as a
+  disabled button). A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and
+  load included, so a call answers within agentgateway's 90 s: when they run out, the current step
+  fails `timeout` ("the replay took longer than 75 s") and no later step runs.
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
-  fails and it did not fail `ambiguous` or `invalid`: a step whose target matched more than one
-  element, or one that cannot run on any page, is badly written, never evidence. `fails_at: null`
-  ("works as documented") is verified only when every step passes. The result must show exactly
-  steps 1 to k (all of them for null), in order: an empty, partial or reordered result is dropped.
-  Invalid steps, a replay error or no browser in the run (the Action, n8n mode) drop the item. A
-  verified item keeps the commit and each step's outcome; the screenshots stay out of the JSON, in
-  `ctx.ui_shots[<id>]`.
+  fails and it did not fail `ambiguous`, `invalid` or `timeout`: a step whose target matched more
+  than one element or that cannot run on any page is badly written, and a replay that ran out of
+  time shows nothing about the page; neither is evidence. `fails_at: null` ("works as documented")
+  is verified only when every step passes. The result must show exactly steps 1 to k (all of them
+  for null), in order: an empty, partial or reordered result is dropped. Invalid steps, a replay
+  error or no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the
+  commit and each step's outcome; the screenshots stay out of the JSON, in `ctx.ui_shots[<id>]`.
 - **Screenshots.** The trigger commits them to the orphan branch `bug-investigator-evidence` of the
   app repo (`evidence.Uploader`: the Git Data API, that one ref only, PNGs of at most 2 MiB, 30 per
   commit) and links each as `https://github.com/<repo>/blob/<commit>/<path>?raw=true`. The comment's

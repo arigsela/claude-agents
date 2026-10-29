@@ -314,7 +314,7 @@ def test_description_names_the_failure_kinds_and_the_rules():
     d = browser_server.DESCRIPTION
     for kind in browser.FAILURES:
         assert f"`{kind}`" in d, kind
-    assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "error")
+    assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "timeout", "error")
     for words in ("never matches a claim", "an ARIA role", f"longer than {browser.REPLAY_S} s",
                   # match semantics (Minor 3 of the Phase A review)
                   "`name`, `label` and `placeholder` match the whole text exactly",
@@ -338,6 +338,7 @@ def test_null_fails_at_is_no_claim(app_dir):
     (2, 2, "error", True),
     (2, 2, "ambiguous", False),        # a badly written step is never evidence
     (2, 2, "invalid", False),          # nor one that cannot run on any page (ruling R13)
+    (2, 2, "timeout", False),          # nor a replay that ran out of time there (ruling R14b)
     (2, 3, "missing", False),          # another step failed
     (3, 2, "missing", False),
     (2, None, None, False),            # nothing failed
