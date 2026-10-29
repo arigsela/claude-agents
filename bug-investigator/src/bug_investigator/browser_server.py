@@ -60,12 +60,12 @@ DESCRIPTION = (
     "`ambiguous` (an action target or within matched more than one element), `missing` (nothing matched), "
     "`mismatch` (no match had the text; for expect_absent, something matched), `invalid` (the step cannot run "
     "on any page: a css that does not parse, a key Playwright does not know), `error` (anything else, such as "
-    "a disabled button). Set `fails_at` to the step you expect to fail and the result says whether it matches "
-    "(`matches_claim`); an `ambiguous` or `invalid` failure never matches a claim, since it shows a badly "
-    "written step, not a bug; omit `fails_at` when you expect every step to pass, and read `ok`. "
-    "`screenshots`: failure (the default: the failing "
-    "step, or the last one), all, or none. The result holds each step's outcome, the page's accessibility "
-    "snapshot, the app's last log lines and the browser console, then the screenshots."
+    f"a disabled button, or a replay that took longer than {browser.REPLAY_S} s, which stops there). Set "
+    "`fails_at` to the step you expect to fail and the result says whether it matches (`matches_claim`); an "
+    "`ambiguous` or `invalid` failure never matches a claim, since it shows a badly written step, not a bug; "
+    "omit `fails_at` when you expect every step to pass, and read `ok`. `screenshots`: failure (the default: "
+    "the failing step, or the last one), all, or none. The result holds each step's outcome, the page's "
+    "accessibility snapshot, the app's last log lines and the browser console, then the screenshots."
 )
 
 TOOL = {

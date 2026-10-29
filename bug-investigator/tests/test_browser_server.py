@@ -315,7 +315,7 @@ def test_description_names_the_failure_kinds_and_the_rules():
     for kind in browser.FAILURES:
         assert f"`{kind}`" in d, kind
     assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "error")
-    for words in ("never matches a claim", "an ARIA role"):
+    for words in ("never matches a claim", "an ARIA role", f"longer than {browser.REPLAY_S} s"):
         assert words in d, words
 
 

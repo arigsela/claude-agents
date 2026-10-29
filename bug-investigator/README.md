@@ -155,7 +155,9 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   matched), `mismatch` (no match had the text; for `expect_absent`, something matched), `invalid`
   (the step cannot run on any page: a `css` that does not parse, a key Playwright does not know;
   `press` tries its key before looking for the target) or `error` (anything else, such as a disabled
-  button).
+  button). A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and load
+  included, so a call answers within agentgateway's 90 s: when they run out, the current step fails
+  `error` ("the replay took longer than 75 s") and no later step runs.
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that

@@ -2,7 +2,8 @@
 
 Env: PORT; DB_PATH (created, otherwise unused); TASKBOARD_COMMIT (logged); FIXTURE_BROKEN=1 drops
 the second card's Done button; FIXTURE_DELAY_MS delays the cards' data, so the board renders late;
-FIXTURE_ACT_DELAY_MS delays a button's answer; FIXTURE_CHILD=1 starts a sleeping child process.
+FIXTURE_ACT_DELAY_MS delays a button's answer; FIXTURE_CHILD=1 starts a sleeping child process,
+FIXTURE_CHILD=ignore-term one that ignores SIGTERM (it logs `child-ready` once it does).
 Serves /healthz. Logs one JSON line per request on stdout, after a start line naming its env keys.
 """
 
@@ -107,7 +108,11 @@ if __name__ == "__main__":
     open(os.environ["DB_PATH"], "a").close()
     print(json.dumps({"event": "start", "commit": os.environ.get("TASKBOARD_COMMIT"), "env": sorted(os.environ)}),
           flush=True)
-    if os.environ.get("FIXTURE_CHILD") == "1":
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    if os.environ.get("FIXTURE_CHILD") in ("1", "ignore-term"):
+        code = "import time; time.sleep(120)"
+        if os.environ["FIXTURE_CHILD"] == "ignore-term":
+            code = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                    "print('{\"event\": \"child-ready\"}', flush=True); time.sleep(120)")
+        child = subprocess.Popen([sys.executable, "-c", code])
         print(json.dumps({"event": "child", "pid": child.pid}), flush=True)
     ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()

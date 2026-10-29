@@ -5,7 +5,9 @@ database and HOME in a temporary directory and a fixed environment, loads `/`, r
 (steps.py's format) and tears everything down. The browser may talk only to that app: a request,
 navigation or WebSocket to any other origin is aborted and noted in `console`. One replay runs at a
 time on a machine (a lock in $TMPDIR). Only this module imports Playwright, lazily, from $DEPS_DIR
-(default /deps).
+(default /deps). A replay has REPLAY_S (75 s) from Chromium's launch, app start and load included:
+when it runs out, the current step fails (`error`, "the replay took longer than 75 s") and no later
+step runs, so a call answers within agentgateway's 90 s.
 
     python3 -I browser.py replay --app-dir D --steps F [--commit SHA] --out DIR
     python3 -I browser.py check --app-dir D --repros DIR --out DIR [--changed a.json,b.json]
@@ -24,7 +26,7 @@ missing (nothing matched), mismatch (expect_text found no match with the value; 
 some), invalid (the step cannot run on any page: `within.css` is not a CSS selector, read as
 `css=<css>` so another selector engine does not parse either, or `press` names a key Playwright does
 not know; the key is checked before the target is looked for), error (anything else, such as a
-disabled button).
+disabled button, or the replay's time running out).
 """
 
 from __future__ import annotations
@@ -57,6 +59,9 @@ APP_START_S = 15  # the app must answer GET /healthz within this
 LOCK_WAIT_S = 120
 STEP_S = 3  # actions, expect_visible and expect_text wait this long for their target
 IDLE_S = 5  # after load and after every action: wait (at most this) for the network to go idle
+# The whole replay, from Chromium's launch through app start, load and every step (ruling R14): under the
+# 90 s timeout of the server's RemoteMCPServer and mcp_client's 120 s. Real replays take 10-20 s.
+REPLAY_S = 75
 QUIET_S = 0.5  # idle = no request in flight for this long
 VIEWPORT = {"width": 1100, "height": 760}
 SNAPSHOT_CHARS = 6000
@@ -145,6 +150,10 @@ def _step_error(e: BaseException, step: dict) -> str:
         return f"{what} is covered by {reason.removesuffix(' intercepts pointer events')} ({head})"
     because = f": {reason}" if reason else ""
     return f"could not {stepfmt.describe(step)}{because} ({head})"
+
+
+def _overtime() -> str:
+    return f"the replay took longer than {REPLAY_S} s"
 
 
 def _malformed(e: BaseException) -> bool:
@@ -245,17 +254,20 @@ class _App:
         return ": " + " | ".join(lines) if lines else ""
 
     def _signal_group(self, sig: int) -> None:
-        with contextlib.suppress(ProcessLookupError):  # the whole group is gone already
+        # ProcessLookupError: the whole group is gone already. PermissionError: macOS's answer for a group
+        # whose last members are zombies.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(self.proc.pid, sig)
 
     def stop(self) -> None:
         if self.proc is None:
             return
         self._signal_group(signal.SIGTERM)
-        try:
+        with contextlib.suppress(subprocess.TimeoutExpired):
             self.proc.wait(5)
-        except subprocess.TimeoutExpired:
-            self._signal_group(signal.SIGKILL)
+        # Always, not only when the app outlived SIGTERM: a grandchild that ignores it must not outlive the replay.
+        self._signal_group(signal.SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
             self.proc.wait(5)
         self.reader.join(2)
         if not self.reader.is_alive():  # a grandchild may still hold the pipe; never block on it
@@ -306,9 +318,10 @@ def _mismatch(what: str, value: str, texts: list[str]) -> str:
 class _Session:
     """One page on the app: the origin fence, the console, the requests in flight, the steps."""
 
-    def __init__(self, api, browser, origin: str):
+    def __init__(self, api, browser, origin: str, deadline: float):
         self.api = api
         self.browser = browser
+        self.deadline = deadline  # time.monotonic() when the replay's REPLAY_S runs out
         self.crashed = False
         self.origin = origin
         self.netloc = urlsplit(origin).netloc
@@ -357,10 +370,13 @@ class _Session:
         self.last = time.monotonic()
 
     def _settle(self, after: str) -> None:
-        """Wait until no request has been in flight for QUIET_S, at most IDLE_S."""
+        """Wait until no request has been in flight for QUIET_S, at most IDLE_S, and never past the deadline."""
         start = time.monotonic()
         self.last = max(self.last, start)  # a click's fetch may start a moment after the click
         while self.pending or time.monotonic() - self.last < QUIET_S:
+            if time.monotonic() >= self.deadline:
+                self._note(f"replay: time ran out while the network was still busy after {after}")
+                return
             if time.monotonic() - start >= IDLE_S:
                 self._note(f"replay: the network was still busy {IDLE_S} s after {after}")
                 return
@@ -439,9 +455,10 @@ class _Session:
 
     def _do(self, step: dict) -> None:
         do, t, v = step["do"], step.get("target"), step.get("value")
-        deadline = time.monotonic() + STEP_S
+        deadline = min(time.monotonic() + STEP_S, self.deadline)
         if do == "goto":  # whatever the app serves (a 404 page too) is the page the next step sees
-            self.page.goto(self.origin + v, wait_until="load")
+            self.page.goto(self.origin + v, wait_until="load",
+                           timeout=max(100, round((deadline - time.monotonic()) * 1000)))
             self._settle(f"opening {v}")
         elif do in stepfmt.CHECKS:
             self._check(do, t, v, deadline)
@@ -465,6 +482,8 @@ class _Session:
         for n, step in enumerate(steps, 1):
             error = failure = None
             try:
+                if time.monotonic() >= self.deadline:
+                    raise _StepFailed(_overtime(), "error")
                 self._do(step)
             except _StepFailed as e:
                 error, failure = str(e), e.failure
@@ -475,6 +494,10 @@ class _Session:
                     error, failure = _invalid_error(e, step), "invalid"
                 else:
                     error, failure = _step_error(e, step), "error"
+            if failure in ("missing", "mismatch", "error") and time.monotonic() >= self.deadline:
+                # Its wait was cut short at the deadline, so its own reason says nothing about the page.
+                # (ambiguous and invalid are known at once and stand.)
+                error, failure = _overtime(), "error"
             last = error is not None or n == len(steps)
             shot = self._screenshot() if shots == "all" or (shots == "failure" and last) else None
             results.append(StepResult(n, stepfmt.describe(step), error is None, error, shot, failure))
@@ -510,6 +533,7 @@ def replay(app_dir: str, steps: list[dict], *, commit: str | None = None, shots:
         raise ValueError("; ".join(problems))
     with _lock(), tempfile.TemporaryDirectory(prefix="bug-investigator-replay-") as tmp:
         started = time.monotonic()
+        deadline = started + REPLAY_S  # Chromium's launch, app start and load count against it
         api = _playwright()
         pw = browser = app = None
         try:
@@ -522,7 +546,7 @@ def replay(app_dir: str, steps: list[dict], *, commit: str | None = None, shots:
             app = _App(app_dir, tmp, commit)
             app.start()
             try:
-                session = _Session(api, browser, app.origin)
+                session = _Session(api, browser, app.origin, deadline)
                 session.load()
                 results, failed_at = session.run(steps, shots)
                 snapshot, console = session.snapshot(), session.console

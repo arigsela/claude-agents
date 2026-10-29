@@ -13,6 +13,8 @@ three-line server.py that sets them and runs the fixture.
 import base64
 import fcntl
 import json
+import os
+import signal
 import subprocess
 import time
 import sys
@@ -218,6 +220,31 @@ def test_malformed_steps_fail_invalid(tmp_path):
 
 @needs_chromium
 @pytest.mark.browser
+def test_replay_deadline_counts_app_start_and_load(tmp_path, monkeypatch):
+    # Ruling R14: the whole replay has REPLAY_S, from Chromium's launch on. The board's data answers 4 s late and
+    # the replay has 2 s, so the time is up before step 1: it fails `error`, and no later step runs.
+    monkeypatch.setattr(browser, "REPLAY_S", 2)
+    r = browser.replay(make_app(tmp_path, FIXTURE_DELAY_MS="4000"), [AS_DANA, START, STARTED], shots="none")
+    assert r.failed_at == 1 and len(r.steps) == 1, r.to_json()
+    assert (r.steps[0].failure, r.steps[0].error) == ("error", "the replay took longer than 2 s")
+    assert r.seconds < 2 + 4  # the load's wait for the network stopped at the deadline too
+
+
+@needs_chromium
+@pytest.mark.browser
+def test_replay_deadline_cuts_the_current_step_short(tmp_path, monkeypatch):
+    # /api/act does not answer within the replay's 8 s: Start's click goes through, the network never settles,
+    # and the status check runs out of time: step 3 fails `error` (not `mismatch`), step 4 never runs.
+    monkeypatch.setattr(browser, "REPLAY_S", 8)
+    steps = [AS_DANA, START, STARTED, {"do": "expect_visible", "target": {"role": "heading", "name": "Fixture board"}}]
+    r = browser.replay(make_app(tmp_path, FIXTURE_ACT_DELAY_MS="30000"), steps, shots="none")
+    assert r.failed_at == 3 and len(r.steps) == 3 and r.steps[1].ok, r.to_json()
+    assert (r.steps[2].failure, r.steps[2].error) == ("error", "the replay took longer than 8 s")
+    assert r.seconds < 8 + 5
+
+
+@needs_chromium
+@pytest.mark.browser
 def test_other_origin_request_aborted(tmp_path):
     steps = [{"do": "click", "target": {"role": "link", "name": "Elsewhere"}},
              {"do": "expect_visible", "target": {"role": "heading", "name": "Fixture board"}}]
@@ -307,6 +334,47 @@ def test_app_process_group_stopped(tmp_path):
             assert state == "Z", f"the app's child {pid} is still running ({state})"
             break
         time.sleep(0.1)
+
+
+def _state(pid: int) -> str | None:
+    """The process's state letter (Z: a zombie), or None when it is gone."""
+    if Path("/proc/self/stat").exists():
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            return None
+    try:  # no /proc (macOS): is it there at all, then ask ps for its state
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        pass  # there, someone else's
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return out[:1] or "?"
+
+
+def test_app_stop_kills_a_child_that_ignores_sigterm(tmp_path):
+    # SIGTERM to the app's process group, then always SIGKILL: a grandchild that ignores SIGTERM must not outlive
+    # the replay. No browser needed.
+    home = tmp_path / "home"
+    home.mkdir()
+    app = browser._App(make_app(tmp_path, FIXTURE_CHILD="ignore-term"), str(home), None)
+    app.start()
+    pid = None
+    try:
+        deadline = time.monotonic() + 10
+        while not any('"child-ready"' in line for line in app.log):  # it ignores SIGTERM from here on
+            assert time.monotonic() < deadline, list(app.log)
+            time.sleep(0.05)
+        pid = next(json.loads(line)["pid"] for line in app.log if '"child"' in line)
+        app.stop()
+        deadline = time.monotonic() + 5
+        while _state(pid) not in (None, "Z"):  # gone, or a zombie nobody reaps (orphans in a container)
+            assert time.monotonic() < deadline, f"the app's child {pid} survived stop() ({_state(pid)})"
+            time.sleep(0.1)
+    finally:
+        if pid and _state(pid) not in (None, "Z"):
+            os.kill(pid, signal.SIGKILL)
 
 
 def _cli(*args):
