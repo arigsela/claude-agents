@@ -6,9 +6,11 @@ logql/promql: the shared scope check, then a re-run in [start, end] (default: re
 at most 24 h) through Grafana (`--telemetry grafana`, the Action) or straight against Loki and
 Prometheus (`--telemetry direct`, the in-cluster trigger: no token); "found" needs data, "none" none.
 ui: valid steps (steps.py), then a replay through `Ctx.ui_replay` (the in-cluster trigger only; the
-Action and n8n mode have no browser): `fails_at` k needs step k to be the first failure, and not
-because its target matched more than one element (`ambiguous`), because the step cannot run on any
-page (`invalid`) or because the replay ran out of time (`timeout`); null needs every step to pass.
+Action and n8n mode have no browser): `fails_at` k needs step k to be the first failure, with a
+failure kind that can show a bug (an allowlist, steps.EVIDENCE_FAILURES: `missing`, `mismatch`,
+`error`), never because its target matched more than one element (`ambiguous`), because the step
+cannot run on any page (`invalid`), because the replay ran out of time (`timeout`) or with no or an
+unknown kind; null needs every step to pass.
 The result must show exactly steps 1..k (null: all of them), in order, every one before the claimed
 step passing. The verified item keeps the commit and per-step outcomes; the screenshots go to
 `ctx.ui_shots[id]`, never the JSON.
@@ -323,12 +325,15 @@ def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
     shape = _ui_shape(ran, len(steps) if fails_at is None else fails_at, fails_at)
     if shape:
         return shape, {}
-    if failed and failed["failure"] == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
-        return f"step {fails_at} failed only because its target matched more than one element: {error}", {}
-    if failed and failed["failure"] == "invalid":  # ruling R13: nor does one that can never pass on any code
-        return f"step {fails_at} failed only because the step itself is invalid: {error}", {}
-    if failed and failed["failure"] == "timeout":  # ruling R14b: nor a replay that ran out of time there
-        return f"step {fails_at} failed only because the replay ran out of time: {error}", {}
+    kind = failed["failure"] if failed else None
+    if fails_at is not None and kind not in stepfmt.EVIDENCE_FAILURES:  # an allowlist (ruling R16)
+        if kind == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
+            return f"step {fails_at} failed only because its target matched more than one element: {error}", {}
+        if kind == "invalid":  # ruling R13: nor does one that can never pass on any code
+            return f"step {fails_at} failed only because the step itself is invalid: {error}", {}
+        if kind == "timeout":  # ruling R14b: nor a replay that ran out of time there
+            return f"step {fails_at} failed only because the replay ran out of time: {error}", {}
+        return f"step {fails_at} failed with failure kind {kind!r}, which is never evidence: {error}", {}
     shots = r.get("screenshots") if isinstance(r.get("screenshots"), list) else []
     ctx.ui_shots[str(item.get("id"))] = [(x[0], bytes(x[1])) for x in shots if isinstance(x, (list, tuple))
                                          and len(x) == 2 and isinstance(x[0], int)

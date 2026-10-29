@@ -12,6 +12,10 @@ ACTIONS = ("click", "fill", "select", "press", "goto")
 CHECKS = ("expect_visible", "expect_absent", "expect_text")
 MAX_STEPS = 15
 MAX_TEXT = 200
+# The failure kinds (browser.FAILURES) that can show a bug: a claimed failing step is evidence only when it failed
+# with one of these (an allowlist, ruling R16). ambiguous and invalid show a badly written step, timeout a slow
+# replay; no kind at all, or one this list does not know, never counts. browser_server and verify both use it.
+EVIDENCE_FAILURES = ("missing", "mismatch", "error")
 
 # The roles Playwright's get_by_role accepts: the `role` Literal of Page.get_by_role in Playwright 1.64.0
 # (playwright/sync_api/_generated.py). Any other role matches nothing on any page (ruling R13).

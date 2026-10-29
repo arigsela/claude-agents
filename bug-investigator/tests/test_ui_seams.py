@@ -73,8 +73,10 @@ def ctx_with(ui_replay, tmp_path) -> V.Ctx:
     ("ambiguous", f"step 2 failed only because its target matched more than one element: {ERROR}"),
     ("invalid", f"step 2 failed only because the step itself is invalid: {ERROR}"),
     ("timeout", f"step 2 failed only because the replay ran out of time: {ERROR}"),
+    (None, f"step 2 failed with failure kind None, which is never evidence: {ERROR}"),  # an allowlist (R16)
+    ("flaky", f"step 2 failed with failure kind 'flaky', which is never evidence: {ERROR}"),
     ("missing", None),
-], ids=["ambiguous", "invalid", "timeout", "missing"])
+], ids=["ambiguous", "invalid", "timeout", "no-kind", "unknown-kind", "missing"])
 def test_server_result_through_the_mcp_client_into_verify(tmp_path, mcp, failure, reason):
     make, calls = mcp
     ctx = ctx_with(make(canned(STEPS, failed_at=2, failure=failure)), tmp_path)

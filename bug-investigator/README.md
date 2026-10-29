@@ -169,9 +169,11 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
-  fails and it did not fail `ambiguous`, `invalid` or `timeout`: a step whose target matched more
-  than one element or that cannot run on any page is badly written, and a replay that ran out of
-  time shows nothing about the page; neither is evidence. `fails_at: null` ("works as documented")
+  fails and it failed `missing`, `mismatch` or `error` (an allowlist, `steps.EVIDENCE_FAILURES`,
+  shared with the tool's `matches_claim`): a step whose target matched more than one element
+  (`ambiguous`) or that cannot run on any page (`invalid`) is badly written, a replay that ran out
+  of time (`timeout`) shows nothing about the page, and a result with no failure kind or one verify
+  does not know proves nothing; none of them is evidence. `fails_at: null` ("works as documented")
   is verified only when every step passes. The result must show exactly steps 1 to k (all of them
   for null), in order: an empty, partial or reordered result is dropped. Invalid steps, a replay
   error or no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the
