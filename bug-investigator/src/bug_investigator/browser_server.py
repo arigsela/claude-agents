@@ -22,6 +22,10 @@ Transport: mcp_server.StdioServer's loop (agentgateway serves it as Streamable H
 on a background thread and tool calls run on the main thread, one at a time (replays take a
 machine-wide lock anyway). SIGTERM raises SystemExit there, so a running replay unwinds through its
 finally blocks, which close Chromium and stop the app's process group, before the process exits.
+A SIGKILL (agentgateway ending a deleted session) runs no finally block: the app then dies by its
+parent-death signal, and the next call kills its recorded process group and removes the replay's
+temp dir (browser.py, ruling R19). That signal follows the thread that started the app, so calls
+must stay on the main thread.
 
     python3 -I /core/src/bug_investigator/browser_server.py      # env APP_DIR, DEPS_DIR
 """

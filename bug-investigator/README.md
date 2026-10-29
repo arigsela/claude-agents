@@ -145,7 +145,13 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   settings the live Taskboard Deployment has today. A setting only the live Deployment had (a
   feature flag, say) would not reach the copy, so the copy would behave differently from live until
   `browser._App` mirrors it. Playwright is imported only inside a call (`browser.py`, from `/deps`),
-  so a Chromium that cannot start is a tool error, never a failed `initialize`.
+  so a Chromium that cannot start is a tool error, never a failed `initialize`. A server killed
+  mid-call (agentgateway does that when a session is deleted) runs no teardown, so the copy is
+  stopped two other ways: on Linux it gets SIGKILL when the server's thread that started it exits
+  (`PR_SET_PDEATHSIG`; calls run on the main thread), and its process group is recorded in
+  `$TMPDIR/bug-investigator-browser.pgid` while it runs, so the next call, once it holds the replay
+  lock, kills that group (anything the copy started) and removes the engine's leftover
+  `$TMPDIR/bug-investigator-replay-*` directories.
   `browser-requirements.txt` pins the four wheels (with hashes) that the server's init container and
   the `ui-check` workflow install.
 - **The steps** (`steps.py`): at most 15 of `{do, target, value, note}`. `do` is an action (`click`,
@@ -195,12 +201,13 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   posts one comment (`evidence.py post-pr`, marker `<!-- bug-investigator ui-check -->`) with the
   changed repros' steps and "after" screenshots.
 
-The browser tests (`@pytest.mark.browser`) skip without Playwright; run them in the image, from
-`bug-investigator/`:
+The browser tests (`@pytest.mark.browser`, which also marks the Linux-only tests of the app's
+teardown) skip without Playwright or Linux; run them in the image (natively: never
+`--platform linux/amd64` on an arm64 Mac), from `bug-investigator/`:
 
 ```bash
 docker run --rm -v "$PWD":/w -w /w mcr.microsoft.com/playwright/python:v1.64.0-noble \
-  sh -c 'pip install -q playwright==1.64.0 pytest && python -m pytest -q -m browser'
+  sh -c 'pip install -q --break-system-packages playwright==1.64.0 pytest && python3 -m pytest -q -m browser'
 ```
 
 ## Local runs

@@ -16,8 +16,9 @@ import json
 import os
 import signal
 import subprocess
-import time
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,8 @@ except ImportError:
     HAVE_PLAYWRIGHT = False
 
 needs_chromium = pytest.mark.skipif(not HAVE_PLAYWRIGHT, reason="needs Playwright and Chromium (the Playwright image)")
+# Linux only (/proc, prctl): marked `browser` too, so these run in the Playwright image.
+linux_only = pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs Linux (the Playwright image)")
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ui-app" / "server.py"
 ENGINE = Path(browser.__file__)
@@ -43,6 +46,15 @@ AS_DANA = {"do": "select", "target": {"label": "User"}, "value": "dana (editor)"
 START = {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": PRICING}}}
 DONE = {"do": "click", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": COOKIE}}}
 STARTED = {"do": "expect_text", "target": STATUS, "value": "moved to in progress by dana"}
+
+
+@pytest.fixture(autouse=True)
+def engine_tmpdir(tmp_path, monkeypatch) -> Path:
+    """The engine's $TMPDIR (its lock, its pgid file, its temp dirs) in this test's own directory."""
+    d = tmp_path / "tmpdir"
+    d.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(d))
+    return d
 
 
 def make_app(tmp_path, **env) -> str:
@@ -432,12 +444,15 @@ def test_app_stop_kills_a_child_that_ignores_sigterm(tmp_path):
     app.start()
     pid = None
     try:
+        pgid = Path(browser._pgid_path())
+        assert pgid.read_text().split()[0] == str(app.proc.pid)  # recorded at start (ruling R19)
         deadline = time.monotonic() + 10
         while not any('"child-ready"' in line for line in app.log):  # it ignores SIGTERM from here on
             assert time.monotonic() < deadline, list(app.log)
             time.sleep(0.05)
         pid = next(json.loads(line)["pid"] for line in app.log if '"child"' in line)
         app.stop()
+        assert not pgid.exists()  # and removed once the group is stopped
         deadline = time.monotonic() + 5
         while _state(pid) not in (None, "Z"):  # gone, or a zombie nobody reaps (orphans in a container)
             assert time.monotonic() < deadline, f"the app's child {pid} survived stop() ({_state(pid)})"
@@ -445,6 +460,124 @@ def test_app_stop_kills_a_child_that_ignores_sigterm(tmp_path):
     finally:
         if pid and _state(pid) not in (None, "Z"):
             os.kill(pid, signal.SIGKILL)
+
+
+def _stop_after_the_lock(monkeypatch) -> None:
+    """replay() takes the lock (and clears what an earlier replay left), then fails before Chromium."""
+    def no_browser():
+        raise browser.BrowserError("stopped after the lock")
+
+    monkeypatch.setattr(browser, "_playwright", no_browser)
+
+
+def test_a_stale_app_group_is_killed_at_the_next_replay(tmp_path, monkeypatch, engine_tmpdir):
+    # Ruling R19: a replay whose server was killed mid-call leaves the app's process group (recorded in the pgid
+    # file) and its temp dir behind. The next replay, holding the lock, kills that group and removes the engine's
+    # own leftover temp dirs, and nothing else. No browser needed.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    try:
+        browser._record_app(sleeper.pid)
+        assert Path(browser._pgid_path()).parent == engine_tmpdir
+        stale = engine_tmpdir / "bug-investigator-replay-k1lled"
+        (stale / "nested").mkdir(parents=True)
+        (stale / "app.db").write_text("demo data")
+        others = [engine_tmpdir / "bug-investigator-tests.abc", engine_tmpdir / "bug-investigator-replay-a-file"]
+        others[0].mkdir()
+        others[1].write_text("not a directory")
+        _stop_after_the_lock(monkeypatch)
+        with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+            browser.replay(make_app(tmp_path), [START])
+        assert sleeper.wait(5) == -signal.SIGKILL
+        assert not Path(browser._pgid_path()).exists() and not stale.exists()
+        assert all(p.exists() for p in others)
+        with pytest.raises(browser.BrowserError, match="stopped after the lock"):  # nothing recorded: nothing to do
+            browser.replay(make_app(tmp_path / "again"), [START])
+    finally:
+        if sleeper.poll() is None:
+            sleeper.kill()
+            sleeper.wait()
+
+
+def test_a_record_that_cannot_be_read_or_removed_never_stops_a_replay(tmp_path, monkeypatch):
+    # Clearing up is best effort: a malformed record, or one that cannot be removed (another user's file in a
+    # shared /tmp), must not fail the replay that found it.
+    Path(browser._pgid_path()).write_text("not a pgid\n")
+    _stop_after_the_lock(monkeypatch)
+    with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+        browser.replay(make_app(tmp_path), [START])
+    assert not Path(browser._pgid_path()).exists()
+
+    def cannot_remove(path):
+        raise PermissionError(1, "Operation not permitted", path)
+
+    Path(browser._pgid_path()).write_text("4242 -\n")
+    monkeypatch.setattr(browser.os, "remove", cannot_remove)
+    monkeypatch.setattr(browser.os, "killpg", lambda *a: None)
+    with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+        browser.replay(make_app(tmp_path / "again"), [START])
+
+
+@linux_only
+@pytest.mark.browser
+def test_a_recorded_group_whose_id_was_reused_is_left_alone(tmp_path, monkeypatch):
+    # The recorded group is gone and its id now names another process (a different start time): never killed.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    try:
+        Path(browser._pgid_path()).write_text(f"{sleeper.pid} 1\n")  # started 1 clock tick after boot: not it
+        _stop_after_the_lock(monkeypatch)
+        with pytest.raises(browser.BrowserError, match="stopped after the lock"):
+            browser.replay(make_app(tmp_path), [START])
+        time.sleep(0.3)
+        assert sleeper.poll() is None and not Path(browser._pgid_path()).exists()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+PARENT = """\
+import os, sys, time
+sys.path.insert(0, {src!r})
+from bug_investigator import browser
+app = browser._App({app!r}, {home!r}, None)
+app.start()
+print(app.proc.pid, flush=True)
+if {exits!r}:
+    os._exit(0)  # without stopping the app
+time.sleep(60)
+"""
+
+
+@linux_only
+@pytest.mark.browser
+@pytest.mark.parametrize("how", ["killed", "exits"])
+def test_the_app_dies_with_the_process_that_started_it(tmp_path, engine_tmpdir, how):
+    # Ruling R19, the reviewer's repro: a session deleted mid-call makes agentgateway kill browser_server.py, whose
+    # finally blocks never run; the app, in a session of its own, was reparented and kept running. Its parent-death
+    # signal (PR_SET_PDEATHSIG = SIGKILL) now ends it with the process that started it. No browser needed.
+    home = tmp_path / "home"
+    home.mkdir()
+    code = PARENT.format(src=str(ENGINE.parents[1]), app=make_app(tmp_path), home=str(home), exits=how == "exits")
+    parent = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True,
+                              env=dict(os.environ, TMPDIR=str(engine_tmpdir)))
+    app_pid = None
+    try:
+        app_pid = int(parent.stdout.readline())
+        assert _state(app_pid) not in (None, "Z")  # the app is up
+        if how == "killed":
+            parent.kill()
+        parent.wait(10)
+        deadline = time.monotonic() + 5
+        while _state(app_pid) not in (None, "Z"):  # gone, or a zombie nobody reaps (orphans in a container)
+            assert time.monotonic() < deadline, f"the app {app_pid} outlived its parent ({_state(app_pid)})"
+            time.sleep(0.1)
+        # The parent never stopped it, so its record is left for the next replay to reap.
+        assert (engine_tmpdir / "bug-investigator-browser.pgid").read_text().split()[0] == str(app_pid)
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait()
+        if app_pid and _state(app_pid) not in (None, "Z"):
+            os.killpg(app_pid, signal.SIGKILL)
 
 
 def _cli(*args):

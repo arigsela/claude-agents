@@ -9,6 +9,13 @@ time on a machine (a lock in $TMPDIR). Only this module imports Playwright, lazi
 when it runs out, the current step fails (`timeout`, "the replay took longer than 75 s") and no
 later step runs, so a call answers within agentgateway's 90 s.
 
+A replay whose process is killed mid-call (agentgateway kills the server when a session is deleted)
+runs no finally block, so the app is stopped two other ways (ruling R19). On Linux the app gets
+SIGKILL when the thread that started it exits (PR_SET_PDEATHSIG). And the app's process group is
+recorded in $TMPDIR/bug-investigator-browser.pgid while it runs: the next replay, once it holds the
+lock, kills a group still recorded there and removes this engine's leftover temp dirs
+($TMPDIR/bug-investigator-replay-*).
+
     python3 -I browser.py replay --app-dir D --steps F [--commit SHA] --out DIR
     python3 -I browser.py check --app-dir D --repros DIR --out DIR [--changed a.json,b.json]
 
@@ -46,7 +53,9 @@ import http.client
 import json
 import os
 import signal
+import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -63,6 +72,8 @@ from bug_investigator import steps as stepfmt  # noqa: E402
 
 APP_START_S = 15  # the app must answer GET /healthz within this
 LOCK_WAIT_S = 120
+TMP_PREFIX = "bug-investigator-replay-"  # each replay's temp dir in $TMPDIR (the app's HOME and database)
+PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
 STEP_S = 3  # actions, expect_visible and expect_text wait this long for their target
 IDLE_S = 5  # after load and after every action: wait (at most this) for the network to go idle
 # The whole replay, from Chromium's launch through app start, load and every step (ruling R14): under the
@@ -225,9 +236,86 @@ def _lock_path() -> str:
     return os.path.join(tempfile.gettempdir(), "bug-investigator-browser.lock")
 
 
+def _pgid_path() -> str:
+    """Where the running app's process group is recorded, next to the lock."""
+    return os.path.join(tempfile.gettempdir(), "bug-investigator-browser.pgid")
+
+
+def _start_time(pid: int) -> str | None:
+    """The process's start time (clock ticks after boot, /proc/<pid>/stat field 22); None when it is gone or there
+    is no /proc (macOS)."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as f:
+            return f.read().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def _record_app(pgid: int) -> None:
+    """Record the app's process group (with its leader's start time) for the next replay, in case this process is
+    killed before stop(). Best effort: PR_SET_PDEATHSIG still covers the app itself."""
+    path = _pgid_path()
+    tmp = f"{path}.{os.getpid()}"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(f"{pgid} {_start_time(pgid) or '-'}\n")
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"browser.py: cannot record the app's process group in {path}: {e}", file=sys.stderr)
+
+
+def _forget_app() -> None:
+    """Remove the record. Best effort: a file that cannot be removed (another user's, in a shared /tmp) is ignored,
+    and _read_record never trusts one that is not ours."""
+    with contextlib.suppress(OSError):
+        os.remove(_pgid_path())
+
+
+def _read_record() -> tuple[int, str] | None:
+    """(pgid, start time or "-") from the pgid file; None when there is none or it is not ours to trust."""
+    try:
+        fd = os.open(_pgid_path(), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    with os.fdopen(fd, encoding="ascii", errors="replace") as f:
+        st = os.fstat(f.fileno())
+        if not (stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid()):  # a file someone else planted
+            return None
+        words = f.read(200).split()
+    if len(words) != 2 or not words[0].isdigit():
+        return None
+    return int(words[0]), words[1]
+
+
+def _reap() -> None:
+    """Clear what a replay killed mid-call left behind: kill the app's process group still recorded in the pgid
+    file, and remove this engine's temp dirs. Runs with the lock held, so no other replay is using either. Logs to
+    stderr only: stdout is browser_server's MCP channel."""
+    record = _read_record()
+    if record is not None:
+        pgid, started = record
+        now = _start_time(pgid)
+        # A group's id is not reused while any member lives. If a process with that id runs but started at another
+        # time, the recorded group is gone and the id is someone else's: leave it alone. Never our own group.
+        reused = started != "-" and now is not None and now != started
+        if pgid > 1 and pgid != os.getpgrp() and not reused:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGKILL)
+                print(f"browser.py: killed process group {pgid}, the app of a replay that did not finish",
+                      file=sys.stderr)
+    _forget_app()
+    with contextlib.suppress(OSError), os.scandir(tempfile.gettempdir()) as entries:
+        for entry in entries:
+            if (entry.name.startswith(TMP_PREFIX) and entry.is_dir(follow_symlinks=False)
+                    and entry.stat(follow_symlinks=False).st_uid == os.getuid()):
+                shutil.rmtree(entry.path, ignore_errors=True)
+
+
 @contextlib.contextmanager
 def _lock():
-    """One replay at a time on this machine: Chromium and the app are heavy."""
+    """One replay at a time on this machine: Chromium and the app are heavy. Holding it, first clear what a killed
+    replay left behind (_reap)."""
     try:
         fd = os.open(_lock_path(), os.O_RDWR | os.O_CREAT, 0o600)
     except OSError as e:
@@ -242,6 +330,7 @@ def _lock():
                 if time.monotonic() >= deadline:
                     raise BrowserError(f"another replay held the lock for {LOCK_WAIT_S} s") from None
                 time.sleep(0.2)
+        _reap()
         yield
     finally:
         os.close(fd)
@@ -251,6 +340,38 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _die_with_parent():
+    """A preexec_fn that gives the app SIGKILL as its parent-death signal (Linux); None elsewhere, or when prctl
+    cannot be found. Never fails the start: an error inside is ignored.
+
+    prctl is looked up here, in the parent, so the forked child runs as little Python as possible. PR_SET_PDEATHSIG
+    fires when the *thread* that forked the app exits, not the process: replay() must run on a thread that lives as
+    long as the replay. browser_server runs every call on its main thread (MainThreadCalls, A3), and the CLI and
+    the tests call replay() from theirs.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        import ctypes
+
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+        prctl.restype = ctypes.c_int
+        prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    except (ImportError, OSError, AttributeError):
+        return None
+    parent, sig = os.getpid(), int(signal.SIGKILL)
+
+    def preexec() -> None:
+        try:
+            prctl(PR_SET_PDEATHSIG, sig, 0, 0, 0)
+            if os.getppid() != parent:  # the parent died before prctl, so the signal will never come
+                os.kill(os.getpid(), sig)
+        except Exception:  # noqa: BLE001 - never fail the start because of it
+            pass
+
+    return preexec
 
 
 class _App:
@@ -272,10 +393,13 @@ class _App:
         if not os.path.isfile(os.path.join(self.dir, "server.py")):
             raise BrowserError(f"no server.py in {self.dir}")
         # Not -I: Taskboard's server.py imports its sibling modules. Its own process group, so stop()
-        # also ends anything it started.
+        # also ends anything it started; SIGKILL when this thread dies, so a killed replay does not leave it
+        # running (ruling R19); and the group recorded until stop(), for the next replay to kill if we never get there.
         self.proc = subprocess.Popen([sys.executable, "server.py"], cwd=self.dir, env=self.env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, encoding="utf-8", errors="replace", start_new_session=True)
+                                     text=True, encoding="utf-8", errors="replace", start_new_session=True,
+                                     preexec_fn=_die_with_parent())
+        _record_app(self.proc.pid)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never via a proxy
@@ -320,6 +444,7 @@ class _App:
         self._signal_group(signal.SIGKILL)
         with contextlib.suppress(subprocess.TimeoutExpired):
             self.proc.wait(5)
+        _forget_app()
         self.reader.join(2)
         if not self.reader.is_alive():  # a grandchild may still hold the pipe; never block on it
             self.proc.stdout.close()
@@ -582,7 +707,7 @@ def replay(app_dir: str, steps: list[dict], *, commit: str | None = None, shots:
     problems = stepfmt.validate(steps)
     if problems:
         raise ValueError("; ".join(problems))
-    with _lock(), tempfile.TemporaryDirectory(prefix="bug-investigator-replay-") as tmp:
+    with _lock(), tempfile.TemporaryDirectory(prefix=TMP_PREFIX) as tmp:
         started = time.monotonic()
         deadline = started + REPLAY_S  # Chromium's launch, app start and load count against it
         api = _playwright()
