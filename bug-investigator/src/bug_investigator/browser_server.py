@@ -7,6 +7,13 @@ is the replay as JSON (content item 0), then a `step <n>` text item and an image
 A step that fails is a normal result (`ok: false`); invalid input and a replay that cannot be set up
 (`BrowserError`: Chromium does not launch, the app does not start) are results with isError: true.
 
+The copy runs with a fixed environment, not the live Deployment's (ruling R15): PATH, HOME (a temporary
+directory), PORT (a free port), DB_PATH (a fresh database), PYTHONDONTWRITEBYTECODE=1 and TASKBOARD_COMMIT
+(the commit above). PATH and HOME aside, those are the four settings the live Taskboard Deployment
+(arigsela/kubernetes, base-apps/taskboard/deployment.yaml) gives the app today. A setting only the live
+Deployment had (a feature flag, say) would not reach the copy, which would then behave differently from
+live until browser.py's _App mirrors it.
+
 A tool server that fails at `initialize` fails every agent bound to it, so nothing here imports
 Playwright or starts Chromium before a tool call: browser.py imports Playwright inside replay(),
 from DEPS_DIR (default /deps).
@@ -52,11 +59,13 @@ DESCRIPTION = (
     "add `within` to pick one card. A check (expect_visible, expect_absent, expect_text) passes when any match "
     "satisfies it. A step is {do, target, value, note}: `do` is one of click, fill, select, press, goto, "
     "expect_visible, expect_absent, expect_text; `target` has exactly one of role (an ARIA role Playwright "
-    "knows, such as button, link, textbox, heading, status; with an optional exact name), label, placeholder "
-    "or text, plus an optional within {css, text} that must match one element (css is one CSS selector); "
-    "`value` is the text to fill, the option label to select, the key to press (a Playwright key name such as "
-    "Enter, Escape, Control+a), the path to goto (it starts with /; goto has no target) or the text "
-    f"expect_text looks for; at most {stepfmt.MAX_STEPS} steps. A failed step says why in `failure`: "
+    "knows, such as button, link, textbox, heading, status; with an optional name), label, placeholder or "
+    "text, plus an optional within {css, text} that must match one element (css is one CSS selector). "
+    "`name`, `label` and `placeholder` match the whole text exactly; `text` and `within.text` match a "
+    "case-insensitive substring. `value` is the text to fill, the option label to select, the key to press "
+    "(a Playwright key name such as Enter, Escape, Control+a), the path to goto (it starts with /; goto has "
+    "no target) or the text expect_text looks for (a case-sensitive substring of the target's text or field "
+    f"value); at most {stepfmt.MAX_STEPS} steps. A failed step says why in `failure`: "
     "`ambiguous` (an action target or within matched more than one element), `missing` (nothing matched), "
     "`mismatch` (no match had the text; for expect_absent, something matched), `invalid` (the step cannot run "
     "on any page: a css that does not parse, a key Playwright does not know), `error` (anything else, such as "

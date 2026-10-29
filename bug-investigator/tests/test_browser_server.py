@@ -315,7 +315,11 @@ def test_description_names_the_failure_kinds_and_the_rules():
     for kind in browser.FAILURES:
         assert f"`{kind}`" in d, kind
     assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "error")
-    for words in ("never matches a claim", "an ARIA role", f"longer than {browser.REPLAY_S} s"):
+    for words in ("never matches a claim", "an ARIA role", f"longer than {browser.REPLAY_S} s",
+                  # match semantics (Minor 3 of the Phase A review)
+                  "`name`, `label` and `placeholder` match the whole text exactly",
+                  "`text` and `within.text` match a case-insensitive substring",
+                  "a case-sensitive substring"):
         assert words in d, words
 
 

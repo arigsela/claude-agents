@@ -270,27 +270,32 @@
                 },
                 "target": {
                   "type": "object",
-                  "description": "exactly one of role (with an optional exact name), label, placeholder, text; optional within. goto has no target",
+                  "description": "exactly one of role, label, placeholder, text; optional within. name, label and placeholder match the whole text exactly; text and within.text match a case-insensitive substring. goto has no target",
                   "additionalProperties": false,
                   "properties": {
                     "role": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "an ARIA role Playwright knows, such as button, link, textbox, heading, status"
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "with role only: the accessible name, matched exactly"
                     },
                     "label": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "the field label, matched exactly"
                     },
                     "placeholder": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "the field placeholder, matched exactly"
                     },
                     "text": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "text the element contains: a case-insensitive substring"
                     },
                     "within": {
                       "type": "object",
-                      "description": "a CSS selector and a text that together match exactly one element",
+                      "description": "a CSS selector and a text (a case-insensitive substring) that together match exactly one element",
                       "additionalProperties": false,
                       "required": [
                         "css",
@@ -298,7 +303,8 @@
                       ],
                       "properties": {
                         "css": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "one CSS selector (no >>)"
                         },
                         "text": {
                           "type": "string"
@@ -309,7 +315,7 @@
                 },
                 "value": {
                   "type": "string",
-                  "description": "fill: the text. select: the option label. press: the key. goto: a path starting with /. expect_text: the text"
+                  "description": "fill: the text. select: the option label. press: a Playwright key name such as Enter. goto: a path starting with /. expect_text: text the target must contain (case-sensitive)"
                 },
                 "note": {
                   "type": "string"
