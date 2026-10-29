@@ -77,6 +77,9 @@ def _check_step(s) -> list[str]:
             probs.append(f"value is longer than {MAX_TEXT} characters")
         elif do == "goto" and not (v.startswith("/") and not v.startswith("//")):
             probs.append("goto value must be a path starting with / (not //)")
+        elif do == "goto" and any(c == "\\" or ord(c) < 0x20 or ord(c) == 0x7F for c in v):
+            # A browser normalises "/\evil" and "/<tab>/evil" to //evil, another origin.
+            probs.append("goto value must not contain a backslash or control characters")
     elif "value" in s:
         probs.append(f"{do} takes no value")
     if "note" in s and not (isinstance(s["note"], str) and len(s["note"]) <= MAX_TEXT):
@@ -100,7 +103,8 @@ def validate(steps, fails_at=None) -> list[str]:
     return probs
 
 
-def _phrase(t: dict) -> str:
+def phrase(t: dict) -> str:
+    """A (valid) target in words: 'button "Done" in .card "Update the cookie banner copy"'."""
     if "role" in t:
         p = f'{t["role"]} "{t["name"]}"' if t.get("name") else t["role"]
     elif "label" in t:
@@ -118,7 +122,7 @@ def describe(step: dict) -> str:
     do, v = step["do"], step.get("value")
     if do == "goto":
         return f"open {v}"
-    t = _phrase(step["target"])
+    t = phrase(step["target"])
     return {
         "click": f"click {t}",
         "fill": f'fill {t} with "{v}"',

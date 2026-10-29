@@ -32,6 +32,15 @@ def test_goto_rejects_other_origins():
     assert steps.validate([{"do": "goto", "value": "/", "target": {"text": "x"}}])
 
 
+def test_goto_rejects_backslash_and_control_characters():
+    # A browser normalises "/\evil.example" and "/<tab>/evil.example" to //evil.example.
+    for bad in ("/\\evil.example", "/\t/evil.example", "/a\nb", "/\x00", "/\x1f", "/\x7f"):
+        assert steps.validate([{"do": "goto", "value": bad}]) == [
+            "step 1: goto value must not contain a backslash or control characters"
+        ], repr(bad)
+    assert steps.validate([{"do": "goto", "value": "/tasks?q=a%5Cb&x=é"}]) == []
+
+
 def test_value_rules():
     assert steps.validate([{"do": "fill", "target": {"label": "Title"}}])  # value missing
     assert steps.validate([{"do": "click", "target": {"text": "x"}, "value": "v"}])  # value forbidden
