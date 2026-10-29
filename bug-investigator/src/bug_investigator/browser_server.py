@@ -55,8 +55,9 @@ DESCRIPTION = (
     "name), label, placeholder or text, plus an optional within {css, text} that must match one element; "
     "`value` is the text to fill, the option label to select, the key to press, the path to goto (it starts "
     "with /; goto has no target) or the text expect_text looks for; at most "
-    f"{stepfmt.MAX_STEPS} steps. Set `fails_at` to the step you expect to fail (null when you expect every "
-    "step to pass) and the result says whether it matches. `screenshots`: failure (the default: the failing "
+    f"{stepfmt.MAX_STEPS} steps. Set `fails_at` to the step you expect to fail and the result says whether "
+    "it matches (`matches_claim`); omit `fails_at` when you expect every step to pass, and read `ok`. "
+    "`screenshots`: failure (the default: the failing "
     "step, or the last one), all, or none. The result holds each step's outcome, the page's accessibility "
     "snapshot, the app's last log lines and the browser console, then the screenshots."
 )
@@ -68,12 +69,15 @@ TOOL = {
     "inputSchema": {
         "type": "object",
         "properties": {
-            # The step grammar is steps.validate's job; the schema only says "a list of objects".
+            # The step grammar is steps.validate's job; the schema only says "a list of objects". One plain
+            # JSON type per property (no type arrays, no anyOf): a schema kagent's Go ADK cannot load fails
+            # the whole agent (ruling R10). So fails_at is an optional integer; null is accepted as absent.
             "steps": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": stepfmt.MAX_STEPS,
                       "description": "The steps, in order: {do, target, value, note} (see the tool description)."},
-            "fails_at": {"type": ["integer", "null"], "minimum": 1,
-                         "description": "The 1-based step you expect to fail, or null when you expect every step "
-                                        "to pass. Omit it when you are only exploring."},
+            "fails_at": {"type": "integer", "minimum": 1,
+                         "description": "The 1-based step you expect to fail; the result then says whether it "
+                                        "matches. Omit it when you expect every step to pass (read `ok`) or are "
+                                        "only exploring."},
             "screenshots": {"type": "string", "enum": list(SCREENSHOTS), "default": DEFAULT_SCREENSHOTS,
                             "description": "Which steps get a screenshot: none, failure (the failing step, or "
                                            "the last one) or all."},
@@ -86,25 +90,21 @@ TOOL = {
 INSTRUCTIONS = (f"One tool, {TOOL_NAME}: it replays UI steps in headless Chromium on a throwaway copy of the live "
                 "Taskboard (a fresh database with the demo data). Nothing persists between calls.")
 
-_NO_CLAIM = object()  # fails_at absent (null is a claim: every step passes)
-
-
-def matches_claim(r: browser.Replay, fails_at: int | None) -> bool:
-    """Did the replay fail where the caller said it would? An ambiguous target is never evidence."""
-    if fails_at is None:
-        return r.ok
+def matches_claim(r: browser.Replay, fails_at: int) -> bool:
+    """Did the replay fail at the step the caller named? An ambiguous target is never evidence."""
     if r.failed_at != fails_at:
         return False
     failed = next((s for s in r.steps if s.n == fails_at), None)
     return failed is not None and failed.failure != "ambiguous"
 
 
-def content(r: browser.Replay, fails_at=_NO_CLAIM) -> list[dict]:
-    """The tool result: the replay as JSON, then `step <n>` and the PNG for each screenshot, in step order."""
+def content(r: browser.Replay, fails_at: int | None = None) -> list[dict]:
+    """The tool result: the replay as JSON (with matches_claim only for a fails_at), then `step <n>` and the
+    PNG for each screenshot, in step order."""
     d = r.to_json(include_png=True)
     pngs = [(s["n"], s.pop("png")) for s in d["steps"]]  # each step entry: {n, text, ok, error, failure}
     doc = {"ok": d["ok"], "failed_at": d["failed_at"]}
-    if fails_at is not _NO_CLAIM:
+    if fails_at is not None:
         doc["matches_claim"] = matches_claim(r, fails_at)
     doc.update(commit=d["commit"], steps=d["steps"], snapshot=d["snapshot"], app_log=d["app_log"][-APP_LOG_LINES:],
                console=d["console"])
@@ -160,7 +160,7 @@ class BrowserServer(StdioServer):
             r = self.replay(self.app_dir, steps, commit=self.commit(), shots=shots)
         except browser.BrowserError as e:
             raise ToolError(f"browser unavailable: {e}") from None
-        return content(r, fails_at if "fails_at" in args else _NO_CLAIM)
+        return content(r, fails_at)  # null and absent alike: no claim
 
 
 class MainThreadCalls:

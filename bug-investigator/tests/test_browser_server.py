@@ -155,12 +155,13 @@ def test_initialize_and_list_without_playwright(tmp_path, app_dir):
     schema = t["inputSchema"]
     assert set(schema["properties"]) == {"steps", "fails_at", "screenshots"} and schema["required"] == ["steps"]
     assert schema["properties"]["steps"]["type"] == "array" and schema["properties"]["steps"]["items"] == {"type": "object"}
-    assert schema["properties"]["fails_at"]["type"] == ["integer", "null"]
+    assert schema["properties"]["fails_at"]["type"] == "integer" and "fails_at" not in schema["required"]
     assert schema["properties"]["screenshots"]["enum"] == ["none", "failure", "all"]
     assert schema["properties"]["screenshots"]["default"] == "failure"
     assert schema["additionalProperties"] is False
     d = t["description"]
-    for words in ("live", "fresh database", "demo data", "persists", "fails_at", "within", "expect_absent"):
+    for words in ("live", "fresh database", "demo data", "persists", "fails_at", "within", "expect_absent",
+                  "omit `fails_at` when you expect every step to pass, and read `ok`"):
         assert words in d, words
     res = p.call("tools/call", {"name": TOOL, "arguments": {"steps": STEPS}})["result"]
     assert res["isError"] is True
@@ -278,9 +279,47 @@ def test_app_dir_from_env(monkeypatch, app_dir):
     assert browser_server.BrowserServer(out=io.StringIO()).app_dir == "/taskboard"
 
 
+def _types(schema, path="inputSchema"):
+    """Every (path, type) in a JSON Schema, and any anyOf/oneOf/allOf found on the way."""
+    if isinstance(schema, dict):
+        for key in ("anyOf", "oneOf", "allOf"):
+            if key in schema:
+                yield f"{path}.{key}", key
+        if "type" in schema:
+            yield path, schema["type"]
+        for key, sub in schema.items():
+            if key in ("properties", "items", "anyOf", "oneOf", "allOf"):
+                yield from _types(sub, f"{path}.{key}")
+            elif path.endswith(".properties"):
+                yield from _types(sub, f"{path}.{key}")
+    elif isinstance(schema, list):
+        for i, sub in enumerate(schema):
+            yield from _types(sub, f"{path}[{i}]")
+
+
+def test_input_schema_has_one_type_per_property():
+    """A schema kagent's Go ADK cannot load fails the whole agent: one plain JSON type per property, no
+    type arrays, no anyOf/oneOf/allOf. (The telemetry tools are held to the same rule.)"""
+    for tool in [browser_server.TOOL, *mcp_server._tools("taskboard")]:
+        found = list(_types(tool["inputSchema"]))
+        assert ("inputSchema.properties.steps", "array") in found or tool is not browser_server.TOOL
+        for path, t in found:
+            assert isinstance(t, str), (tool["name"], path, t)
+    props = browser_server.TOOL["inputSchema"]["properties"]
+    assert {name: p["type"] for name, p in props.items()} == {"steps": "array", "fails_at": "integer",
+                                                             "screenshots": "string"}
+
+
+def test_null_fails_at_is_no_claim(app_dir):
+    """null is accepted and means the same as an absent fails_at: no matches_claim; the caller reads ok."""
+    for failed_at in (None, 2):
+        srv = server(app_dir, FakeReplay(replay_result(failed_at)))
+        with_null, absent = body(call(srv, {"steps": STEPS, "fails_at": None})), body(call(srv, {"steps": STEPS}))
+        assert with_null == absent and "matches_claim" not in with_null
+        assert with_null["ok"] is (failed_at is None)
+
+
 @pytest.mark.parametrize("fails_at, failed_at, failure, expected", [
-    (None, None, None, True),          # "works as documented": every step passes
-    (None, 2, "missing", False),
     (2, 2, "missing", True),           # the claimed step failed
     (2, 2, "mismatch", True),
     (2, 2, "error", True),
@@ -407,10 +446,10 @@ def test_replays_through_the_server(tmp_path):
     (app / ".source-commit").write_text("abc123")
     p = Proc([sys.executable, "-I", str(SERVER)], {**os.environ, "APP_DIR": str(app)}, tmp_path)
     p.call("initialize", INIT)
-    res = p.call("tools/call", {"name": TOOL, "arguments": {"steps": STEPS, "fails_at": None, "screenshots": "all"}},
+    res = p.call("tools/call", {"name": TOOL, "arguments": {"steps": STEPS, "screenshots": "all"}},
                  timeout=120)["result"]
     doc = body(res)
-    assert doc["ok"] is True and doc["matches_claim"] is True and doc["commit"] == "abc123", doc
+    assert doc["ok"] is True and "matches_claim" not in doc and doc["commit"] == "abc123", doc
     assert [c.get("text") for c in res["content"][1::2]] == ["step 1", "step 2", "step 3"]
     for img in res["content"][2::2]:
         assert img["type"] == "image" and img["mimeType"] == "image/png"
