@@ -219,6 +219,11 @@ def native(css: str) -> str:
     return f"Failed to execute 'querySelector' on 'Document': '{css}' is not a valid selector."
 
 
+def unforgiving(css: str) -> str:
+    """The engine's words for a css querySelector forgives but the browser's unforgiving parse refuses."""
+    return f"CSS.supports('selector(:is({css}))') is false"
+
+
 @needs_chromium
 @pytest.mark.browser
 def test_malformed_steps_fail_invalid(tmp_path):
@@ -239,11 +244,14 @@ def test_malformed_steps_fail_invalid(tmp_path):
         # document.querySelector is the judge.
         assert second(within(css), name) == (
             2, "invalid", f'within css "{css}" is not a valid CSS selector, so no step ran ({native(css)})'), css
-    # The browser reads a pseudo-element; Playwright's parser does not. Also tried before the run.
-    failed_at, failure, error = second(within(".card::after"), "pseudo-element")
+    # querySelector reads a pseudo-element; the unforgiving parse does not (ruling R23).
+    assert second(within(".card::after"), "pseudo-element") == (
+        2, "invalid", f'within css ".card::after" is not a valid CSS selector, so no step ran ({unforgiving(".card::after")})')
+    # Both of the browser's parses read a namespace wildcard; Playwright's parser does not. Also tried before the run.
+    failed_at, failure, error = second(within("*|div"), "namespace")
     assert (failed_at, failure) == (2, "invalid"), error
-    assert error.startswith('within css ".card::after" is not a valid selector, so no step ran (Locator.count: '
-                            'Unexpected token ":" while parsing css selector ".card::after"'), error
+    assert error.startswith('within css "*|div" is not a valid selector, so no step ran (Locator.count: '
+                            'Unexpected token "|" while parsing css selector "*|div"'), error
     assert second(BAD_KEY, "key") == (2, "invalid", '"Entr" is not a key Playwright can press, so no step ran '
                                                     '(Keyboard.press: Unknown key: "Entr")')
     nowhere = {"do": "press", "target": {"placeholder": "Nowhere"}, "value": "Control+Entr"}
@@ -258,15 +266,33 @@ def test_lazy_selectors_fail_invalid_before_anything_runs(tmp_path):
     # know, only when the elements to their right exist. On a page without them these read `missing`, so a claim
     # of the step verified. The browser's own document.querySelector, tried on a blank page before any step,
     # refuses them: the replay stops at that step, `invalid`, and nothing runs (the app is not even started).
-    for name, css in (("nth-match", ".nosuch:nth-match(x)"), ("unknown-pseudo", "#board:foo .nosuch")):
+    # Ruling R23: querySelector forgives a malformed argument inside :is() and :where() (it matches nothing), so
+    # these passed it and read `missing`; the browser's unforgiving parse, CSS.supports('selector(:is(<css>))'),
+    # refuses them too.
+    for name, css, why in (("nth-match", ".nosuch:nth-match(x)", native), ("unknown-pseudo", "#board:foo .nosuch", native),
+                           ("is", ".nosuch:is(:bogus)", unforgiving),
+                           ("where", ".nosuch:where(:contains('x'))", unforgiving)):
         r = browser.replay(make_app(tmp_path / name), [START, within(css)], shots="all")
         assert (r.ok, r.failed_at, [s.n for s in r.steps]) == (False, 2, [2]), r.to_json()
         bad = r.steps[0]
         assert (bad.ok, bad.failure, bad.screenshot) == (False, "invalid", None)
-        assert bad.error == f'within css "{css}" is not a valid CSS selector, so no step ran ({native(css)})'
+        assert bad.error == f'within css "{css}" is not a valid CSS selector, so no step ran ({why(css)})'
         assert bad.text == stepfmt.describe(within(css))
         assert r.app_log == [] and r.snapshot == ""  # Start was never clicked
         assert any("no step ran" in line for line in r.console), r.console
+
+
+@needs_chromium
+@pytest.mark.browser
+def test_standard_selectors_pass_the_check_before_the_run(tmp_path):
+    # The check refuses only what is not CSS: attribute selectors, `of S`, :not(), :has(), :is() and selector lists
+    # still reach the page, where each picks the pricing card's Start button.
+    steps = [within(css) for css in (
+        "div.card", "#board > .card", "[class='card' i]", ".card:nth-child(1 of .card)", ".card:not(.x, .y)",
+        "div:has(> span)", ".card:is(div, section)", ".card:where(:first-child)", ".nosuch, .card",
+    )]
+    r = browser.replay(make_app(tmp_path), steps, shots="none")  # the board stays as it is after each click
+    assert r.ok and [s.ok for s in r.steps] == [True] * len(steps), r.to_json()
 
 
 @needs_chromium

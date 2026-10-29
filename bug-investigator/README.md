@@ -159,9 +159,11 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   (`expect_visible`, `expect_absent`, `expect_text`). `target` has exactly one of `role` (one of the
   82 ARIA roles Playwright 1.64's `get_by_role` knows, `steps.ARIA_ROLES`; with an optional `name`),
   `label`, `placeholder` or `text`, plus an optional `within: {css, text}` that must match one
-  element (`css` is one standard CSS selector, as the browser's `document.querySelector` reads it:
-  the engine reads it as `css=<css>`, `>>` is refused, and so are Playwright's own pseudo-classes
-  such as `:has-text` or `:visible`; pick the element by `within.text`).
+  element (`css` is one standard CSS selector, as the browser parses it strictly:
+  `document.querySelector`, and `CSS.supports('selector(:is(<css>))')`, which unlike querySelector
+  does not forgive a malformed argument inside `:is()` or `:where()`. The engine reads it as
+  `css=<css>`, `>>` is refused, and so are Playwright's own pseudo-classes such as `:has-text` or
+  `:visible`; pick the element by `within.text`).
   `name`, `label` and `placeholder` match the whole text exactly; `text` and `within.text` match a
   case-insensitive substring; `expect_text`'s `value` is a case-sensitive substring of the target's
   text (a field's value, a select's chosen option). An action's target must match exactly one

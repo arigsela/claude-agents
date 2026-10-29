@@ -30,9 +30,9 @@ Actions (click, fill, select, press) and `within` need exactly one match; checks
 (expect_visible: one is visible; expect_text: one contains the value; expect_absent: none). A failed
 step says why in `failure`: ambiguous (an action target or `within` matched more than one element),
 missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
-some), invalid (the step cannot run on any page: `within.css` is not CSS that the browser's
-document.querySelector reads, so Playwright's own pseudo-classes such as :has-text or :visible are
-refused too, or Playwright's parser refuses it, read as `css=<css>` so another selector engine does
+some), invalid (the step cannot run on any page: `within.css` is not CSS that the browser parses
+strictly, with document.querySelector and CSS.supports('selector(:is(<css>))'), so Playwright's
+own pseudo-classes such as :has-text or :visible are refused too, or Playwright's parser refuses it, read as `css=<css>` so another selector engine does
 not parse either; or `press` names a key Playwright does not know), timeout (the replay's REPLAY_S
 ran out during or before the step), error (anything else, such as a disabled button).
 
@@ -93,10 +93,18 @@ MALFORMED = ("while parsing css selector", "while parsing selector", "is not a v
              "Unknown key: ")
 # The browser's own CSS parser, on a blank page before the run (ruling R16): Playwright reads some of a selector (a
 # pseudo-class it does not know, :nth-match's arguments) only when the elements to its right exist, so a malformed
-# within.css can read `missing` on one page. querySelector parses all of it at once, and only it decides what CSS is:
-# Playwright's own pseudo-classes (:has-text, :visible, :nth-match) are refused too. It throws only SyntaxError.
-NATIVE_CSS_JS = """css => { try { document.querySelector(css); return null; }
-  catch (e) { return e && e.name === 'SyntaxError' ? String(e.message) : null; } }"""
+# within.css can read `missing` on one page. The browser parses all of it at once, and only it decides what CSS is:
+# Playwright's own pseudo-classes (:has-text, :visible, :nth-match) are refused too. querySelector throws only
+# SyntaxError, but forgives a malformed argument inside :is() and :where() (it matches nothing there), so the css must
+# also pass the unforgiving parse CSS.supports('selector(:is(<css>))') (ruling R23): true for every standard selector,
+# selector lists included; false for .x:is(:bogus), :where(:contains('x')), ::after. Both, querySelector first: a
+# css that passes it has balanced brackets, so it cannot close the :is( it is wrapped in.
+NATIVE_CSS_JS = """css => {
+  try { document.querySelector(css); }
+  catch (e) { return e && e.name === 'SyntaxError' ? String(e.message) : null; }
+  const strict = 'selector(:is(' + css + '))';
+  return CSS.supports(strict) ? null : "CSS.supports('" + strict + "') is false";
+}"""
 # Defence in depth behind the request fence: the browser resolves no host name at all.
 RESOLVER_RULES = "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 # The texts expect_text reads: a field's value, a select's chosen label, otherwise the rendered text.
@@ -197,7 +205,8 @@ def _precheck(api, browser, steps: list[dict]) -> StepResult | None:
     """The first step that cannot run on any page, as a failed `invalid` StepResult; None when every step can.
 
     Runs before the app starts and before any step (ruling R16), on a page of its own on about:blank: every
-    within.css must parse in the browser's document.querySelector and in Playwright's selector engine, and every
+    within.css must parse in the browser (document.querySelector, then the unforgiving CSS.supports; see
+    NATIVE_CSS_JS) and in Playwright's selector engine, and every
     press key must be one Playwright's keyboard knows. So a malformed step is found even when an earlier step would
     fail on the page first, and a lazily parsed selector cannot read `missing`. api.Error: the browser failed.
     """

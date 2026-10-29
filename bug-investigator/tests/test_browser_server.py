@@ -322,7 +322,7 @@ def test_description_names_the_failure_kinds_and_the_rules():
                   "`text` and `within.text` match a case-insensitive substring",
                   "a case-sensitive substring",
                   # ruling R16: what css is, and the check before the run
-                  "as the browser's document.querySelector reads it", "every step is checked for this before any runs"):
+                  "that the browser parses strictly", "every step is checked for this before any runs"):
         assert words in d, words
 
 
