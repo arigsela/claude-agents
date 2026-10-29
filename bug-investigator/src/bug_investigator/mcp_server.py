@@ -9,7 +9,7 @@ any HTTP request. There is no Grafana and no token: Loki and Prometheus are quer
 
 Transport: newline-delimited JSON-RPC 2.0 on stdin/stdout (agentgateway serves it as Streamable
 HTTP). Only protocol messages go to stdout; logs go to stderr. A refused or failed call is a tool
-result with isError: true, never a crash.
+result with isError: true, never a crash. The loop is StdioServer, which browser_server.py shares.
 
     python3 -I /core/src/bug_investigator/mcp_server.py      # env LOKI_URL, PROMETHEUS_URL, NAMESPACE
 """
@@ -43,10 +43,6 @@ UNITS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"
 
 class ToolError(Exception):
     """Bad input or a refused/failed query: becomes a result with isError: true."""
-
-
-def _log(msg: str) -> None:
-    print(f"{SERVER_NAME}: {msg}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------------- tool schemas
@@ -273,14 +269,29 @@ def call_tool(name: str, args, namespace: str = scope.NAMESPACE, opener=None) ->
 # ---------------------------------------------------------------------------------- JSON-RPC
 
 
-class Server:
-    def __init__(self, out=None, namespace: str | None = None, opener=None, workers: int = 4):
+class StdioServer:
+    """An MCP server on stdio: newline-delimited JSON-RPC 2.0 (initialize, ping, tools/list, tools/call).
+
+    `call_tool(name, arguments)` returns the result text, or a list of MCP content items; it raises
+    ToolError for a refused or failed call, which becomes a result with isError: true. tools/call runs
+    on `pool` (default: `workers` threads) so a slow call blocks nothing; everything else is answered
+    at once. browser_server.py reuses this loop with a pool that runs calls on the main thread.
+    """
+
+    def __init__(self, name: str, version: str, tools: list[dict], call_tool, *, instructions: str | None = None,
+                 out=None, workers: int = 4, pool=None):
+        self.name, self.version, self.tools, self.call_tool = name, version, tools, call_tool
+        self.instructions = instructions
         self.out = out or sys.stdout
-        self.namespace = namespace or os.environ.get("NAMESPACE") or scope.NAMESPACE
-        self.opener = opener
         self.lock = threading.Lock()
-        self.pool = ThreadPoolExecutor(max_workers=workers)
-        self.tools = _tools(self.namespace)
+        self.pool = pool or ThreadPoolExecutor(max_workers=workers)
+
+    def log(self, msg: str) -> None:
+        print(f"{self.name}: {msg}", file=sys.stderr, flush=True)
+
+    def ready(self) -> str:
+        """The line logged when serve() starts."""
+        return "ready"
 
     def send(self, msg: dict | list) -> None:
         line = json.dumps(msg, ensure_ascii=True, separators=(",", ":"))
@@ -299,13 +310,14 @@ class Server:
     def tool_result(self, mid, params) -> dict:
         name = params.get("name")
         try:
-            text = call_tool(name, params.get("arguments"), self.namespace, self.opener)
-            return self.result(mid, {"content": [{"type": "text", "text": text}], "isError": False})
+            out = self.call_tool(name, params.get("arguments"))
+            content = [{"type": "text", "text": out}] if isinstance(out, str) else out
+            return self.result(mid, {"content": content, "isError": False})
         except ToolError as e:
-            _log(f"{name}: {e}")
+            self.log(f"{name}: {e}")
             return self.result(mid, {"content": [{"type": "text", "text": str(e)}], "isError": True})
         except Exception as e:  # never let a bug kill the server
-            _log(f"{name}: internal error: {e!r}")
+            self.log(f"{name}: internal error: {e!r}")
             return self.result(mid, {"content": [{"type": "text", "text": f"internal error: {type(e).__name__}"}],
                                      "isError": True})
 
@@ -325,13 +337,11 @@ class Server:
         if method == "initialize":
             asked = params.get("protocolVersion")
             version = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
-            return self.result(mid, {
-                "protocolVersion": version,
-                "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                "instructions": (f"Loki and Prometheus for namespace {self.namespace!r} only. Loki datasourceUid "
-                                 f"{scope.LOKI_UID!r}, Prometheus datasourceUid {scope.PROM_UID!r}. Every query "
-                                 f"must select namespace=\"{self.namespace}\"; anything else is refused.")})
+            result = {"protocolVersion": version, "capabilities": {"tools": {"listChanged": False}},
+                      "serverInfo": {"name": self.name, "version": self.version}}
+            if self.instructions:
+                result["instructions"] = self.instructions
+            return self.result(mid, result)
         if method == "ping":
             return self.result(mid, {})
         if method == "tools/list":
@@ -342,17 +352,26 @@ class Server:
             return self.tool_result(mid, params)
         return self.error(mid, -32601, f"method not found: {method}")
 
+    @staticmethod
+    def _is_call(msg) -> bool:
+        return isinstance(msg, dict) and msg.get("method") == "tools/call" and "id" in msg
+
+    def _batch(self, msgs: list) -> None:
+        replies = [r for r in (self.handle(m) for m in msgs) if r is not None]
+        if replies:
+            self.send(replies)
+
     def dispatch(self, msg) -> None:
-        """Answer one parsed message; a tools/call runs on the pool so a slow query blocks nothing."""
+        """Answer one parsed message; a tools/call runs on the pool so a slow call blocks nothing."""
         if isinstance(msg, list):  # a JSON-RPC batch (2025-03-26): answer it as one array
             if not msg:
                 self.send(self.error(None, -32600, "empty batch"))
-                return
-            replies = [r for r in (self.handle(m) for m in msg) if r is not None]
-            if replies:
-                self.send(replies)
+            elif any(self._is_call(m) for m in msg):
+                self.pool.submit(lambda: self._batch(msg))
+            else:
+                self._batch(msg)
             return
-        if isinstance(msg, dict) and msg.get("method") == "tools/call" and "id" in msg:
+        if self._is_call(msg):
             self.pool.submit(lambda: self.send(self.handle(msg)))
             return
         reply = self.handle(msg)
@@ -360,8 +379,9 @@ class Server:
             self.send(reply)
 
     def serve(self, inp=None) -> None:
+        """Read messages until EOF, then let the pool finish the calls already submitted."""
         inp = inp or sys.stdin
-        _log(f"ready (namespace {self.namespace}, loki {telemetry.loki_url()}, prometheus {telemetry.prometheus_url()})")
+        self.log(self.ready())
         while True:
             line = inp.readline()
             if not line:
@@ -376,6 +396,25 @@ class Server:
                 continue
             self.dispatch(msg)
         self.pool.shutdown(wait=True)
+
+
+class Server(StdioServer):
+    """The telemetry server: the tools above, scoped to one namespace."""
+
+    def __init__(self, out=None, namespace: str | None = None, opener=None, workers: int = 4):
+        self.namespace = namespace or os.environ.get("NAMESPACE") or scope.NAMESPACE
+        self.opener = opener
+        super().__init__(
+            SERVER_NAME, SERVER_VERSION, _tools(self.namespace), self._call, out=out, workers=workers,
+            instructions=(f"Loki and Prometheus for namespace {self.namespace!r} only. Loki datasourceUid "
+                          f"{scope.LOKI_UID!r}, Prometheus datasourceUid {scope.PROM_UID!r}. Every query "
+                          f"must select namespace=\"{self.namespace}\"; anything else is refused."))
+
+    def _call(self, name, args) -> str:
+        return call_tool(name, args, self.namespace, self.opener)
+
+    def ready(self) -> str:
+        return f"ready (namespace {self.namespace}, loki {telemetry.loki_url()}, prometheus {telemetry.prometheus_url()})"
 
 
 def main(argv: list[str] | None = None) -> int:
