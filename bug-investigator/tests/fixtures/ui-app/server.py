@@ -1,18 +1,22 @@
 """A small app for the replay engine's tests, started the way Taskboard is: `python3 server.py`.
 
 Env: PORT; DB_PATH (created, otherwise unused); TASKBOARD_COMMIT (logged); FIXTURE_BROKEN=1 drops
-the second card's Done button; FIXTURE_DELAY_MS delays the cards' data, so the board renders late.
+the second card's Done button; FIXTURE_DELAY_MS delays the cards' data, so the board renders late;
+FIXTURE_ACT_DELAY_MS delays a button's answer; FIXTURE_CHILD=1 starts a sleeping child process.
 Serves /healthz. Logs one JSON line per request on stdout, after a start line naming its env keys.
 """
 
 import json
 import os
+import subprocess
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CARDS = ["Write copy for the pricing page", "Update the cookie banner copy"]
 BROKEN = os.environ.get("FIXTURE_BROKEN") == "1"
 DELAY_S = int(os.environ.get("FIXTURE_DELAY_MS") or 0) / 1000
+ACT_DELAY_S = int(os.environ.get("FIXTURE_ACT_DELAY_MS") or 0) / 1000
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Fixture board</title></head>
@@ -87,6 +91,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         if self.path == "/api/act":
+            time.sleep(ACT_DELAY_S)
             moved = {"Start": "in progress", "Done": "done"}[body["button"]]
             self._send(200, {"message": f'{CARDS[body["id"]]} moved to {moved} by {body["user"]}'})
         elif self.path == "/api/add":
@@ -102,4 +107,7 @@ if __name__ == "__main__":
     open(os.environ["DB_PATH"], "a").close()
     print(json.dumps({"event": "start", "commit": os.environ.get("TASKBOARD_COMMIT"), "env": sorted(os.environ)}),
           flush=True)
+    if os.environ.get("FIXTURE_CHILD") == "1":
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        print(json.dumps({"event": "child", "pid": child.pid}), flush=True)
     ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()

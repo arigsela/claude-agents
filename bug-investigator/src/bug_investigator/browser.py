@@ -10,10 +10,18 @@ time on a machine (a lock in $TMPDIR). Only this module imports Playwright, lazi
     python3 -I browser.py replay --app-dir D --steps F [--commit SHA] --out DIR
     python3 -I browser.py check --app-dir D --repros DIR --out DIR [--changed a.json,b.json]
 
-`replay` (F = a list of steps or a repro file) writes DIR/result.json and DIR/step-<n>.png; exit 0
-when every step passed, 1 when one failed. `check` replays every DIR/*.json repro (each must pass)
-into DIR/<stem>/result.json and DIR/<stem>/step-<n>.png, writes DIR/summary.json, and exits 1 when
-any repro fails. Exit 2: bad arguments, invalid steps, or a replay that could not be set up.
+`replay` (F = a list of steps or a repro file) writes DIR/result.json and DIR/step-<n>.png. Exit 0
+when every step passed, 1 when one failed, 2 for bad arguments, invalid steps or a replay that could
+not be set up. `check` replays every DIR/*.json repro (each must pass) into DIR/<stem>/result.json
+and DIR/<stem>/step-<n>.png and writes DIR/summary.json. Exit 0 when every repro passed, 1 when any
+failed or could not be replayed (an invalid file, the app or Chromium not starting), 2 only for bad
+arguments: a usage error or a --repros directory that cannot be listed.
+
+Actions (click, fill, select, press) and `within` need exactly one match; checks pass on any match
+(expect_visible: one is visible; expect_text: one contains the value; expect_absent: none). A failed
+step says why in `failure`: ambiguous (an action target or `within` matched more than one element),
+missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
+some), error (anything else, such as a disabled button).
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ import fcntl
 import http.client
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -53,9 +62,10 @@ CONSOLE_LINES = 50
 SHOTS = ("all", "failure", "none")
 # Defence in depth behind the request fence: the browser resolves no host name at all.
 RESOLVER_RULES = "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
-# The text expect_text reads: a field's value, a select's chosen label, otherwise the rendered text.
-TEXT_JS = """e => (e.matches('input, textarea') ? e.value
-  : e.matches('select') ? Array.from(e.selectedOptions, o => o.label).join(', ') : e.innerText) ?? ''"""
+# The texts expect_text reads: a field's value, a select's chosen label, otherwise the rendered text.
+# evaluate_all never waits for an element, so the step's own deadline bounds it.
+TEXTS_JS = """els => els.map(e => String((e.matches('input, textarea') ? e.value
+  : e.matches('select') ? Array.from(e.selectedOptions, o => o.label).join(', ') : e.innerText) ?? ''))"""
 # Call-log lines that only narrate; the last other one is why an action timed out.
 ROUTINE = ("waiting", "retrying", "attempting", "locator resolved", "scrolling", "done", "performing",
            "element is visible")
@@ -66,7 +76,11 @@ class BrowserError(RuntimeError):
 
 
 class _StepFailed(Exception):
-    """A step did not pass; the message is its error."""
+    """A step did not pass; the message is its error, `failure` its kind."""
+
+    def __init__(self, error: str, failure: str):
+        super().__init__(error)
+        self.failure = failure
 
 
 @dataclass
@@ -76,6 +90,7 @@ class StepResult:
     ok: bool
     error: str | None = None
     screenshot: bytes | None = None
+    failure: str | None = None  # ambiguous | missing | mismatch | error; None when the step passed
 
 
 @dataclass
@@ -91,7 +106,7 @@ class Replay:
 
     def to_json(self, include_png: bool = False) -> dict:
         def step(s: StepResult) -> dict:
-            d = {"n": s.n, "text": s.text, "ok": s.ok, "error": s.error}
+            d = {"n": s.n, "text": s.text, "ok": s.ok, "error": s.error, "failure": s.failure}
             if include_png:
                 d["png"] = base64.b64encode(s.screenshot).decode() if s.screenshot else None
             return d
@@ -106,11 +121,21 @@ def _first_line(e: BaseException) -> str:
     return (lines[0] if lines else type(e).__name__)[:300]
 
 
-def _step_error(e: BaseException) -> str:
-    """Playwright's first line plus its call log's reason: '…Timeout 2900ms exceeded (element is not enabled)'."""
+def _step_error(e: BaseException, step: dict) -> str:
+    """A sentence from Playwright's error and its call log's reason, Playwright's words in parentheses."""
+    head = _first_line(e).rstrip(".")
     lines = [line.strip() for line in str(e).splitlines()[1:]]
-    reasons = [line[2:] for line in lines if line.startswith("- ") and not line[2:].startswith(ROUTINE)]
-    return f"{_first_line(e).rstrip('.')} ({reasons[-1][:150]})" if reasons else _first_line(e)
+    reasons = [line[2:][:150] for line in lines if line.startswith("- ") and not line[2:].startswith(ROUTINE)]
+    reason = reasons[-1] if reasons else None
+    what = stepfmt.phrase(step["target"]) if "target" in step else None
+    if what and reason and reason.startswith("element is not "):  # enabled, visible, editable, stable
+        return f"{what} is not {reason.removeprefix('element is not ')} ({head})"
+    if what and reason == "did not find some options":
+        return f'{what} has no option "{step["value"]}" ({head})'
+    if what and reason and reason.endswith(" intercepts pointer events"):
+        return f"{what} is covered by {reason.removesuffix(' intercepts pointer events')} ({head})"
+    because = f": {reason}" if reason else ""
+    return f"could not {stepfmt.describe(step)}{because} ({head})"
 
 
 def _lock_path() -> str:
@@ -163,10 +188,11 @@ class _App:
     def start(self) -> None:
         if not os.path.isfile(os.path.join(self.dir, "server.py")):
             raise BrowserError(f"no server.py in {self.dir}")
-        # Not -I: Taskboard's server.py imports its sibling modules.
+        # Not -I: Taskboard's server.py imports its sibling modules. Its own process group, so stop()
+        # also ends anything it started.
         self.proc = subprocess.Popen([sys.executable, "server.py"], cwd=self.dir, env=self.env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, encoding="utf-8", errors="replace")
+                                     text=True, encoding="utf-8", errors="replace", start_new_session=True)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never via a proxy
@@ -195,16 +221,19 @@ class _App:
         lines = list(self.log)[-n:]
         return ": " + " | ".join(lines) if lines else ""
 
+    def _signal_group(self, sig: int) -> None:
+        with contextlib.suppress(ProcessLookupError):  # the whole group is gone already
+            os.killpg(self.proc.pid, sig)
+
     def stop(self) -> None:
         if self.proc is None:
             return
-        if self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(5)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(5)
+        self._signal_group(signal.SIGTERM)
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self._signal_group(signal.SIGKILL)
+            self.proc.wait(5)
         self.reader.join(2)
         if not self.reader.is_alive():  # a grandchild may still hold the pipe; never block on it
             self.proc.stdout.close()
@@ -242,6 +271,13 @@ def _no(what: str) -> str:
 
 def _count_error(what: str, n: int) -> str:
     return f"{_no(what)} (0 matches)" if n == 0 else f"{what} matched {n} elements"
+
+
+def _mismatch(what: str, value: str, texts: list[str]) -> str:
+    first = texts[0].strip()[:120] if texts else ""
+    if len(texts) == 1:
+        return f'{what} does not contain "{value}" (it reads "{first}")'
+    return f'no match for {what} contains "{value}" ({len(texts)} matches; the first reads "{first}")'
 
 
 class _Session:
@@ -308,32 +344,51 @@ class _Session:
 
     # -- finding targets
 
-    def _scope(self, t: dict):
-        """(scope, count, error): the page, or the target's `within` element when it is exactly one."""
+    def _look(self, t: dict):
+        """(visible matches, count, failure, error); failure is set when `within` is not exactly one element."""
+        scope = self.page
         w = t.get("within")
-        if not w:
-            return self.page, 1, None
-        box = self.page.locator(w["css"]).filter(has_text=w["text"])
-        n = box.count()
-        return (box, 1, None) if n == 1 else (None, n, _count_error(f'{w["css"]} "{w["text"]}"', n))
-
-    def _find(self, t: dict):
-        """(locator, count, error): the locator when the target is exactly one visible element."""
-        scope, n, error = self._scope(t)
-        if scope is None:
-            return None, n, error
+        if w:
+            scope = self.page.locator(w["css"]).filter(has_text=w["text"])
+            n = scope.count()
+            if n != 1:
+                return None, 0, "ambiguous" if n else "missing", _count_error(f'{w["css"]} "{w["text"]}"', n)
         loc = _locator(scope, t).filter(visible=True)
-        n = loc.count()
-        return (loc, 1, None) if n == 1 else (None, n, _count_error(stepfmt.phrase(t), n))
+        return loc, loc.count(), None, None
 
     def _one(self, t: dict, deadline: float):
-        """Wait (until deadline) for the target to be one element; two or more fail at once."""
+        """An action's target: wait (until deadline) for exactly one element; two or more fail at once."""
         while True:
-            loc, n, error = self._find(t)
-            if loc is not None:
+            loc, n, failure, error = self._look(t)
+            if failure is None and n == 1:
                 return loc
-            if n > 1 or time.monotonic() >= deadline:
-                raise _StepFailed(error)
+            if failure is None:
+                failure = "ambiguous" if n else "missing"
+                error = _count_error(stepfmt.phrase(t), n)
+            if failure == "ambiguous" or time.monotonic() >= deadline:
+                raise _StepFailed(error, failure)
+            self.page.wait_for_timeout(100)
+
+    def _check(self, do: str, t: dict, v: str | None, deadline: float) -> None:
+        """Checks pass on any match; expect_absent looks once (the page has settled)."""
+        what = stepfmt.phrase(t)
+        while True:
+            loc, n, failure, error = self._look(t)
+            if failure is None and do == "expect_absent":
+                if n:
+                    raise _StepFailed(f"expected {_no(what)}, found {n}", "mismatch")
+                return
+            if failure is None and n == 0:
+                failure, error = "missing", _count_error(what, 0)
+            elif failure is None and do == "expect_visible":
+                return
+            elif failure is None:
+                texts = loc.evaluate_all(TEXTS_JS)
+                if any(v in text for text in texts):
+                    return
+                failure, error = "mismatch", _mismatch(what, v, texts)
+            if failure == "ambiguous" or do == "expect_absent" or time.monotonic() >= deadline:
+                raise _StepFailed(error, failure)
             self.page.wait_for_timeout(100)
 
     # -- the steps
@@ -348,26 +403,11 @@ class _Session:
     def _do(self, step: dict) -> None:
         do, t, v = step["do"], step.get("target"), step.get("value")
         deadline = time.monotonic() + STEP_S
-        if do == "goto":
-            resp = self.page.goto(self.origin + v, wait_until="load")
+        if do == "goto":  # whatever the app serves (a 404 page too) is the page the next step sees
+            self.page.goto(self.origin + v, wait_until="load")
             self._settle(f"opening {v}")
-            if resp is not None and resp.status >= 400:
-                raise _StepFailed(f"{v} answered HTTP {resp.status}")
-        elif do == "expect_absent":  # checked once: the page has settled
-            scope, _, error = self._scope(t)
-            if scope is None:
-                raise _StepFailed(error)
-            n = _locator(scope, t).filter(visible=True).count()
-            if n:
-                raise _StepFailed(f"expected {_no(stepfmt.phrase(t))}, found {n}")
-        elif do == "expect_visible":
-            self._one(t, deadline)
-        elif do == "expect_text":
-            loc = self._one(t, deadline)
-            while v not in (text := loc.evaluate(TEXT_JS)):
-                if time.monotonic() >= deadline:
-                    raise _StepFailed(f'{stepfmt.phrase(t)} does not contain "{v}" (it reads "{text.strip()[:120]}")')
-                self.page.wait_for_timeout(100)
+        elif do in stepfmt.CHECKS:
+            self._check(do, t, v, deadline)
         else:
             loc = self._one(t, deadline)
             ms = max(100, round((deadline - time.monotonic()) * 1000))
@@ -384,18 +424,18 @@ class _Session:
     def run(self, steps: list[dict], shots: str) -> tuple[list[StepResult], int | None]:
         results: list[StepResult] = []
         for n, step in enumerate(steps, 1):
+            error = failure = None
             try:
                 self._do(step)
-                error = None
             except _StepFailed as e:
-                error = str(e)
+                error, failure = str(e), e.failure
             except self.api.Error as e:  # a Playwright timeout or a bad selector, unless the browser went away
                 if self.crashed or self.page.is_closed() or not self.browser.is_connected():
                     raise BrowserError(f"the browser went away during step {n}: {_first_line(e)}") from e
-                error = _step_error(e)
+                error, failure = _step_error(e, step), "error"
             last = error is not None or n == len(steps)
             shot = self._screenshot() if shots == "all" or (shots == "failure" and last) else None
-            results.append(StepResult(n, stepfmt.describe(step), error is None, error, shot))
+            results.append(StepResult(n, stepfmt.describe(step), error is None, error, shot, failure))
             if error is not None:
                 return results, n
         return results, None
@@ -492,7 +532,11 @@ def _cmd_replay(args) -> int:
 
 def _cmd_check(args) -> int:
     changed = {os.path.basename(p.strip()) for p in (args.changed or "").split(",") if p.strip()}
-    files = sorted(n for n in os.listdir(args.repros) if n.endswith(".json"))
+    try:
+        files = sorted(n for n in os.listdir(args.repros) if n.endswith(".json"))
+    except OSError as e:
+        print(f"browser.py: cannot list --repros: {e}", file=sys.stderr)
+        return 2
     entries = []
     for name in files:
         entry = {"file": name, "title": None, "issue": None, "ok": False, "failed_at": None, "changed": name in changed}
@@ -503,8 +547,9 @@ def _cmd_check(args) -> int:
             r = replay(args.app_dir, doc["steps"], shots="all")
         except (ValueError, OSError, BrowserError) as e:  # an invalid file, or a replay that could not start
             entry["error"] = str(e)
-            _write(out_dir, {"title": entry["title"], "issue": entry["issue"], "ok": False, "failed_at": None,
-                             "error": str(e), "steps": []}, [])
+            empty = Replay(ok=False, failed_at=None, steps=[], snapshot="", app_log=[], console=[], commit=None,
+                           seconds=0.0)
+            _write(out_dir, {"title": entry["title"], "issue": entry["issue"], **empty.to_json(), "error": str(e)}, [])
             print(f"ERROR {name}: {e}")
         else:
             entry.update(ok=r.ok, failed_at=r.failed_at)
@@ -532,8 +577,10 @@ def main(argv: list[str] | None = None) -> int:
     ck.add_argument("--out", required=True)
     ck.add_argument("--changed", help="comma-separated repro paths or file names changed by this PR")
     args = p.parse_args(argv)
+    if args.cmd == "check":
+        return _cmd_check(args)
     try:
-        return _cmd_replay(args) if args.cmd == "replay" else _cmd_check(args)
+        return _cmd_replay(args)
     except (ValueError, OSError, BrowserError) as e:
         print(f"browser.py: {e}", file=sys.stderr)
         return 2
