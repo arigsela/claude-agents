@@ -14,7 +14,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-CARDS = ["Write copy for the pricing page", "Update the cookie banner copy"]
+CARDS = ["Write copy for the pricing page", "Review the quarterly report"]
 BROKEN = os.environ.get("FIXTURE_BROKEN") == "1"
 DELAY_S = int(os.environ.get("FIXTURE_DELAY_MS") or 0) / 1000
 ACT_DELAY_S = int(os.environ.get("FIXTURE_ACT_DELAY_MS") or 0) / 1000

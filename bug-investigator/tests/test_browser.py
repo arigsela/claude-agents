@@ -40,11 +40,11 @@ linux_only = pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="ne
 FIXTURE = Path(__file__).parent / "fixtures" / "ui-app" / "server.py"
 ENGINE = Path(browser.__file__)
 PNG = b"\x89PNG\r\n\x1a\n"
-PRICING, COOKIE = "Write copy for the pricing page", "Update the cookie banner copy"
+PRICING, REPORT = "Write copy for the pricing page", "Review the quarterly report"
 STATUS = {"role": "status"}
 AS_DANA = {"do": "select", "target": {"label": "User"}, "value": "dana (editor)"}
 START = {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": PRICING}}}
-DONE = {"do": "click", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": COOKIE}}}
+DONE = {"do": "click", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": REPORT}}}
 STARTED = {"do": "expect_text", "target": STATUS, "value": "moved to in progress by dana"}
 
 
@@ -118,7 +118,7 @@ def test_all_steps_pass_on_fixture(tmp_path):
         {"do": "goto", "value": "/nope"},  # a 404 is a page like any other
         {"do": "expect_visible", "target": {"text": "not found"}},
         {"do": "goto", "value": "/"},
-        {"do": "expect_visible", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": COOKIE}}},
+        {"do": "expect_visible", "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": REPORT}}},
         {"do": "expect_absent", "target": {"text": "Buy milk"}},
     ]
     r = browser.replay(make_app(tmp_path), steps, commit="abc123", shots="none")
@@ -136,7 +136,7 @@ def test_missing_button_fails_at_that_step(tmp_path):
     r = browser.replay(make_app(tmp_path, FIXTURE_BROKEN="1"), [AS_DANA, DONE, STARTED], shots="none")
     assert not r.ok and r.failed_at == 2
     assert len(r.steps) == 2 and r.steps[0].ok  # the first failing step ends the run
-    assert r.steps[1].error == 'no button "Done" in .card "Update the cookie banner copy" (0 matches)'
+    assert r.steps[1].error == 'no button "Done" in .card "Review the quarterly report" (0 matches)'
     assert r.steps[1].failure == "missing" and r.steps[0].failure is None
 
 
@@ -148,9 +148,9 @@ def test_two_matches_fail_not_click(tmp_path):
     assert r.failed_at == 2 and r.steps[1].error == 'button "Start" matched 2 elements'
     assert r.steps[1].failure == "ambiguous"
     assert not any("/api/act" in line for line in r.app_log), r.app_log  # nothing was clicked
-    two_cards = {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": "copy"}}}
+    two_cards = {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": ".card", "text": "the"}}}
     r = browser.replay(make_app(tmp_path / "2"), [two_cards], shots="none")
-    assert r.failed_at == 1 and r.steps[0].error == '.card "copy" matched 2 elements'
+    assert r.failed_at == 1 and r.steps[0].error == '.card "the" matched 2 elements'
     assert r.steps[0].failure == "ambiguous"
 
 
@@ -202,8 +202,8 @@ def test_check_failures_say_why(tmp_path):
         f'no match for the text "{PRICING}" contains "moved to done" '
         f'(2 matches; the first reads "{PRICING} moved to in progress by dana")')  # the status line
     in_both = {"do": "expect_visible", "target": {"role": "button", "name": "Start",
-                                                  "within": {"css": ".card", "text": "copy"}}}
-    assert first_failure([in_both], "ambiguous") == (1, "ambiguous", '.card "copy" matched 2 elements')
+                                                  "within": {"css": ".card", "text": "the"}}}
+    assert first_failure([in_both], "ambiguous") == (1, "ambiguous", '.card "the" matched 2 elements')
 
 
 def within(css: str) -> dict:
@@ -610,8 +610,8 @@ def test_check_cli_summary(tmp_path):
     repros.mkdir()
     (repros / "good.json").write_text(json.dumps({"title": "Dana starts her task", "issue": 7,
                                                   "steps": [AS_DANA, START, STARTED]}))
-    archive = {"do": "click", "target": {"role": "button", "name": "Archive", "within": {"css": ".card", "text": COOKIE}}}
-    (repros / "broken.json").write_text(json.dumps({"title": "Archive the cookie card", "issue": 12,
+    archive = {"do": "click", "target": {"role": "button", "name": "Archive", "within": {"css": ".card", "text": REPORT}}}
+    (repros / "broken.json").write_text(json.dumps({"title": "Archive the report card", "issue": 12,
                                                     "steps": [AS_DANA, archive]}))
     (repros / "bad.json").write_text(json.dumps({"title": "No steps", "steps": []}))
     (repros / "notes.txt").write_text("not a repro")
@@ -622,7 +622,7 @@ def test_check_cli_summary(tmp_path):
     summary = json.loads((out / "summary.json").read_text())
     assert [{k: e[k] for k in ("file", "title", "issue", "ok", "failed_at", "changed")} for e in summary["repros"]] == [
         {"file": "bad.json", "title": None, "issue": None, "ok": False, "failed_at": None, "changed": True},
-        {"file": "broken.json", "title": "Archive the cookie card", "issue": 12, "ok": False, "failed_at": 2,
+        {"file": "broken.json", "title": "Archive the report card", "issue": 12, "ok": False, "failed_at": 2,
          "changed": True},
         {"file": "good.json", "title": "Dana starts her task", "issue": 7, "ok": True, "failed_at": None,
          "changed": False},

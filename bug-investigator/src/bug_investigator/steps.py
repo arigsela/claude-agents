@@ -127,7 +127,7 @@ def validate(steps, fails_at=None) -> list[str]:
 
 
 def phrase(t: dict) -> str:
-    """A (valid) target in words: 'button "Done" in .card "Update the cookie banner copy"'."""
+    """A (valid) target in words: 'button "Done" in .card "Review the quarterly report"'."""
     if "role" in t:
         p = f'{t["role"]} "{t["name"]}"' if t.get("name") else t["role"]
     elif "label" in t:
