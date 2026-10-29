@@ -437,6 +437,16 @@ def test_ui_ambiguous_failure_is_never_evidence(app_repo):
                                   "matched 2 elements")
 
 
+def test_ui_invalid_failure_is_never_evidence(app_repo):
+    # Ruling R13: a step that cannot run on any page (a selector that does not parse, an unknown key) proves
+    # nothing, and as a repro it would keep the fix PR red forever.
+    error = 'within css ".card[" is not a valid selector (Locator.count: Unexpected token)'
+    out, c = ui_verify(app_repo, [ui_item(fails_at=2)],
+                       FakeReplay(lambda s: replay(s, failed_at=2, failure="invalid", error=error)))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == f"step 2 failed only because the step itself is invalid: {error}"
+
+
 def test_ui_null_fails_at_needs_all_pass(app_repo):
     fake = FakeReplay(lambda s: replay(s))
     out, c = ui_verify(app_repo, [ui_item(fails_at=None)], fake)

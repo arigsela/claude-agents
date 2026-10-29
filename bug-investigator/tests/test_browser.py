@@ -193,6 +193,31 @@ def test_check_failures_say_why(tmp_path):
 
 @needs_chromium
 @pytest.mark.browser
+def test_malformed_steps_fail_invalid(tmp_path):
+    # Ruling R13: a step that cannot run on any page is `invalid`, never `error` or `missing`, so verify never
+    # counts it as a reproduction (the reviewer's probe: step 2 claimed).
+    def second(step, name):
+        r = browser.replay(make_app(tmp_path / name), [AS_DANA, step], shots="none")
+        return r.failed_at, r.steps[-1].failure, r.steps[-1].error
+
+    def within(css):
+        return {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": css, "text": PRICING}}}
+
+    failed_at, failure, error = second(within(".card["), "css")
+    assert (failed_at, failure) == (2, "invalid"), error
+    assert error.startswith('within css ".card[" is not a valid selector (Locator.count: Unexpected token'), error
+    for name, css in (("xpath", "xpath=//div"), ("text", "text=Pricing"), ("nth", ".card:nth-match(x)")):
+        assert second(within(css), name)[:2] == (2, "invalid"), css  # css= first: another engine does not parse
+    press = {"do": "press", "target": {"placeholder": "New task"}, "value": "Entr"}
+    assert second(press, "key") == (2, "invalid", '"Entr" is not a key Playwright can press '
+                                                  '(Keyboard.press: Unknown key: "Entr")')
+    nowhere = {"do": "press", "target": {"placeholder": "Nowhere"}, "value": "Control+Entr"}
+    assert second(nowhere, "key-first")[:2] == (2, "invalid")  # the key is checked before the target is looked for
+    assert second(dict(nowhere, value="Enter"), "missing")[:2] == (2, "missing")
+
+
+@needs_chromium
+@pytest.mark.browser
 def test_other_origin_request_aborted(tmp_path):
     steps = [{"do": "click", "target": {"role": "link", "name": "Elsewhere"}},
              {"do": "expect_visible", "target": {"role": "heading", "name": "Fixture board"}}]

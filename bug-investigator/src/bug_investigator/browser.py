@@ -21,7 +21,10 @@ Actions (click, fill, select, press) and `within` need exactly one match; checks
 (expect_visible: one is visible; expect_text: one contains the value; expect_absent: none). A failed
 step says why in `failure`: ambiguous (an action target or `within` matched more than one element),
 missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
-some), error (anything else, such as a disabled button).
+some), invalid (the step cannot run on any page: `within.css` is not a CSS selector, read as
+`css=<css>` so another selector engine does not parse either, or `press` names a key Playwright does
+not know; the key is checked before the target is looked for), error (anything else, such as a
+disabled button).
 """
 
 from __future__ import annotations
@@ -60,6 +63,12 @@ SNAPSHOT_CHARS = 6000
 APP_LOG_LINES = 50
 CONSOLE_LINES = 50
 SHOTS = ("all", "failure", "none")
+FAILURES = ("ambiguous", "missing", "mismatch", "invalid", "error")  # a failed StepResult's `failure`
+# Playwright's words when the step itself is malformed, whatever the page: a selector that does not parse
+# (its own CSS parser, an engine after >>, a pseudo-class's arguments, the browser's querySelectorAll) or a
+# key its keyboard does not know.
+MALFORMED = ("while parsing css selector", "while parsing selector", "is not a valid selector", '" engine expects ',
+             "Unknown key: ")
 # Defence in depth behind the request fence: the browser resolves no host name at all.
 RESOLVER_RULES = "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 # The texts expect_text reads: a field's value, a select's chosen label, otherwise the rendered text.
@@ -90,7 +99,7 @@ class StepResult:
     ok: bool
     error: str | None = None
     screenshot: bytes | None = None
-    failure: str | None = None  # ambiguous | missing | mismatch | error; None when the step passed
+    failure: str | None = None  # one of FAILURES; None when the step passed
 
 
 @dataclass
@@ -136,6 +145,20 @@ def _step_error(e: BaseException, step: dict) -> str:
         return f"{what} is covered by {reason.removesuffix(' intercepts pointer events')} ({head})"
     because = f": {reason}" if reason else ""
     return f"could not {stepfmt.describe(step)}{because} ({head})"
+
+
+def _malformed(e: BaseException) -> bool:
+    """Did Playwright refuse the step itself (MALFORMED), rather than fail on the page?"""
+    head = _first_line(e)
+    return any(m in head for m in MALFORMED)
+
+
+def _invalid_error(e: BaseException, step: dict) -> str:
+    head = _first_line(e)
+    w = (step.get("target") or {}).get("within")
+    if w and "Unknown key" not in head:  # the one selector built from the step's own text, unescaped
+        return f'within css "{w["css"]}" is not a valid selector ({head})'
+    return f"the step cannot run on any page ({head})"
 
 
 def _lock_path() -> str:
@@ -290,6 +313,7 @@ class _Session:
         self.origin = origin
         self.netloc = urlsplit(origin).netloc
         self.console: list[str] = []
+        self.blank = None  # a page of its own on about:blank, where press steps' keys are tried
         self.pending: set = set()
         self.last = time.monotonic()
         self.context = browser.new_context(viewport=VIEWPORT, service_workers="block")
@@ -349,7 +373,8 @@ class _Session:
         scope = self.page
         w = t.get("within")
         if w:
-            scope = self.page.locator(w["css"]).filter(has_text=w["text"])
+            # css=: an engine prefix in the step (xpath=, text=) is then a parse error, `invalid`.
+            scope = self.page.locator("css=" + w["css"]).filter(has_text=w["text"])
             n = scope.count()
             if n != 1:
                 return None, 0, "ambiguous" if n else "missing", _count_error(f'{w["css"]} "{w["text"]}"', n)
@@ -391,6 +416,18 @@ class _Session:
                 raise _StepFailed(error, failure)
             self.page.wait_for_timeout(100)
 
+    def _check_key(self, key: str) -> None:
+        """`invalid` for a key Playwright cannot press, before the target is looked for: a missing target must
+        not hide a step that could never pass. The key is pressed on a blank page, never the app's."""
+        if self.blank is None:
+            self.blank = self.browser.new_page()  # its own context on about:blank: no app, no network
+        try:
+            self.blank.keyboard.press(key)
+        except self.api.Error as e:
+            if not _malformed(e):
+                raise
+            raise _StepFailed(f'"{key}" is not a key Playwright can press ({_first_line(e)})', "invalid") from None
+
     # -- the steps
 
     def load(self) -> None:
@@ -409,6 +446,8 @@ class _Session:
         elif do in stepfmt.CHECKS:
             self._check(do, t, v, deadline)
         else:
+            if do == "press":
+                self._check_key(v)
             loc = self._one(t, deadline)
             ms = max(100, round((deadline - time.monotonic()) * 1000))
             if do == "click":
@@ -432,7 +471,10 @@ class _Session:
             except self.api.Error as e:  # a Playwright timeout or a bad selector, unless the browser went away
                 if self.crashed or self.page.is_closed() or not self.browser.is_connected():
                     raise BrowserError(f"the browser went away during step {n}: {_first_line(e)}") from e
-                error, failure = _step_error(e, step), "error"
+                if _malformed(e):
+                    error, failure = _invalid_error(e, step), "invalid"
+                else:
+                    error, failure = _step_error(e, step), "error"
             last = error is not None or n == len(steps)
             shot = self._screenshot() if shots == "all" or (shots == "failure" and last) else None
             results.append(StepResult(n, stepfmt.describe(step), error is None, error, shot, failure))

@@ -145,19 +145,25 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   the `ui-check` workflow install.
 - **The steps** (`steps.py`): at most 15 of `{do, target, value, note}`. `do` is an action (`click`,
   `fill`, `select`, `press`, or `goto` a path starting with `/`, without a target) or a check
-  (`expect_visible`, `expect_absent`, `expect_text`). `target` has exactly one of `role` (with an
-  optional exact `name`), `label`, `placeholder` or `text`, plus an optional `within: {css, text}`
-  that must match one element. An action's target must match exactly one element; a check passes on
-  any match. The page settles (network idle) after load and after every action; the first failing
-  step ends the run and says why (`ambiguous`, `missing`, `mismatch`, `error`).
+  (`expect_visible`, `expect_absent`, `expect_text`). `target` has exactly one of `role` (one of the
+  82 ARIA roles Playwright 1.64's `get_by_role` knows, `steps.ARIA_ROLES`; with an optional exact
+  `name`), `label`, `placeholder` or `text`, plus an optional `within: {css, text}` that must match
+  one element (`css` is one CSS selector: the engine reads it as `css=<css>`, and `>>` is refused).
+  An action's target must match exactly one element; a check passes on any match. The page settles
+  (network idle) after load and after every action; the first failing step ends the run and says
+  why: `ambiguous` (an action target or `within` matched more than one element), `missing` (nothing
+  matched), `mismatch` (no match had the text; for `expect_absent`, something matched), `invalid`
+  (the step cannot run on any page: a `css` that does not parse, a key Playwright does not know;
+  `press` tries its key before looking for the target) or `error` (anything else, such as a disabled
+  button).
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
-  fails and it did not fail because its target matched more than one element: an ambiguous step is
-  badly written, never evidence. `fails_at: null` ("works as documented") is verified only when every
-  step passes. Invalid steps, a replay error or no browser in the run (the Action, n8n mode) drop the
-  item. A verified item keeps the commit and each step's outcome; the screenshots stay out of the
-  JSON, in `ctx.ui_shots[<id>]`.
+  fails and it did not fail `ambiguous` or `invalid`: a step whose target matched more than one
+  element, or one that cannot run on any page, is badly written, never evidence. `fails_at: null`
+  ("works as documented") is verified only when every step passes. Invalid steps, a replay error or
+  no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the commit and
+  each step's outcome; the screenshots stay out of the JSON, in `ctx.ui_shots[<id>]`.
 - **Screenshots.** The trigger commits them to the orphan branch `bug-investigator-evidence` of the
   app repo (`evidence.Uploader`: the Git Data API, that one ref only, PNGs of at most 2 MiB, 30 per
   commit) and links each as `https://github.com/<repo>/blob/<commit>/<path>?raw=true`. The comment's

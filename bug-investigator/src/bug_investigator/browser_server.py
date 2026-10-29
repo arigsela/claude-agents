@@ -51,12 +51,18 @@ DESCRIPTION = (
     "leave the app. An action (click, fill, select, press) needs a target that matches exactly one element: "
     "add `within` to pick one card. A check (expect_visible, expect_absent, expect_text) passes when any match "
     "satisfies it. A step is {do, target, value, note}: `do` is one of click, fill, select, press, goto, "
-    "expect_visible, expect_absent, expect_text; `target` has exactly one of role (with an optional exact "
-    "name), label, placeholder or text, plus an optional within {css, text} that must match one element; "
-    "`value` is the text to fill, the option label to select, the key to press, the path to goto (it starts "
-    "with /; goto has no target) or the text expect_text looks for; at most "
-    f"{stepfmt.MAX_STEPS} steps. Set `fails_at` to the step you expect to fail and the result says whether "
-    "it matches (`matches_claim`); omit `fails_at` when you expect every step to pass, and read `ok`. "
+    "expect_visible, expect_absent, expect_text; `target` has exactly one of role (an ARIA role Playwright "
+    "knows, such as button, link, textbox, heading, status; with an optional exact name), label, placeholder "
+    "or text, plus an optional within {css, text} that must match one element (css is one CSS selector); "
+    "`value` is the text to fill, the option label to select, the key to press (a Playwright key name such as "
+    "Enter, Escape, Control+a), the path to goto (it starts with /; goto has no target) or the text "
+    f"expect_text looks for; at most {stepfmt.MAX_STEPS} steps. A failed step says why in `failure`: "
+    "`ambiguous` (an action target or within matched more than one element), `missing` (nothing matched), "
+    "`mismatch` (no match had the text; for expect_absent, something matched), `invalid` (the step cannot run "
+    "on any page: a css that does not parse, a key Playwright does not know), `error` (anything else, such as "
+    "a disabled button). Set `fails_at` to the step you expect to fail and the result says whether it matches "
+    "(`matches_claim`); an `ambiguous` or `invalid` failure never matches a claim, since it shows a badly "
+    "written step, not a bug; omit `fails_at` when you expect every step to pass, and read `ok`. "
     "`screenshots`: failure (the default: the failing "
     "step, or the last one), all, or none. The result holds each step's outcome, the page's accessibility "
     "snapshot, the app's last log lines and the browser console, then the screenshots."
@@ -90,12 +96,15 @@ TOOL = {
 INSTRUCTIONS = (f"One tool, {TOOL_NAME}: it replays UI steps in headless Chromium on a throwaway copy of the live "
                 "Taskboard (a fresh database with the demo data). Nothing persists between calls.")
 
+NOT_EVIDENCE = ("ambiguous", "invalid")  # a badly written step (rulings R8, R13), never a reproduction
+
+
 def matches_claim(r: browser.Replay, fails_at: int) -> bool:
-    """Did the replay fail at the step the caller named? An ambiguous target is never evidence."""
+    """Did the replay fail at the step the caller named? An ambiguous or invalid step is never evidence."""
     if r.failed_at != fails_at:
         return False
     failed = next((s for s in r.steps if s.n == fails_at), None)
-    return failed is not None and failed.failure != "ambiguous"
+    return failed is not None and failed.failure not in NOT_EVIDENCE
 
 
 def content(r: browser.Replay, fails_at: int | None = None) -> list[dict]:

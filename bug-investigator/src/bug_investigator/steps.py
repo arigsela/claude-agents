@@ -13,6 +13,20 @@ CHECKS = ("expect_visible", "expect_absent", "expect_text")
 MAX_STEPS = 15
 MAX_TEXT = 200
 
+# The roles Playwright's get_by_role accepts: the `role` Literal of Page.get_by_role in Playwright 1.64.0
+# (playwright/sync_api/_generated.py). Any other role matches nothing on any page (ruling R13).
+ARIA_ROLES = frozenset({
+    "alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell",
+    "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion",
+    "dialog", "directory", "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell",
+    "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee",
+    "math", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation", "none",
+    "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region", "row",
+    "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider", "spinbutton", "status",
+    "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox",
+    "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem",
+})
+
 NEEDS_VALUE = ("fill", "select", "press", "goto", "expect_text")
 LOCATORS = ("role", "label", "placeholder", "text")
 STEP_KEYS = {"do", "target", "value", "note"}
@@ -38,6 +52,9 @@ def _check_target(t) -> list[str]:
             probs.append(f"target {k} must be a non-empty string")
         elif k in t and len(t[k]) > MAX_TEXT:
             probs.append(f"target {k} is longer than {MAX_TEXT} characters")
+        elif k == "role" and k in t and t[k] not in ARIA_ROLES:
+            probs.append("target role must be an ARIA role Playwright knows (such as button, link, textbox, "
+                         f'heading), not "{t[k]}"')
     if "name" in t and "role" not in t:
         probs.append("target name is allowed only with role")
     if "within" in t:
@@ -49,6 +66,8 @@ def _check_target(t) -> list[str]:
                 probs.append("target within needs non-empty css and text, and nothing else")
             elif any(len(w[k]) > MAX_TEXT for k in WITHIN_KEYS):
                 probs.append(f"target within is longer than {MAX_TEXT} characters")
+            elif ">>" in w["css"]:  # the engine reads css=<css>; >> would chain another engine in after it
+                probs.append("target within css must be one CSS selector (no >>)")
     return probs
 
 

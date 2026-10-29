@@ -7,7 +7,8 @@ at most 24 h) through Grafana (`--telemetry grafana`, the Action) or straight ag
 Prometheus (`--telemetry direct`, the in-cluster trigger: no token); "found" needs data, "none" none.
 ui: valid steps (steps.py), then a replay through `Ctx.ui_replay` (the in-cluster trigger only; the
 Action and n8n mode have no browser): `fails_at` k needs step k to be the first failure, and not
-because its target matched more than one element; null needs every step to pass. The verified item
+because its target matched more than one element (`ambiguous`) or because the step cannot run on any
+page (`invalid`); null needs every step to pass. The verified item
 keeps the commit and per-step outcomes; the screenshots go to `ctx.ui_shots[id]`, never the JSON.
 Then: hypotheses without verified evidence become untested; likely_cause without a supported
 hypothesis becomes unclear; secrets are scrubbed from every string.
@@ -302,6 +303,8 @@ def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
         return f"replay failed: the result does not show step {fails_at}", {}
     elif failed["failure"] == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
         return f"step {fails_at} failed only because its target matched more than one element: {error}", {}
+    elif failed["failure"] == "invalid":  # ruling R13: nor does one that can never pass on any code
+        return f"step {fails_at} failed only because the step itself is invalid: {error}", {}
     shots = r.get("screenshots") if isinstance(r.get("screenshots"), list) else []
     ctx.ui_shots[str(item.get("id"))] = [(x[0], bytes(x[1])) for x in shots if isinstance(x, (list, tuple))
                                          and len(x) == 2 and isinstance(x[0], int)

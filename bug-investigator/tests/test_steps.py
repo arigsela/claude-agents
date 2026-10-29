@@ -73,6 +73,29 @@ def test_unknown_keys_rejected():
     assert steps.validate(["click"])
 
 
+def test_role_must_be_one_playwright_knows():
+    # Ruling R13: get_by_role("btn") matches nothing on any page, so the step could only ever fail "missing".
+    assert steps.validate([{"do": "click", "target": {"role": "btn"}}]) == [
+        'step 1: target role must be an ARIA role Playwright knows (such as button, link, textbox, heading), '
+        'not "btn"']
+    assert steps.validate([{"do": "click", "target": {"role": "Button", "name": "Done"}}])  # lower case only
+    for role in sorted(steps.ARIA_ROLES):
+        assert steps.validate([{"do": "expect_visible", "target": {"role": role}}]) == [], role
+    # Playwright 1.64.0's get_by_role list, the brief's list too.
+    assert len(steps.ARIA_ROLES) == 82 and {"button", "status", "generic", "none", "treeitem"} <= steps.ARIA_ROLES
+    assert steps.validate([{"do": "click", "target": {"role": ["button"]}}]) == [
+        "step 1: target role must be a non-empty string"]  # never hashed: no TypeError
+
+
+def test_within_css_is_one_css_selector():
+    # Ruling R13: the engine reads within.css as css=<css>, so xpath= or text= is a parse error there; >> would
+    # chain another engine in after it.
+    chained = {"do": "click", "target": {"text": "Start", "within": {"css": ".card >> text=Pricing", "text": "p"}}}
+    assert steps.validate([chained]) == ["step 1: target within css must be one CSS selector (no >>)"]
+    plain = {"do": "click", "target": {"text": "Start", "within": {"css": "div.card > span", "text": "p"}}}
+    assert steps.validate([plain]) == []
+
+
 def test_describe_sentences():
     t = {"role": "button", "name": "Done"}
     cases = [

@@ -310,6 +310,15 @@ def test_input_schema_has_one_type_per_property():
                                                              "screenshots": "string"}
 
 
+def test_description_names_the_failure_kinds_and_the_rules():
+    d = browser_server.DESCRIPTION
+    for kind in browser.FAILURES:
+        assert f"`{kind}`" in d, kind
+    assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "error")
+    for words in ("never matches a claim", "an ARIA role"):
+        assert words in d, words
+
+
 def test_null_fails_at_is_no_claim(app_dir):
     """null is accepted and means the same as an absent fails_at: no matches_claim; the caller reads ok."""
     for failed_at in (None, 2):
@@ -324,6 +333,7 @@ def test_null_fails_at_is_no_claim(app_dir):
     (2, 2, "mismatch", True),
     (2, 2, "error", True),
     (2, 2, "ambiguous", False),        # a badly written step is never evidence
+    (2, 2, "invalid", False),          # nor one that cannot run on any page (ruling R13)
     (2, 3, "missing", False),          # another step failed
     (3, 2, "missing", False),
     (2, None, None, False),            # nothing failed
