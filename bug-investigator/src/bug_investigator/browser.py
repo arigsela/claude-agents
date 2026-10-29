@@ -23,10 +23,16 @@ Actions (click, fill, select, press) and `within` need exactly one match; checks
 (expect_visible: one is visible; expect_text: one contains the value; expect_absent: none). A failed
 step says why in `failure`: ambiguous (an action target or `within` matched more than one element),
 missing (nothing matched), mismatch (expect_text found no match with the value; expect_absent found
-some), invalid (the step cannot run on any page: `within.css` is not a CSS selector, read as
-`css=<css>` so another selector engine does not parse either, or `press` names a key Playwright does
-not know; the key is checked before the target is looked for), timeout (the replay's REPLAY_S ran
-out during or before the step), error (anything else, such as a disabled button).
+some), invalid (the step cannot run on any page: `within.css` is not CSS that the browser's
+document.querySelector reads, so Playwright's own pseudo-classes such as :has-text or :visible are
+refused too, or Playwright's parser refuses it, read as `css=<css>` so another selector engine does
+not parse either; or `press` names a key Playwright does not know), timeout (the replay's REPLAY_S
+ran out during or before the step), error (anything else, such as a disabled button).
+
+Before the app starts, every step's within.css and press key is tried on a blank page (ruling R16):
+the first step that cannot run on any page ends the replay as its only result (`invalid`), and no
+step runs, so a malformed step is found even after a step that would fail on the page. The run loop
+keeps the same checks, a press step's key before its target is looked for.
 """
 
 from __future__ import annotations
@@ -74,6 +80,12 @@ FAILURES = ("ambiguous", "missing", "mismatch", "invalid", "timeout", "error")  
 # key its keyboard does not know.
 MALFORMED = ("while parsing css selector", "while parsing selector", "is not a valid selector", '" engine expects ',
              "Unknown key: ")
+# The browser's own CSS parser, on a blank page before the run (ruling R16): Playwright reads some of a selector (a
+# pseudo-class it does not know, :nth-match's arguments) only when the elements to its right exist, so a malformed
+# within.css can read `missing` on one page. querySelector parses all of it at once, and only it decides what CSS is:
+# Playwright's own pseudo-classes (:has-text, :visible, :nth-match) are refused too. It throws only SyntaxError.
+NATIVE_CSS_JS = """css => { try { document.querySelector(css); return null; }
+  catch (e) { return e && e.name === 'SyntaxError' ? String(e.message) : null; } }"""
 # Defence in depth behind the request fence: the browser resolves no host name at all.
 RESOLVER_RULES = "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 # The texts expect_text reads: a field's value, a select's chosen label, otherwise the rendered text.
@@ -168,6 +180,45 @@ def _invalid_error(e: BaseException, step: dict) -> str:
     if w and "Unknown key" not in head:  # the one selector built from the step's own text, unescaped
         return f'within css "{w["css"]}" is not a valid selector ({head})'
     return f"the step cannot run on any page ({head})"
+
+
+def _precheck(api, browser, steps: list[dict]) -> StepResult | None:
+    """The first step that cannot run on any page, as a failed `invalid` StepResult; None when every step can.
+
+    Runs before the app starts and before any step (ruling R16), on a page of its own on about:blank: every
+    within.css must parse in the browser's document.querySelector and in Playwright's selector engine, and every
+    press key must be one Playwright's keyboard knows. So a malformed step is found even when an earlier step would
+    fail on the page first, and a lazily parsed selector cannot read `missing`. api.Error: the browser failed.
+    """
+    page = browser.new_page()  # its own context on about:blank: no app, no network
+    try:
+        for n, step in enumerate(steps, 1):
+            error = None
+            w = (step.get("target") or {}).get("within")
+            if w:
+                native = page.evaluate(NATIVE_CSS_JS, w["css"])
+                if native:
+                    error = f'within css "{w["css"]}" is not a valid CSS selector, so no step ran ({native})'
+                else:
+                    try:
+                        page.locator("css=" + w["css"]).count()
+                    except api.Error as e:
+                        if not _malformed(e):
+                            raise
+                        error = f'within css "{w["css"]}" is not a valid selector, so no step ran ({_first_line(e)})'
+            if error is None and step["do"] == "press":
+                try:
+                    page.keyboard.press(step["value"])
+                except api.Error as e:
+                    if not _malformed(e):
+                        raise
+                    error = f'"{step["value"]}" is not a key Playwright can press, so no step ran ({_first_line(e)})'
+            if error:
+                return StepResult(n, stepfmt.describe(step), False, error, None, "invalid")
+        return None
+    finally:
+        with contextlib.suppress(api.Error):
+            page.close()
 
 
 def _lock_path() -> str:
@@ -543,22 +594,30 @@ def replay(app_dir: str, steps: list[dict], *, commit: str | None = None, shots:
             except Exception as e:  # a missing browser, libraries, CPU features: all one setup failure
                 detail = " | ".join(line.strip() for line in str(e).splitlines() if line.strip())
                 raise BrowserError(f"Chromium did not launch: {detail[:1500]}") from e
-            app = _App(app_dir, tmp, commit)
-            app.start()
             try:
-                session = _Session(api, browser, app.origin, deadline)
-                session.load()
-                results, failed_at = session.run(steps, shots)
-                snapshot, console = session.snapshot(), session.console
-            except api.Error as e:  # outside a step: the browser itself failed
+                bad = _precheck(api, browser, steps)
+            except api.Error as e:
                 raise BrowserError(f"the browser failed: {_first_line(e)}") from e
+            if bad is not None:  # a step that cannot run on any page: the replay ends there and no step runs
+                results, failed_at, snapshot = [bad], bad.n, ""
+                console = [f"replay: step {bad.n} cannot run on any page, so no step ran and the app was not started"]
+            else:
+                app = _App(app_dir, tmp, commit)
+                app.start()
+                try:
+                    session = _Session(api, browser, app.origin, deadline)
+                    session.load()
+                    results, failed_at = session.run(steps, shots)
+                    snapshot, console = session.snapshot(), session.console
+                except api.Error as e:  # outside a step: the browser itself failed
+                    raise BrowserError(f"the browser failed: {_first_line(e)}") from e
         finally:
             for close in (browser and browser.close, pw and pw.stop, app and app.stop):
                 if close:
                     with contextlib.suppress(Exception):
                         close()
     return Replay(ok=failed_at is None, failed_at=failed_at, steps=results, snapshot=snapshot,
-                  app_log=list(app.log), console=console, commit=commit,
+                  app_log=list(app.log) if app else [], console=console, commit=commit,
                   seconds=round(time.monotonic() - started, 2))
 
 

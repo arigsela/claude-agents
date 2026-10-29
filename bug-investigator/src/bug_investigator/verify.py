@@ -322,9 +322,8 @@ def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
         return f"expected step {fails_at} to fail; {what}", {}
     elif failed is None:
         return f"replay failed: the result does not show step {fails_at}", {}
-    shape = _ui_shape(ran, len(steps) if fails_at is None else fails_at, fails_at)
-    if shape:
-        return shape, {}
+    # The kind first: a step the engine found invalid before the run ends the replay with that step alone in the
+    # result (ruling R16), and that, not the steps it never ran, is why it proves nothing.
     kind = failed["failure"] if failed else None
     if fails_at is not None and kind not in stepfmt.EVIDENCE_FAILURES:  # an allowlist (ruling R16)
         if kind == "ambiguous":  # ruling R8: a step that matched two elements proves nothing
@@ -334,6 +333,9 @@ def check_ui(ctx: Ctx, item: dict) -> tuple[str | None, dict]:
         if kind == "timeout":  # ruling R14b: nor a replay that ran out of time there
             return f"step {fails_at} failed only because the replay ran out of time: {error}", {}
         return f"step {fails_at} failed with failure kind {kind!r}, which is never evidence: {error}", {}
+    shape = _ui_shape(ran, len(steps) if fails_at is None else fails_at, fails_at)
+    if shape:
+        return shape, {}
     shots = r.get("screenshots") if isinstance(r.get("screenshots"), list) else []
     ctx.ui_shots[str(item.get("id"))] = [(x[0], bytes(x[1])) for x in shots if isinstance(x, (list, tuple))
                                          and len(x) == 2 and isinstance(x[0], int)

@@ -320,7 +320,9 @@ def test_description_names_the_failure_kinds_and_the_rules():
                   # match semantics (Minor 3 of the Phase A review)
                   "`name`, `label` and `placeholder` match the whole text exactly",
                   "`text` and `within.text` match a case-insensitive substring",
-                  "a case-sensitive substring"):
+                  "a case-sensitive substring",
+                  # ruling R16: what css is, and the check before the run
+                  "as the browser's document.querySelector reads it", "every step is checked for this before any runs"):
         assert words in d, words
 
 

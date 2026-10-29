@@ -153,7 +153,9 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   (`expect_visible`, `expect_absent`, `expect_text`). `target` has exactly one of `role` (one of the
   82 ARIA roles Playwright 1.64's `get_by_role` knows, `steps.ARIA_ROLES`; with an optional `name`),
   `label`, `placeholder` or `text`, plus an optional `within: {css, text}` that must match one
-  element (`css` is one CSS selector: the engine reads it as `css=<css>`, and `>>` is refused).
+  element (`css` is one standard CSS selector, as the browser's `document.querySelector` reads it:
+  the engine reads it as `css=<css>`, `>>` is refused, and so are Playwright's own pseudo-classes
+  such as `:has-text` or `:visible`; pick the element by `within.text`).
   `name`, `label` and `placeholder` match the whole text exactly; `text` and `within.text` match a
   case-insensitive substring; `expect_text`'s `value` is a case-sensitive substring of the target's
   text (a field's value, a select's chosen option). An action's target must match exactly one
@@ -161,9 +163,12 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   action; the first failing step ends the run and says why: `ambiguous` (an action target or
   `within` matched more than one element), `missing` (nothing matched), `mismatch` (no match had the
   text; for `expect_absent`, something matched), `invalid` (the step cannot run on any page: a `css`
-  that does not parse, a key Playwright does not know; `press` tries its key before looking for the
-  target), `timeout` (the replay ran out of time at that step) or `error` (anything else, such as a
-  disabled button). A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and
+  that does not parse, a key Playwright does not know), `timeout` (the replay ran out of time at
+  that step) or `error` (anything else, such as a disabled button). Before the app starts, every
+  step's `css` and `press` key is tried on a blank page (Playwright reads parts of a selector only
+  when the page has the elements they apply to, so a malformed one could read `missing`): the first
+  step that cannot run on any page ends the replay as the result's only step, `invalid`, and no step
+  runs, even when an earlier step would have failed on the page. A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and
   load included, so a call answers within agentgateway's 90 s: when they run out, the current step
   fails `timeout` ("the replay took longer than 75 s") and no later step runs.
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,

@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from bug_investigator import browser
+from bug_investigator import steps as stepfmt
 
 try:
     import playwright.sync_api  # noqa: F401
@@ -193,29 +194,98 @@ def test_check_failures_say_why(tmp_path):
     assert first_failure([in_both], "ambiguous") == (1, "ambiguous", '.card "copy" matched 2 elements')
 
 
+def within(css: str) -> dict:
+    """Start on the pricing card, picked by a `within` with this css."""
+    return {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": css, "text": PRICING}}}
+
+
+BAD_KEY = {"do": "press", "target": {"placeholder": "New task"}, "value": "Entr"}
+
+
+def native(css: str) -> str:
+    """Chromium's words for a css its document.querySelector refuses."""
+    return f"Failed to execute 'querySelector' on 'Document': '{css}' is not a valid selector."
+
+
 @needs_chromium
 @pytest.mark.browser
 def test_malformed_steps_fail_invalid(tmp_path):
     # Ruling R13: a step that cannot run on any page is `invalid`, never `error` or `missing`, so verify never
-    # counts it as a reproduction (the reviewer's probe: step 2 claimed).
+    # counts it as a reproduction (the reviewer's probe: step 2 claimed). Ruling R16: every step is checked before
+    # the run, so the replay stops there and the result holds that step alone.
     def second(step, name):
         r = browser.replay(make_app(tmp_path / name), [AS_DANA, step], shots="none")
+        if r.steps[-1].failure == "invalid":
+            assert [s.n for s in r.steps] == [2] and r.app_log == [], r.to_json()  # nothing ran
         return r.failed_at, r.steps[-1].failure, r.steps[-1].error
 
-    def within(css):
-        return {"do": "click", "target": {"role": "button", "name": "Start", "within": {"css": css, "text": PRICING}}}
+    assert second(within(".card["), "css") == (
+        2, "invalid", f'within css ".card[" is not a valid CSS selector, so no step ran ({native(".card[")})')
+    for name, css in (("xpath", "xpath=//div"), ("text", "text=Pricing"), ("nth", ".card:nth-match(x)"),
+                      ("visible", ".card:visible"), ("has-text", ".card:has-text('x')")):
+        # css= first, so another engine does not parse; nor do Playwright's own pseudo-classes: the browser's
+        # document.querySelector is the judge.
+        assert second(within(css), name) == (
+            2, "invalid", f'within css "{css}" is not a valid CSS selector, so no step ran ({native(css)})'), css
+    # The browser reads a pseudo-element; Playwright's parser does not. Also tried before the run.
+    failed_at, failure, error = second(within(".card::after"), "pseudo-element")
+    assert (failed_at, failure) == (2, "invalid"), error
+    assert error.startswith('within css ".card::after" is not a valid selector, so no step ran (Locator.count: '
+                            'Unexpected token ":" while parsing css selector ".card::after"'), error
+    assert second(BAD_KEY, "key") == (2, "invalid", '"Entr" is not a key Playwright can press, so no step ran '
+                                                    '(Keyboard.press: Unknown key: "Entr")')
+    nowhere = {"do": "press", "target": {"placeholder": "Nowhere"}, "value": "Control+Entr"}
+    assert second(nowhere, "key-first")[:2] == (2, "invalid")  # the key is checked before the target is looked for
+    assert second(dict(nowhere, value="Enter"), "missing")[:2] == (2, "missing")
+
+
+@needs_chromium
+@pytest.mark.browser
+def test_lazy_selectors_fail_invalid_before_anything_runs(tmp_path):
+    # Ruling R16, the reviewer's probe: Playwright reads :nth-match's arguments, and a pseudo-class it does not
+    # know, only when the elements to their right exist. On a page without them these read `missing`, so a claim
+    # of the step verified. The browser's own document.querySelector, tried on a blank page before any step,
+    # refuses them: the replay stops at that step, `invalid`, and nothing runs (the app is not even started).
+    for name, css in (("nth-match", ".nosuch:nth-match(x)"), ("unknown-pseudo", "#board:foo .nosuch")):
+        r = browser.replay(make_app(tmp_path / name), [START, within(css)], shots="all")
+        assert (r.ok, r.failed_at, [s.n for s in r.steps]) == (False, 2, [2]), r.to_json()
+        bad = r.steps[0]
+        assert (bad.ok, bad.failure, bad.screenshot) == (False, "invalid", None)
+        assert bad.error == f'within css "{css}" is not a valid CSS selector, so no step ran ({native(css)})'
+        assert bad.text == stepfmt.describe(within(css))
+        assert r.app_log == [] and r.snapshot == ""  # Start was never clicked
+        assert any("no step ran" in line for line in r.console), r.console
+
+
+@needs_chromium
+@pytest.mark.browser
+def test_malformed_step_after_a_failing_step_is_found_first(tmp_path):
+    # Ruling R16: on the broken app step 2 fails `missing`, and step 3 can never run on any page. Run in order, the
+    # claim of step 2 would verify and its repro would stay red on every fix; checked first, step 3 ends the replay.
+    for name, bad in (("key", BAD_KEY), ("css", within(".card:has-text('x')"))):
+        r = browser.replay(make_app(tmp_path / name, FIXTURE_BROKEN="1"), [AS_DANA, DONE, bad], shots="none")
+        assert (r.failed_at, [s.n for s in r.steps], r.steps[0].failure) == (3, [3], "invalid"), r.to_json()
+    r = browser.replay(make_app(tmp_path / "valid", FIXTURE_BROKEN="1"), [AS_DANA, DONE, START], shots="none")
+    assert (r.failed_at, r.steps[-1].failure) == (2, "missing")  # the same replay with a valid step 3
+
+
+@needs_chromium
+@pytest.mark.browser
+def test_steps_still_fail_invalid_without_the_precheck(tmp_path, monkeypatch):
+    # Defence in depth: the run loop still turns Playwright's parse errors and unknown keys into `invalid`.
+    monkeypatch.setattr(browser, "_precheck", lambda *a, **k: None)
+
+    def second(step, name):
+        r = browser.replay(make_app(tmp_path / name), [AS_DANA, step], shots="none")
+        assert r.steps[0].ok, r.to_json()  # step 1 ran
+        return r.failed_at, r.steps[-1].failure, r.steps[-1].error
 
     failed_at, failure, error = second(within(".card["), "css")
     assert (failed_at, failure) == (2, "invalid"), error
     assert error.startswith('within css ".card[" is not a valid selector (Locator.count: Unexpected token'), error
-    for name, css in (("xpath", "xpath=//div"), ("text", "text=Pricing"), ("nth", ".card:nth-match(x)")):
-        assert second(within(css), name)[:2] == (2, "invalid"), css  # css= first: another engine does not parse
-    press = {"do": "press", "target": {"placeholder": "New task"}, "value": "Entr"}
-    assert second(press, "key") == (2, "invalid", '"Entr" is not a key Playwright can press '
-                                                  '(Keyboard.press: Unknown key: "Entr")')
-    nowhere = {"do": "press", "target": {"placeholder": "Nowhere"}, "value": "Control+Entr"}
-    assert second(nowhere, "key-first")[:2] == (2, "invalid")  # the key is checked before the target is looked for
-    assert second(dict(nowhere, value="Enter"), "missing")[:2] == (2, "missing")
+    assert second(within(".card:nth-match(x)"), "nth")[:2] == (2, "invalid")
+    assert second(BAD_KEY, "key") == (2, "invalid", '"Entr" is not a key Playwright can press '
+                                                    '(Keyboard.press: Unknown key: "Entr")')
 
 
 @needs_chromium
