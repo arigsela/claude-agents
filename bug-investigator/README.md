@@ -174,9 +174,10 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   step's `css` and `press` key is tried on a blank page (Playwright reads parts of a selector only
   when the page has the elements they apply to, so a malformed one could read `missing`): the first
   step that cannot run on any page ends the replay as the result's only step, `invalid`, and no step
-  runs, even when an earlier step would have failed on the page. A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and
-  load included, so a call answers within agentgateway's 90 s: when they run out, the current step
-  fails `timeout` ("the replay took longer than 75 s") and no later step runs.
+  runs, even when an earlier step would have failed on the page. A replay has 75 s
+  (`browser.REPLAY_S`) from Chromium's launch, app start and load included, so a call answers
+  within agentgateway's 90 s: when they run out, the current step fails `timeout` ("the replay took
+  longer than 75 s") and no later step runs.
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
