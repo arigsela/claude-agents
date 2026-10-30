@@ -22,6 +22,11 @@ Transport: mcp_server.StdioServer's loop (agentgateway serves it as Streamable H
 on a background thread and tool calls run on the main thread, one at a time (replays take a
 machine-wide lock anyway). SIGTERM raises SystemExit there, so a running replay unwinds through its
 finally blocks, which close Chromium and stop the app's process group, before the process exits.
+A SIGKILL (agentgateway ending a deleted session) runs no finally block: the app then dies by its
+parent-death signal, which follows whichever thread runs the replay (here the main thread, which
+lives as long as the process), and the next call kills its recorded process group and removes the
+replay's temp dir (browser.py, ruling R19). Calls stay on the main thread for SIGTERM's sake, not
+for that signal's.
 
     python3 -I /core/src/bug_investigator/browser_server.py      # env APP_DIR, DEPS_DIR
 """
@@ -60,7 +65,9 @@ DESCRIPTION = (
     "satisfies it. A step is {do, target, value, note}: `do` is one of click, fill, select, press, goto, "
     "expect_visible, expect_absent, expect_text; `target` has exactly one of role (an ARIA role Playwright "
     "knows, such as button, link, textbox, heading, status; with an optional name), label, placeholder or "
-    "text, plus an optional within {css, text} that must match one element (css is one CSS selector). "
+    "text, plus an optional within {css, text} that must match one element (css is one standard CSS selector "
+    "that the browser parses strictly, so a malformed part even inside :is() or :where() is refused, as are "
+    "Playwright's own pseudo-classes such as :has-text or :visible; pick the element by within.text). "
     "`name`, `label` and `placeholder` match the whole text exactly; `text` and `within.text` match a "
     "case-insensitive substring. `value` is the text to fill, the option label to select, the key to press "
     "(a Playwright key name such as Enter, Escape, Control+a), the path to goto (it starts with /; goto has "
@@ -68,11 +75,12 @@ DESCRIPTION = (
     f"value); at most {stepfmt.MAX_STEPS} steps. A failed step says why in `failure`: "
     "`ambiguous` (an action target or within matched more than one element), `missing` (nothing matched), "
     "`mismatch` (no match had the text; for expect_absent, something matched), `invalid` (the step cannot run "
-    "on any page: a css that does not parse, a key Playwright does not know), `timeout` (the replay took "
+    "on any page: a css that does not parse, a key Playwright does not know; every step is checked for this "
+    "before any runs, so the result then holds the first such step alone), `timeout` (the replay took "
     f"longer than {browser.REPLAY_S} s and stopped at that step), `error` (anything else, such as a disabled "
     "button). Set `fails_at` to the step you expect to fail and the result says whether it matches "
-    "(`matches_claim`); an `ambiguous`, `invalid` or `timeout` failure never matches a claim, since it shows a "
-    "badly written step or a slow replay, not a bug; "
+    "(`matches_claim`): only a `missing`, `mismatch` or `error` failure matches; an `ambiguous`, `invalid` or "
+    "`timeout` failure never matches a claim, since it shows a badly written step or a slow replay, not a bug; "
     "omit `fails_at` when you expect every step to pass, and read `ok`. `screenshots`: failure (the default: "
     "the failing step, or the last one), all, or none. The result holds each step's outcome, the page's "
     "accessibility snapshot, the app's last log lines and the browser console, then the screenshots."
@@ -106,17 +114,15 @@ TOOL = {
 INSTRUCTIONS = (f"One tool, {TOOL_NAME}: it replays UI steps in headless Chromium on a throwaway copy of the live "
                 "Taskboard (a fresh database with the demo data). Nothing persists between calls.")
 
-# A badly written step (rulings R8, R13) or a replay that ran out of time (R14b): never a reproduction.
-NOT_EVIDENCE = ("ambiguous", "invalid", "timeout")
-
 
 def matches_claim(r: browser.Replay, fails_at: int) -> bool:
-    """Did the replay fail at the step the caller named? An ambiguous, invalid or timed-out step is never
-    evidence."""
+    """Did the replay fail at the step the caller named, with a failure that can show a bug? Only `missing`,
+    `mismatch` and `error` count (steps.EVIDENCE_FAILURES, ruling R16): an ambiguous or invalid step is badly
+    written (R8, R13), a timeout is a slow replay (R14b), and anything else is not known to show a bug."""
     if r.failed_at != fails_at:
         return False
     failed = next((s for s in r.steps if s.n == fails_at), None)
-    return failed is not None and failed.failure not in NOT_EVIDENCE
+    return failed is not None and failed.failure in stepfmt.EVIDENCE_FAILURES
 
 
 def content(r: browser.Replay, fails_at: int | None = None) -> list[dict]:

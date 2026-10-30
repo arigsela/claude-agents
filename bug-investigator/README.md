@@ -145,7 +145,14 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   settings the live Taskboard Deployment has today. A setting only the live Deployment had (a
   feature flag, say) would not reach the copy, so the copy would behave differently from live until
   `browser._App` mirrors it. Playwright is imported only inside a call (`browser.py`, from `/deps`),
-  so a Chromium that cannot start is a tool error, never a failed `initialize`.
+  so a Chromium that cannot start is a tool error, never a failed `initialize`. A server killed
+  mid-call (agentgateway does that when a session is deleted) runs no teardown, so the copy is
+  stopped two other ways. On Linux it gets SIGKILL when the server's thread that started it exits
+  (`PR_SET_PDEATHSIG`). And its process group is recorded in `$TMPDIR/bug-investigator-browser.pgid`
+  while it runs: the next call, once it holds the replay lock, kills that group (anything the copy
+  started; only with the group leader's start time from `/proc`, which tells it from a reused id)
+  and removes the engine's leftover `$TMPDIR/bug-investigator-replay-*` directories. Clearing up is
+  best effort and logs to stderr only.
   `browser-requirements.txt` pins the four wheels (with hashes) that the server's init container and
   the `ui-check` workflow install.
 - **The steps** (`steps.py`): at most 15 of `{do, target, value, note}`. `do` is an action (`click`,
@@ -153,7 +160,11 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   (`expect_visible`, `expect_absent`, `expect_text`). `target` has exactly one of `role` (one of the
   82 ARIA roles Playwright 1.64's `get_by_role` knows, `steps.ARIA_ROLES`; with an optional `name`),
   `label`, `placeholder` or `text`, plus an optional `within: {css, text}` that must match one
-  element (`css` is one CSS selector: the engine reads it as `css=<css>`, and `>>` is refused).
+  element (`css` is one standard CSS selector, as the browser parses it strictly:
+  `document.querySelector`, and `CSS.supports('selector(:is(<css>))')`, which unlike querySelector
+  does not forgive a malformed argument inside `:is()` or `:where()`. The engine reads it as
+  `css=<css>`, `>>` is refused, and so are Playwright's own pseudo-classes such as `:has-text` or
+  `:visible`; pick the element by `within.text`).
   `name`, `label` and `placeholder` match the whole text exactly; `text` and `within.text` match a
   case-insensitive substring; `expect_text`'s `value` is a case-sensitive substring of the target's
   text (a field's value, a select's chosen option). An action's target must match exactly one
@@ -161,17 +172,23 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   action; the first failing step ends the run and says why: `ambiguous` (an action target or
   `within` matched more than one element), `missing` (nothing matched), `mismatch` (no match had the
   text; for `expect_absent`, something matched), `invalid` (the step cannot run on any page: a `css`
-  that does not parse, a key Playwright does not know; `press` tries its key before looking for the
-  target), `timeout` (the replay ran out of time at that step) or `error` (anything else, such as a
-  disabled button). A replay has 75 s (`browser.REPLAY_S`) from Chromium's launch, app start and
-  load included, so a call answers within agentgateway's 90 s: when they run out, the current step
-  fails `timeout` ("the replay took longer than 75 s") and no later step runs.
+  that does not parse, a key Playwright does not know), `timeout` (the replay ran out of time at
+  that step) or `error` (anything else, such as a disabled button). Before the app starts, every
+  step's `css` and `press` key is tried on a blank page (Playwright reads parts of a selector only
+  when the page has the elements they apply to, so a malformed one could read `missing`): the first
+  step that cannot run on any page ends the replay as the result's only step, `invalid`, and no step
+  runs, even when an earlier step would have failed on the page. A replay has 75 s
+  (`browser.REPLAY_S`) from Chromium's launch, app start and load included, so a call answers
+  within agentgateway's 90 s: when they run out, the current step fails `timeout` ("the replay took
+  longer than 75 s") and no later step runs.
 - **Evidence kind `ui`**: `{id, kind: "ui", ref: <the scenario in one line>, detail, steps,
   fails_at}`. verify replays the steps through `Ctx(ui_replay=...)` (the trigger passes
   `mcp_client.replay_via_mcp`). `fails_at: k` is verified only when step k is the first step that
-  fails and it did not fail `ambiguous`, `invalid` or `timeout`: a step whose target matched more
-  than one element or that cannot run on any page is badly written, and a replay that ran out of
-  time shows nothing about the page; neither is evidence. `fails_at: null` ("works as documented")
+  fails and it failed `missing`, `mismatch` or `error` (an allowlist, `steps.EVIDENCE_FAILURES`,
+  shared with the tool's `matches_claim`): a step whose target matched more than one element
+  (`ambiguous`) or that cannot run on any page (`invalid`) is badly written, a replay that ran out
+  of time (`timeout`) shows nothing about the page, and a result with no failure kind or one verify
+  does not know proves nothing; none of them is evidence. `fails_at: null` ("works as documented")
   is verified only when every step passes. The result must show exactly steps 1 to k (all of them
   for null), in order: an empty, partial or reordered result is dropped. Invalid steps, a replay
   error or no browser in the run (the Action, n8n mode) drop the item. A verified item keeps the
@@ -188,12 +205,13 @@ Prometheus. In the cluster the agent can reproduce it in a browser and cite the 
   posts one comment (`evidence.py post-pr`, marker `<!-- bug-investigator ui-check -->`) with the
   changed repros' steps and "after" screenshots.
 
-The browser tests (`@pytest.mark.browser`) skip without Playwright; run them in the image, from
-`bug-investigator/`:
+The browser tests (`@pytest.mark.browser`, which also marks the Linux-only tests of the app's
+teardown) skip without Playwright or Linux; run them in the image (natively: never
+`--platform linux/amd64` on an arm64 Mac), from `bug-investigator/`:
 
 ```bash
 docker run --rm -v "$PWD":/w -w /w mcr.microsoft.com/playwright/python:v1.64.0-noble \
-  sh -c 'pip install -q playwright==1.64.0 pytest && python -m pytest -q -m browser'
+  sh -c 'pip install -q --break-system-packages playwright==1.64.0 pytest && python3 -m pytest -q -m browser'
 ```
 
 ## Local runs

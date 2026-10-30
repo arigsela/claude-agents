@@ -315,11 +315,14 @@ def test_description_names_the_failure_kinds_and_the_rules():
     for kind in browser.FAILURES:
         assert f"`{kind}`" in d, kind
     assert browser.FAILURES == ("ambiguous", "missing", "mismatch", "invalid", "timeout", "error")
-    for words in ("never matches a claim", "an ARIA role", f"longer than {browser.REPLAY_S} s",
+    for words in ("never matches a claim", "only a `missing`, `mismatch` or `error` failure matches", "an ARIA role",
+                  f"longer than {browser.REPLAY_S} s",
                   # match semantics (Minor 3 of the Phase A review)
                   "`name`, `label` and `placeholder` match the whole text exactly",
                   "`text` and `within.text` match a case-insensitive substring",
-                  "a case-sensitive substring"):
+                  "a case-sensitive substring",
+                  # ruling R16: what css is, and the check before the run
+                  "that the browser parses strictly", "every step is checked for this before any runs"):
         assert words in d, words
 
 
@@ -339,15 +342,24 @@ def test_null_fails_at_is_no_claim(app_dir):
     (2, 2, "ambiguous", False),        # a badly written step is never evidence
     (2, 2, "invalid", False),          # nor one that cannot run on any page (ruling R13)
     (2, 2, "timeout", False),          # nor a replay that ran out of time there (ruling R14b)
+    (2, 2, None, False),               # an allowlist (ruling R16): no kind, or one it does not know, never counts
+    (2, 2, "flaky", False),
     (2, 3, "missing", False),          # another step failed
     (3, 2, "missing", False),
     (2, None, None, False),            # nothing failed
 ])
 def test_matches_claim(app_dir, fails_at, failed_at, failure, expected):
-    doc = body(call(server(app_dir, FakeReplay(replay_result(failed_at, failure or "missing"))),
+    doc = body(call(server(app_dir, FakeReplay(replay_result(failed_at, failure))),
                     {"steps": STEPS, "fails_at": fails_at}))
     assert list(doc)[:3] == ["ok", "failed_at", "matches_claim"]
     assert doc["matches_claim"] is expected
+
+
+def test_evidence_failures_are_an_allowlist():
+    # One list, importable without Playwright, shared by the server and verify.
+    assert stepfmt.EVIDENCE_FAILURES == ("missing", "mismatch", "error")
+    assert set(stepfmt.EVIDENCE_FAILURES) < set(browser.FAILURES)
+    assert not hasattr(browser_server, "NOT_EVIDENCE")
 
 
 # ---------------------------------------------------------------------------------- SIGTERM

@@ -456,6 +456,38 @@ def test_ui_timeout_failure_is_never_evidence(app_repo):
     assert reasons(out)["E1"] == f"step 3 failed only because the replay ran out of time: {error}"
 
 
+def test_ui_step_found_invalid_before_the_run_drops_as_invalid(app_repo):
+    # Ruling R16: the engine checks every step before running any, so a malformed step k ends the replay with step k
+    # alone in the result. The reason is the step's kind, not the steps 1..k-1 the replay never ran.
+    error = 'within css ".x:nth-match(1)" is not a valid CSS selector, so no step ran (not a valid selector.)'
+
+    def precheck(s):
+        r = replay(s, failed_at=3, failure="invalid", error=error)
+        r["steps"] = r["steps"][2:]
+        return r
+
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)], FakeReplay(precheck))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == f"step 3 failed only because the step itself is invalid: {error}"
+    out, _ = ui_verify(app_repo, [ui_item(fails_at=2)], FakeReplay(precheck))  # a claim of an earlier step
+    assert reasons(out)["E1"] == f"expected step 2 to fail; step 3 failed: {error}"
+
+
+@pytest.mark.parametrize("failure, kind", [(None, "None"), ("flaky", "'flaky'"), (7, "None")],
+                         ids=["none", "unknown", "not-a-string"])
+def test_ui_failure_kind_is_an_allowlist(app_repo, failure, kind):
+    # Ruling R16: the claimed step counts only when it failed missing, mismatch or error; a result without a
+    # failure kind, or with one verify does not know, is never evidence.
+    out, c = ui_verify(app_repo, [ui_item(fails_at=3)],
+                       FakeReplay(lambda s: replay(s, failed_at=3, failure=failure, error="it broke")))
+    assert out["evidence"] == [] and c.ui_shots == {}
+    assert reasons(out)["E1"] == f"step 3 failed with failure kind {kind}, which is never evidence: it broke"
+    for ok in ("missing", "mismatch", "error"):
+        out, _ = ui_verify(app_repo, [ui_item(fails_at=3)],
+                           FakeReplay(lambda s: replay(s, failed_at=3, failure=ok, error="it broke")))
+        assert by_id(out)["E1"]["verified"]["failed_at"] == 3, ok
+
+
 def test_ui_null_fails_at_needs_all_pass(app_repo):
     fake = FakeReplay(lambda s: replay(s))
     out, c = ui_verify(app_repo, [ui_item(fails_at=None)], fake)

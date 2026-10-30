@@ -8,7 +8,7 @@ from bug_investigator import steps
 
 CLICK = {
     "do": "click",
-    "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": "Update the cookie banner copy"}},
+    "target": {"role": "button", "name": "Done", "within": {"css": ".card", "text": "Review the quarterly report"}},
 }
 
 
@@ -99,7 +99,7 @@ def test_within_css_is_one_css_selector():
 def test_describe_sentences():
     t = {"role": "button", "name": "Done"}
     cases = [
-        (CLICK, 'click button "Done" in .card "Update the cookie banner copy"'),
+        (CLICK, 'click button "Done" in .card "Review the quarterly report"'),
         ({"do": "click", "target": {"role": "link"}}, "click link"),
         ({"do": "fill", "target": {"label": "Title"}, "value": "Hi"}, 'fill the field labelled "Title" with "Hi"'),
         ({"do": "select", "target": {"placeholder": "Status"}, "value": "Done"},

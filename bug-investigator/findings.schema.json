@@ -304,7 +304,7 @@
                       "properties": {
                         "css": {
                           "type": "string",
-                          "description": "one CSS selector (no >>)"
+                          "description": "one standard CSS selector, as the browser parses it strictly (no >>, no Playwright pseudo-classes such as :has-text or :visible)"
                         },
                         "text": {
                           "type": "string"
