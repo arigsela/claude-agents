@@ -118,7 +118,7 @@ skills/review-retro/          # /review-retro <PR> | --since 14d
 | code-review | development | Parallel agent PR review with confidence scoring |
 | feature-builder | development | Ralph Loop automated feature development |
 | prompt-engineering-patterns | learning | LLM prompt optimization techniques |
-| architect | architecture | Architecture consulting in five lenses: Well-Architected, cloud patterns, DevOps/12-Factor, platform engineering, agentic platforms |
+| architect | architecture | Architecture consulting in six lenses: system design, Well-Architected, cloud patterns, DevOps/12-Factor, platform engineering, agentic platforms |
 | git-commit-pr | development | Automated git workflow: branch, commit, push, PR |
 | creating-implementation-plans | development | Phase-based implementation planning |
 | executing-implementation-plans | development | Phase-based execution with checkpoints |
@@ -170,7 +170,7 @@ skills/
 ├── architecture-diagrams/ # System diagrams
 ├── code-review/           # Parallel agent PR review
 ├── feature-builder/       # Ralph Loop development
-├── architect/             # Architecture consulting (five lenses)
+├── architect/             # Architecture consulting (six lenses)
 └── ...                    # 7 more skills
 ```
 

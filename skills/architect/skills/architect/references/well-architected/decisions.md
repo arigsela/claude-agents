@@ -63,20 +63,31 @@ Data model requirements?
 │   ├── MongoDB compatible? → DocumentDB
 │   └── Global replication? → DynamoDB Global Tables
 ├── Cache / session store
-│   ├── Redis features (sorted sets, pub/sub)? → ElastiCache for Redis
+│   ├── Redis features (sorted sets, pub/sub, Lua)? → ElastiCache for Valkey (or Redis OSS)
 │   ├── Simple caching? → ElastiCache for Memcached
 │   └── DynamoDB accelerator? → DAX
 ├── Search
-│   ├── Full-text search → OpenSearch Service
-│   └── Application search → CloudSearch
+│   ├── Full-text, log or vector search → OpenSearch Service
+│   └── Spiky or low-ops search → OpenSearch Serverless
+│       (CloudSearch is closed to new customers since July 2024)
 ├── Graph
 │   ├── Property graph + RDF → Neptune
 │   └── Knowledge graphs → Neptune
 ├── Time-series
-│   ├── IoT / metrics → Timestream
-│   └── Financial data → Timestream or DynamoDB
+│   ├── IoT / sensor data → Timestream for InfluxDB
+│   ├── Infrastructure and app metrics → Amazon Managed Service for Prometheus
+│   └── Financial tick data → Timestream for InfluxDB or DynamoDB
+│       (Timestream for LiveAnalytics is closed to new customers since June 2025)
 └── Ledger (immutable history)
-    └── Verifiable transaction log → QLDB
+    └── Verifiable transaction log → Aurora PostgreSQL, built up to it:
+        ├── append-only: no UPDATE/DELETE grants for the app role, changes as
+        │   new rows; a table alone enforces nothing against privileged users
+        ├── hash chain over rows, with periodic digests written outside the
+        │   database (S3 Object Lock in compliance mode, separate account) as
+        │   the trust anchor for verification
+        └── pgAudit or Database Activity Streams to protected S3, with retention
+            controls, to catch privileged rewrites
+        (QLDB reached end of support in July 2025)
 ```
 
 ---

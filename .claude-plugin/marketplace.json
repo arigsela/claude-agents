@@ -27,7 +27,7 @@
     {
       "name": "architect",
       "source": "./skills/architect",
-      "description": "Architecture consulting in five lenses: AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms."
+      "description": "Architecture consulting in six lenses: system design, AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms."
     },
     {
       "name": "git-commit-pr",

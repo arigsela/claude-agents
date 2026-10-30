@@ -216,8 +216,8 @@
 | Document | DocumentDB | MongoDB-compatible, flexible schema |
 | In-memory | ElastiCache | Sub-ms latency, caching, leaderboards |
 | Graph | Neptune | Relationships, knowledge graphs |
-| Time-series | Timestream | IoT, metrics, events |
-| Ledger | QLDB | Immutable, verifiable history |
+| Time-series | Timestream for InfluxDB | IoT, metrics, events |
+| Ledger | Aurora PostgreSQL (append-only table) plus external digests | Audit history; immutability and verification need the extra controls in `decisions.md` §2 (QLDB retired July 2025) |
 | Wide-column | Keyspaces | Cassandra-compatible workloads |
 
 **Network Optimization**

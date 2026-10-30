@@ -24,7 +24,7 @@ Each skill is a standalone Claude Code plugin. Add the marketplace, then install
 | [code-review](./code-review/) | 1.0.0 | development | Parallel agent PR review with confidence scoring |
 | [feature-builder](./feature-builder/) | 1.0.0 | development | Ralph Loop automated feature development |
 | [prompt-engineering-patterns](./prompt-engineering-patterns/) | 1.0.0 | learning | LLM prompt optimization techniques |
-| [architect](./architect/) | 1.0.0 | architecture | Architecture consulting in five lenses: Well-Architected, cloud patterns, DevOps/12-Factor, platform engineering, agentic platforms |
+| [architect](./architect/) | 1.1.0 | architecture | Architecture consulting in six lenses: system design, Well-Architected, cloud patterns, DevOps/12-Factor, platform engineering, agentic platforms |
 | [git-commit-pr](./git-commit-pr/) | 1.0.0 | development | Automated git workflow: branch, commit, push, and PR creation |
 | [creating-implementation-plans](./creating-implementation-plans/) | 1.0.0 | development | Create detailed implementation plans with phased task breakdown |
 | [executing-implementation-plans](./executing-implementation-plans/) | 1.0.0 | development | Execute approved plans with phase-based checkpoints and testing |

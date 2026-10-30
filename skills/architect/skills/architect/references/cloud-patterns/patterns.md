@@ -1,6 +1,6 @@
 # Cloud Design Patterns - Detailed Reference
 
-Source: AWS Prescriptive Guidance - Cloud Design Patterns
+Sources: AWS Prescriptive Guidance cloud design patterns (§1–14). §15–21 follow the Azure Architecture Center cloud design patterns catalog, with AWS implementations.
 
 ---
 
@@ -151,7 +151,7 @@ The broker tracks subscriptions, copies messages to all output channels, and han
 
 | Concern | Guidance |
 |---------|---------|
-| Delivery guarantees | No guarantee to all subscribers; use SNS FIFO for exactly-once |
+| Delivery guarantees | At-least-once to each subscriber; SNS FIFO adds ordering and 5-minute deduplication, but side effects outside AWS still need idempotency keys |
 | Message ordering | Not guaranteed by default; use FIFO topics for ordering |
 | Eventual consistency | Delay between publish and consume causes temporary inconsistency |
 | Idempotency | Consumers must handle duplicate messages |
@@ -162,7 +162,7 @@ The broker tracks subscriptions, copies messages to all output channels, and han
 
 **Amazon SNS** - Managed pub-sub:
 - Standard Topics: unlimited messages/sec, best-effort ordering
-- FIFO Topics: strict ordering, exactly-once, up to 300 msg/sec
+- FIFO Topics: strict ordering and deduplication, lower throughput than Standard (check current quotas)
 
 **Amazon EventBridge** - Complex routing:
 - Content-based routing and filtering
@@ -584,3 +584,242 @@ x-service-action: get-billing → Billing Service
 | Combinable with other routing | Not suitable for public APIs |
 
 **Best practice**: Use header routing in combination with path routing for robust APIs.
+
+---
+
+## 15. CQRS (Command Query Responsibility Segregation)
+
+**Category**: Data
+**Intent**: Separate the model that changes data from the model(s) that read it, so each can be shaped and scaled for its own job.
+
+### When to Use
+- Read and write shapes differ a lot (writes are small commands; reads are wide, joined or searched views)
+- Read load far exceeds write load and needs its own scaling
+- Several read views of the same data (search, reporting, per-screen projections)
+- Often paired with Event Sourcing, but works without it
+
+### How It Works
+```
+Command → Write model (source of truth) → change events / CDC → Projector → Read store(s)
+Query   → Read store (denormalized, per use case)
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Eventual consistency | Read stores lag the write side; return the new state from the command, or read from the write side, when a user must see their own change |
+| Projection rebuilds | Keep the event or change history so a read store can be rebuilt from scratch |
+| Complexity | More moving parts; don't apply it to simple CRUD screens |
+| Idempotent projectors | Events can arrive twice or out of order. With full-state events, keep the highest version per entity and ignore older ones. With incremental events, apply only the next contiguous version: consume from a stream partitioned by entity ID so order holds, and on a gap buffer or refetch from the write side rather than skipping ahead |
+
+### AWS Implementation
+- Write side: Aurora or DynamoDB
+- Change feed: DynamoDB Streams, DMS or Debezium CDC from Aurora, or an outbox table → EventBridge; Aurora zero-ETL integration to Redshift for reporting views
+- Read side: OpenSearch (search), DynamoDB tables per access pattern, Redshift (reporting)
+
+### Related Patterns
+- Event Sourcing, Transactional Outbox, Materialized views
+
+---
+
+## 16. Sidecar
+
+**Category**: Architecture
+**Intent**: Run a cross-cutting capability as a separate process or container next to the application, sharing its lifecycle and network.
+
+### When to Use
+- The same concern is needed across services in different languages (proxying, mTLS, log or telemetry shipping, secret fetching, config reload)
+- The application can't or shouldn't be changed to add the capability
+- The capability must be versioned and rolled out independently of the app
+
+### How It Works
+```
+Pod / task
+├── app container        ←→ localhost
+└── sidecar container    → network, logs, secrets, telemetry
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Resource overhead | Every replica pays for the sidecar's CPU and memory; size it |
+| Startup and shutdown order | Use Kubernetes native sidecars (init containers with `restartPolicy: Always`) so the sidecar starts first and stops last |
+| Latency | An extra local hop per call; small but measurable for chatty services |
+| Alternatives | Sidecarless (ambient, node-level) service mesh, or a library when all services share a language |
+
+### AWS Implementation
+- EKS pods or ECS task definitions with multiple containers
+- Common sidecars: Envoy/Istio proxy, AWS Distro for OpenTelemetry collector, Fluent Bit, Secrets Store CSI provider
+
+### Related Patterns
+- Ambassador, Anti-Corruption Layer
+
+---
+
+## 17. Ambassador
+
+**Category**: Architecture
+**Intent**: A sidecar that acts as an out-of-process client proxy for calls to remote services, adding resilience, security and telemetry without changing the caller.
+
+### When to Use
+- Legacy or third-party code that can't be changed needs retries, timeouts, circuit breaking, TLS or auth on its outbound calls
+- One consistent client policy across services written in different languages
+- Routing outbound calls by environment or version (canary, region)
+
+### How It Works
+```
+App → localhost:port → Ambassador (retries, timeouts, mTLS, metrics) → Remote service
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Latency | Adds a hop; avoid for latency-critical paths that can use a client library |
+| Retry ownership | Retries in both the app and the ambassador multiply load; keep them in one place |
+| Scope creep | Keep it a thin proxy; business logic belongs in the service |
+| At scale | A service mesh applies ambassador behaviour to every service centrally |
+
+### AWS Implementation
+- Envoy as a sidecar in EKS or ECS
+- VPC Lattice for service-to-service routing, auth and observability without sidecars
+
+### Related Patterns
+- Sidecar, Circuit Breaker, Retry with Backoff
+
+---
+
+## 18. Backends for Frontends (BFF)
+
+**Category**: Routing
+**Intent**: A separate API layer per client experience (web, mobile, partner) that aggregates and shapes backend data for that client.
+
+### When to Use
+- Clients need very different payloads, call patterns or auth flows from the same services
+- Mobile clients suffer from chatty calls or oversized responses
+- Separate frontend teams want to change their API without coordinating with every other client
+
+### How It Works
+```
+Web app    → Web BFF    ┐
+Mobile app → Mobile BFF ├→ Domain services
+Partners   → Public API ┘
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Ownership | The frontend team owns its BFF |
+| Duplication | Shared logic creeps into several BFFs; keep business rules in the domain services |
+| Number of BFFs | One per distinct experience, not one per screen or device model |
+| Alternative | A single GraphQL gateway when clients differ mainly in which fields they need |
+
+### AWS Implementation
+- API Gateway + Lambda, or a container service, per client
+- AWS AppSync (GraphQL) as a single flexible gateway
+
+### Related Patterns
+- Path Routing, Scatter-Gather, Anti-Corruption Layer
+
+---
+
+## 19. Queue-Based Load Leveling
+
+**Category**: Messaging
+**Intent**: Put a queue between the producers of work and the service that does it, so the service processes at its own sustainable rate and spikes wait in the queue instead of overloading it.
+
+### When to Use
+- Traffic is bursty but the work can finish a little later (seconds to minutes)
+- A downstream (database, third-party API) has a hard throughput limit
+- Requests time out or the service falls over during peaks
+
+### How It Works
+```
+Producers (bursty) → Queue (absorbs the spike) → Service at a steady rate → Result / status
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Async contract | Callers get "accepted" plus a way to check status or a callback; not for work the caller must wait on |
+| Queue growth | Alert on queue depth and oldest-message age; a queue that never drains is an outage in slow motion |
+| Consumer scaling | Scale workers on backlog per worker, capped at what the downstream can take |
+| Expiry | Drop or divert work that is no longer useful by the time it would be processed |
+
+### AWS Implementation
+- SQS in front of Lambda (cap the rate with the event source mapping's maximum concurrency) or ECS/EKS workers scaled by KEDA on queue depth
+- Kinesis or MSK when order or replay matters
+
+### Related Patterns
+- Competing Consumers, Priority Queue, Retry with Backoff
+
+---
+
+## 20. Competing Consumers
+
+**Category**: Messaging
+**Intent**: Several workers pull from the same queue so work is processed in parallel and throughput scales by adding workers.
+
+### When to Use
+- Independent work items that can be processed in any order
+- Throughput must scale with load, and losing one worker must not stop processing
+
+### How It Works
+```
+Queue → Worker 1
+      → Worker 2   (each message goes to exactly one worker at a time)
+      → Worker N
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Ordering | Lost across workers; when order matters per entity, use message groups (SQS FIFO) or partitions (Kafka consumer groups) keyed by that entity |
+| Duplicates | A worker can crash after doing the work but before acknowledging; make processing idempotent |
+| Visibility timeout | Longer than the processing time, or extended while working, or another worker picks the message up too |
+| Poison messages | Cap attempts and move failures to a DLQ, alerting on its depth |
+
+### AWS Implementation
+- SQS with an autoscaled worker fleet (ECS, EKS with KEDA, Lambda event source mapping)
+- Kinesis or MSK consumer groups for ordered, per-partition parallelism
+
+### Related Patterns
+- Queue-Based Load Leveling, Priority Queue, Publish-Subscribe
+
+---
+
+## 21. Priority Queue
+
+**Category**: Messaging
+**Intent**: Process urgent work ahead of bulk work by giving each priority its own queue and consumers.
+
+### When to Use
+- Urgent and bulk work share a pipeline (one-time passcodes and marketing campaigns, paid and free tiers, interactive and batch jobs)
+- Bulk bursts must never delay urgent work
+
+### How It Works
+```
+High priority → Queue H → dedicated workers (always reserved)
+Low priority  → Queue L → workers that scale with spare capacity
+```
+
+### Key Considerations
+
+| Concern | Guidance |
+|---------|---------|
+| Separate queues | Most managed queues (SQS included) have no per-message priority; use one queue per level |
+| Starvation | Reserve a minimum share for low priority, or it may never run during sustained load |
+| Classification | Define what qualifies as high priority, or everything drifts into it |
+| Shared limits | Separate queues don't help if both lanes hit the same downstream quota; split or reserve that too |
+
+### AWS Implementation
+- One SQS queue per priority with separate consumer pools, or one pool polling with weighted preference
+- EventBridge rules or SNS filter policies to route messages to the right queue by type
+
+### Related Patterns
+- Queue-Based Load Leveling, Competing Consumers

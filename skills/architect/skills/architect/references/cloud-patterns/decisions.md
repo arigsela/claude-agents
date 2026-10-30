@@ -42,13 +42,24 @@ What is the client's primary challenge?
 ├── Need full audit / compliance
 │   └── Event Sourcing + S3 archival
 │
+├── Load or throughput problems
+│   ├── Bursts overwhelm a service or a downstream quota → Queue-Based Load Leveling
+│   ├── One worker can't keep up with a queue → Competing Consumers
+│   ├── Urgent work delayed by bulk work → Priority Queue (separate queues)
+│   └── Reads far outnumber writes and need other shapes → CQRS
+│
+├── Cross-cutting concerns (mTLS, retries, telemetry) without code changes
+│   ├── Inbound and outbound, every service → Sidecar (or a service mesh)
+│   └── Outbound calls from legacy code → Ambassador
+│
 ├── Testability / tech lock-in concerns
 │   └── Hexagonal Architecture (ports & adapters)
 │
 └── API strategy for microservices
     ├── Team autonomy is priority → Hostname Routing
     ├── Developer simplicity is priority → Path Routing
-    └── Advanced routing needs → HTTP Header Routing (+ Path)
+    ├── Advanced routing needs → HTTP Header Routing (+ Path)
+    └── Clients need very different payloads → Backends for Frontends
 ```
 
 ---
@@ -139,10 +150,12 @@ How should services communicate?
 │       └── Streaming / high throughput → Kinesis Data Streams
 │
 ├── Delivery guarantees needed?
-│   ├── At-most-once → SNS Standard
-│   ├── At-least-once → SQS Standard
-│   ├── Exactly-once → SQS FIFO / SNS FIFO
-│   └── Ordered → FIFO queues/topics
+│   ├── At-least-once (the default) → SQS / SNS Standard + idempotent consumers
+│   ├── "Exactly-once" → at-least-once + idempotent consumers (idempotency keys);
+│   │     FIFO deduplicates only within 5 minutes and only inside AWS, so side
+│   │     effects outside it (SMS, email, payments) still need idempotency keys
+│   ├── Loss acceptable (at-most-once) → acknowledge before processing; rarely right
+│   └── Ordered → FIFO message groups or Kinesis/MSK partitions, keyed by entity
 │
 ├── Message persistence needed?
 │   ├── Yes (audit, replay) → Event Sourcing (Kinesis + S3)

@@ -1,10 +1,10 @@
 ---
 name: architect
-description: Architecture consulting in five lenses — AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms.
-version: "1.0.0"
+description: Architecture consulting in six lenses — system design, AWS Well-Architected, cloud design patterns, DevOps and 12-Factor, platform engineering, and agentic (AI agent) platforms.
+version: "1.1.0"
 author:
   name: "Arisela"
-tags: [architecture, consulting, aws, well-architected, design-patterns, devops, 12-factor, platform-engineering, ai-agents]
+tags: [architecture, consulting, system-design, aws, well-architected, design-patterns, devops, 12-factor, platform-engineering, sre, ai-agents]
 category: learning
 ---
 

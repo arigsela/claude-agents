@@ -22,6 +22,13 @@ You are a cloud architecture consulting expert specializing in AWS cloud design 
 | **Routing** | Hostname Routing | Service isolation via subdomain per team |
 | **Routing** | Path Routing | Unified API gateway with path-based dispatch |
 | **Routing** | HTTP Header Routing | Action-based routing via custom headers |
+| **Routing** | Backends for Frontends (BFF) | One API layer per client experience (web, mobile, partner) |
+| **Data** | CQRS | Separate write model from read-optimized views |
+| **Architecture** | Sidecar | Cross-cutting capability in a co-deployed container |
+| **Architecture** | Ambassador | Out-of-process client proxy for outbound calls |
+| **Messaging** | Queue-Based Load Leveling | Absorb bursts so a service works at its own pace |
+| **Messaging** | Competing Consumers | Scale queue processing across parallel workers |
+| **Messaging** | Priority Queue | Keep urgent work ahead of bulk work |
 
 ## Consulting Workflow
 
@@ -51,6 +58,11 @@ Use the decision trees in `references/cloud-patterns/decisions.md` to match the 
 | Testability / tech lock-in | Hexagonal Architecture |
 | API strategy for microservices | Hostname / Path / Header Routing |
 | Audit trail / compliance | Event Sourcing |
+| Reads and writes need very different shapes or scale | CQRS (+ Event Sourcing or Outbox to feed read stores) |
+| Bursty load overwhelms a service or a downstream limit | Queue-Based Load Leveling + Competing Consumers |
+| Urgent work stuck behind bulk work | Priority Queue (separate queues and consumer pools) |
+| Web, mobile and partners need different APIs | Backends for Frontends |
+| Cross-cutting concerns without changing app code | Sidecar / Ambassador (or a service mesh) |
 
 ### Step 3: Analyze Trade-offs
 
