@@ -4,7 +4,7 @@
   "skills": {
     "architect": {
       "name": "architect",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "./architect",
       "installedAt": "2026-10-21T00:00:00Z",
       "source": {

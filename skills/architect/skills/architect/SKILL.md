@@ -12,7 +12,7 @@ description: >
   architecture, advising a client, comparing options and trade-offs, or checking
   practices against one of these frameworks. For a scored client maturity assessment with
   Excel/Word deliverables, use infra-maturity-assessment instead.
-version: "1.2.0"
+version: "1.2.1"
 author:
   name: "Arisela"
 tags: [architecture, consulting, system-design, capacity-planning, aws, well-architected, design-patterns, devops, 12-factor, platform-engineering, idp, sre, ai-agents, agentic-platform]
@@ -66,20 +66,28 @@ migration usually needs cloud patterns plus DevOps. Say which lenses you used.
    missing, say so and assess conservatively.
 4. **Show trade-offs.** Give options with their costs, not one answer, and say which you
    recommend and why.
-5. **Get an independent challenge (optional).** Run this step only when all three hold;
-   otherwise skip it without comment:
-   - the deliverable is a design, review or recommendation that someone else will act
-     on, not a quick answer in conversation;
-   - the `codex` skill is in your list of available skills;
-   - the working directory is inside a git repository (`git rev-parse --show-toplevel`
-     succeeds), which Codex consult mode needs.
+5. **Get an independent challenge.** Do this for every deliverable that is a design,
+   review or recommendation someone else will act on (not for a quick answer in
+   conversation), when the `codex` skill is in your list of available skills. Whenever
+   you don't run it, say why in one line of your reply, for example "Codex review not
+   run: the codex skill isn't installed."
 
    The draft goes to OpenAI: strip secrets and credentials, and if it holds a client's
-   confidential material, ask the user before sending it.
+   confidential material (hostnames, security gaps, customer data), ask the user before
+   sending it.
 
-   Invoke the `codex` skill in consult mode as a new conversation (`/codex <prompt>`; if
-   it offers to continue an earlier conversation, start fresh), with a prompt made of
-   these parts, in order:
+   Consult mode needs a git repository. If the working directory isn't inside one
+   (`git rev-parse --show-toplevel` fails), create one in your scratchpad or temp
+   directory (`git init -q <dir>`), save the draft there as `draft.md`, and run every
+   consult-mode command from it, starting each with `cd <dir> &&`. The draft file keeps
+   Codex's file listing from failing, which would make the codex skill report
+   `VERDICT: unavailable` for an answer it did give. Codex needs nothing else from the
+   real folder, since the draft is also pasted into the prompt. Delete that directory
+   afterwards.
+
+   Invoke the `codex` skill in consult mode as a new conversation (`/codex <prompt>`, or
+   the Skill tool with the prompt as its argument; if it offers to continue an earlier
+   conversation, start fresh), with a prompt made of these parts, in order:
    1. "Attack this architecture draft. Report only problems, most severe first, each
       with a severity (Critical, High, Medium or Low), the section it refers to, and
       why it is wrong."
@@ -97,15 +105,18 @@ migration usually needs cloud patterns plus DevOps. Say which lenses you used.
    only. Then add an **Independent review** line under the deliverable's summary: that
    Codex reviewed the draft, how many of its findings changed the draft, and any
    disagreement left for the reader to decide. Consult mode leaves
-   `.context/codex-session-id` and `.gstack/tmp/` in the repository; keep them out of
-   commits.
+   `.context/codex-session-id` and `.gstack/tmp/` in the repository it runs from; keep
+   them out of commits.
 6. **Deliver** in this order:
    - a summary with the top three findings;
    - findings by severity, each with a recommendation;
    - a roadmap: quick wins (under a week), short-term work (1–4 weeks) and strategic
      work (1–3 months).
 
-Each lens's `workflow.md` has its own output template; use it.
+Each lens's `workflow.md` has its own output template. When lenses combine, use the
+template of the lens that leads (system design for a design or a stress-test of a
+proposal; Well-Architected for an AWS posture review), keep the order above, and fold the
+other lenses' findings in, each tagged with its pillar or lens.
 
 | Severity | Definition | Action |
 |---|---|---|
