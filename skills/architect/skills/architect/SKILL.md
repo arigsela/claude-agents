@@ -12,7 +12,7 @@ description: >
   architecture, advising a client, comparing options and trade-offs, or checking
   practices against one of these frameworks. For a scored client maturity assessment with
   Excel/Word deliverables, use infra-maturity-assessment instead.
-version: "1.1.0"
+version: "1.2.0"
 author:
   name: "Arisela"
 tags: [architecture, consulting, system-design, capacity-planning, aws, well-architected, design-patterns, devops, 12-factor, platform-engineering, idp, sre, ai-agents, agentic-platform]
@@ -66,7 +66,40 @@ migration usually needs cloud patterns plus DevOps. Say which lenses you used.
    missing, say so and assess conservatively.
 4. **Show trade-offs.** Give options with their costs, not one answer, and say which you
    recommend and why.
-5. **Deliver** in this order:
+5. **Get an independent challenge (optional).** Run this step only when all three hold;
+   otherwise skip it without comment:
+   - the deliverable is a design, review or recommendation that someone else will act
+     on, not a quick answer in conversation;
+   - the `codex` skill is in your list of available skills;
+   - the working directory is inside a git repository (`git rev-parse --show-toplevel`
+     succeeds), which Codex consult mode needs.
+
+   The draft goes to OpenAI: strip secrets and credentials, and if it holds a client's
+   confidential material, ask the user before sending it.
+
+   Invoke the `codex` skill in consult mode as a new conversation (`/codex <prompt>`; if
+   it offers to continue an earlier conversation, start fresh), with a prompt made of
+   these parts, in order:
+   1. "Attack this architecture draft. Report only problems, most severe first, each
+      with a severity (Critical, High, Medium or Low), the section it refers to, and
+      why it is wrong."
+   2. What to look for: estimates or arithmetic that are wrong or missing; failure modes
+      with no answer; consistency choices that could lose data or money; trade-offs
+      presented as free; a simpler or cheaper design that meets the same targets; steps
+      in the wrong order.
+   3. The client's request and the labelled assumptions.
+   4. The full draft, pasted in. Codex can't read files outside the repository, and the
+      draft is not a plan file, so consult mode's plan-file lookup doesn't apply.
+
+   Check each finding against the draft and the facts. Fix the ones that hold, and keep
+   a one-line reason for each one you reject: Codex is a second opinion, not an
+   authority. Rate what you fix on this skill's severity scale; Codex's labels are input
+   only. Then add an **Independent review** line under the deliverable's summary: that
+   Codex reviewed the draft, how many of its findings changed the draft, and any
+   disagreement left for the reader to decide. Consult mode leaves
+   `.context/codex-session-id` and `.gstack/tmp/` in the repository; keep them out of
+   commits.
+6. **Deliver** in this order:
    - a summary with the top three findings;
    - findings by severity, each with a recommendation;
    - a roadmap: quick wins (under a week), short-term work (1–4 weeks) and strategic
@@ -104,7 +137,10 @@ Each lens's `workflow.md` has its own output template; use it.
 
 - A scored client assessment (L1–L4 workbook, Word report, horizon roadmap) goes to the
   `infra-maturity-assessment` skill, which has an AI & Agent Platform tab.
-- Diagrams go to `architecture-diagrams` or `drawio-skill`.
+- Diagrams go to `architecture-diagrams` or `drawio-skill` when a diagram is the
+  deliverable; an ASCII sketch inside a design needs no hand-off.
+- An independent adversarial review of a draft goes to the `codex` skill in consult mode
+  (§2 step 5).
 
 ## Reference map
 

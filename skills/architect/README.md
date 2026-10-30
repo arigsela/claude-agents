@@ -20,7 +20,9 @@ platforms.
 | Platform engineering | IDP design with CNPA, Microsoft, Team Topologies, DORA; SRE: SLIs, error budget policy, burn-rate alerting, incident response | `references/platform-engineering/` |
 | Agentic platform | Agent infrastructure and governance: identity, tools and approvals, sandboxes, evals, model gateway, autonomy levels | `references/agentic-platform.md` |
 
-`SKILL.md` holds the shared consulting workflow and a table for picking the lens. Each
+`SKILL.md` holds the shared consulting workflow and a table for picking the lens. When the
+`codex` skill is installed, the workflow can send a finished draft to Codex (consult mode)
+for an adversarial review before delivery; it skips that step otherwise. Each
 lens's `workflow.md` and deeper files load only when a question needs them, so the
 skill's always-loaded description stays one entry instead of four.
 
