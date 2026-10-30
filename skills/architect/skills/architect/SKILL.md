@@ -77,8 +77,9 @@ migration usually needs cloud patterns plus DevOps. Say which lenses you used.
    The draft goes to OpenAI: strip secrets and credentials, and if it holds a client's
    confidential material, ask the user before sending it.
 
-   Invoke the `codex` skill in consult mode as a new conversation (`/codex <prompt>`),
-   with a prompt made of these parts, in order:
+   Invoke the `codex` skill in consult mode as a new conversation (`/codex <prompt>`; if
+   it offers to continue an earlier conversation, start fresh), with a prompt made of
+   these parts, in order:
    1. "Attack this architecture draft. Report only problems, most severe first, each
       with a severity (Critical, High, Medium or Low), the section it refers to, and
       why it is wrong."
@@ -92,9 +93,12 @@ migration usually needs cloud patterns plus DevOps. Say which lenses you used.
 
    Check each finding against the draft and the facts. Fix the ones that hold, and keep
    a one-line reason for each one you reject: Codex is a second opinion, not an
-   authority. Then add an **Independent review** line under the deliverable's summary:
-   that Codex reviewed the draft, how many of its findings changed the draft, and any
-   disagreement left for the reader to decide.
+   authority. Rate what you fix on this skill's severity scale; Codex's labels are input
+   only. Then add an **Independent review** line under the deliverable's summary: that
+   Codex reviewed the draft, how many of its findings changed the draft, and any
+   disagreement left for the reader to decide. Consult mode leaves
+   `.context/codex-session-id` and `.gstack/tmp/` in the repository; keep them out of
+   commits.
 6. **Deliver** in this order:
    - a summary with the top three findings;
    - findings by severity, each with a recommendation;
@@ -133,7 +137,8 @@ Each lens's `workflow.md` has its own output template; use it.
 
 - A scored client assessment (L1–L4 workbook, Word report, horizon roadmap) goes to the
   `infra-maturity-assessment` skill, which has an AI & Agent Platform tab.
-- Diagrams go to `architecture-diagrams` or `drawio-skill`.
+- Diagrams go to `architecture-diagrams` or `drawio-skill` when a diagram is the
+  deliverable; an ASCII sketch inside a design needs no hand-off.
 - An independent adversarial review of a draft goes to the `codex` skill in consult mode
   (§2 step 5).
 
