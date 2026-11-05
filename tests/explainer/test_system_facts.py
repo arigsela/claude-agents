@@ -162,16 +162,107 @@ resource "aws_iam_role" "dash" {
 """
 
 
+APPSET_GIT_FILES = """apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: managed-apps
+  namespace: argo-cd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/o/r
+        revision: main
+        files:
+          - path: appsets/managed/*.yaml
+          - path: appsets/managed/skip-*.yaml
+            exclude: true
+  template:
+    metadata:
+      name: '{{ .name }}'
+      labels:
+        dir: '{{ .path.basename }}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/o/r
+        targetRevision: main
+        path: '{{ .sourcePath }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .namespace }}'
+"""
+
+APPSET_LIST = """apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: listed
+spec:
+  generators:
+    - list:
+        elements:
+          - app: loki
+            cluster: prod
+  template:
+    metadata:
+      name: '{{app}}-{{cluster}}'
+    spec:
+      source:
+        repoURL: https://github.com/o/r
+        path: apps/{{app}}
+      destination:
+        namespace: '{{cluster}}'
+"""
+
+APPSET_UNSUPPORTED = """apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: elsewhere
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/other/repo
+        revision: main
+        files:
+          - path: appsets/managed/*.yaml
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - name: m
+          - list:
+              elements:
+                - name: n
+  template:
+    metadata:
+      name: '{{ .name }}-other'
+    spec:
+      source:
+        path: apps/grafana
+      destination: {}
+"""
+
+MANAGED_CONFIGS = {
+    "appsets/managed/grafana.yaml": "name: grafana\nsourcePath: apps/grafana\nnamespace: mon\n",
+    "appsets/managed/skip-me.yaml": "name: skipped\nsourcePath: apps/grafana\nnamespace: mon\n",
+    "appsets/managed/broken.yaml": "name: broken\nnamespace: mon\n",  # no sourcePath: cannot fill the template
+}
+
+
 def sh(*args: str, cwd: Path) -> str:
     return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
 def make_repo(tmp: Path, apps: list[str] | None = None, values: dict | None = None, tf: str = "",
-              workflow: str = "", envs: tuple[str, ...] = ("prod",)) -> Path:
-    """A git repo with directory-sourced Applications (one per env) and grafana's manifests."""
+              workflow: str = "", envs: tuple[str, ...] = ("prod",), files: dict[str, str] | None = None) -> Path:
+    """A git repo with directory-sourced Applications (one per env) and grafana's manifests, plus `files`."""
+    for rel, text in (files or {}).items():
+        (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp / rel).write_text(text)
     for env in envs:
         (tmp / "argo" / env).mkdir(parents=True, exist_ok=True)
-        for name in apps or ["grafana"]:
+        for name in ["grafana"] if apps is None else apps:
             path = f"apps/{name}"
             (tmp / "argo" / env / f"{name}.yaml").write_text(APP_YAML.format(name=name, path=path))
             (tmp / path).mkdir(parents=True, exist_ok=True)
@@ -251,6 +342,55 @@ class MatchTest(unittest.TestCase):
         self.assertEqual(facts_lib.match_applications(found, [" ", ""]), ({}, []))
 
 
+class AppSetTest(SystemFactsBase):
+    def appset_repo(self) -> Path:
+        return make_repo(self.tmp, apps=[], files={"apps/grafana/all.yaml": MANIFESTS,
+                                                   "argo/managed-apps.yaml": APPSET_GIT_FILES,
+                                                   "argo/listed.yaml": APPSET_LIST,
+                                                   "argo/elsewhere.yaml": APPSET_UNSUPPORTED, **MANAGED_CONFIGS})
+
+    def test_generated_applications_are_found(self):
+        with self.trees(self.appset_repo()) as t:
+            found = {n: (f, d) for n, f, d in facts_lib.find_applications(t.head, "o/r")}
+        # skip-me is excluded, broken cannot fill sourcePath, and elsewhere reads another repo or a matrix.
+        self.assertEqual(sorted(found), ["grafana", "loki-prod"])
+        file, doc = found["grafana"]
+        self.assertEqual(file, "appsets/managed/grafana.yaml")  # the config file that generates it
+        self.assertEqual((doc["apiVersion"], doc["kind"]), ("argoproj.io/v1alpha1", "Application"))
+        self.assertEqual(doc["spec"]["source"]["path"], "apps/grafana")
+        self.assertEqual(doc["spec"]["destination"]["namespace"], "mon")
+        self.assertEqual(doc["metadata"]["labels"], {"dir": "managed"})
+        self.assertEqual(doc["metadata"]["ownerReferences"],
+                         [{"apiVersion": "argoproj.io/v1alpha1", "kind": "ApplicationSet", "name": "managed-apps"}])
+        self.assertEqual(facts_lib.appset_owner(doc), "managed-apps")
+        file, doc = found["loki-prod"]  # a list element, filled without goTemplate
+        self.assertEqual(file, "argo/listed.yaml")
+        self.assertEqual(doc["spec"]["source"]["path"], "apps/loki")
+        self.assertEqual(doc["spec"]["destination"]["namespace"], "prod")
+
+    def test_template_values(self):
+        go = {"name": "a", "n": 2, "on": True, "path": {"basename": "b"}, "obj": {"x": 1}}
+        self.assertEqual(facts_lib.fill_template({"k": ["{{.name}}-{{ .path.basename }}", "{{- .n -}}/{{ .on }}", 3]}, go, True),
+                         {"k": ["a-b", "2/true", 3]})
+        for bad in ("{{ .missing }}", "{{ .obj }}", "{{ .name | upper }}", "{{ if .on }}x{{ end }}"):
+            with self.assertRaises(KeyError, msg=bad):
+                facts_lib.fill_template(bad, go, True)
+        self.assertEqual(facts_lib.fill_template("{{path.basename}}/{{name}}", {"name": "a", "path.basename": "b"}, False), "b/a")
+        with self.assertRaises(KeyError):
+            facts_lib.fill_template("{{.name}}", {"name": "a"}, False)
+
+    def test_collect_system_maps_a_generated_app(self):
+        with self.trees(self.appset_repo()) as t:
+            facts = facts_lib.collect_system("o/r", t, ["grafana"], [], None, False)
+        self.assertEqual([(a["app"], a["application_file"], a["render"], a["generated_by"]) for a in facts["apps"]],
+                         [("grafana", "appsets/managed/grafana.yaml", "rendered", "managed-apps")])
+        self.assertIn("Deployment", {r["kind"] for r in facts["resources"]})
+        app = next(r for r in facts["resources"] if r["kind"] == "Application")
+        self.assertEqual(app["file"], "appsets/managed/grafana.yaml")
+        note = next(n for n in facts["notes"] if n["key"] == "applicationset")
+        self.assertIn("grafana (managed-apps)", note["text"])
+
+
 class CollectSystemTest(SystemFactsBase):
     def test_no_match_lists_candidates_and_fails(self):
         repo = make_repo(self.tmp)
@@ -276,6 +416,8 @@ class CollectSystemTest(SystemFactsBase):
         self.assertEqual(facts["query"]["ref"], "main")
         self.assertEqual({a["scope"] for a in facts["apps"]}, {"argo/prod", "argo/nonprod"})
         self.assertTrue(all(a["render"] == "rendered" for a in facts["apps"]))
+        self.assertFalse(any("generated_by" in a for a in facts["apps"]))  # hand-written Applications
+        self.assertNotIn("applicationset", {n["key"] for n in facts["notes"]})
         kinds = {(r["kind"], r["scope"]) for r in facts["resources"]}
         self.assertIn(("Deployment", "argo/prod"), kinds)
         self.assertIn(("Application", "argo/nonprod"), kinds)
@@ -346,7 +488,7 @@ class ConfigAndMentionsTest(SystemFactsBase):
     def test_config_facts_keys_only(self):
         repo = make_repo(self.tmp, values={"adminPassword": "hunter2hunter2", "replicas": 2, "nested": {"x": 1}})
         with self.trees(repo) as t:
-            found = facts_lib.find_applications(t.head)
+            found = facts_lib.find_applications(t.head, "o/r")
             matched, _ = facts_lib.match_applications(found, ["grafana"])
             rows = facts_lib.config_facts(t, matched, "o/r")
         self.assertEqual(rows[0]["id"], "c1")

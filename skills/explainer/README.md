@@ -15,7 +15,8 @@ Layout: `scripts/` (shared: `facts_lib.py`, `collect_pr.py`, `verify.py`, `rende
 `/pr-explainer <PR>` explains a GitOps PR without reading code. It renders the changed Argo CD
 apps at the PR's base and head, so a one-line chart bump shows its real resource changes.
 Applications are found anywhere in the repo (`base-apps/`, `argo/<env>/`, ...), including
-multi-source Helm apps with `$values` files; the same app in several environments draws once.
+multi-source Helm apps with `$values` files and the ones an ApplicationSet's list or git-files
+generator creates from this repo; the same app in several environments draws once.
 Then it publishes a private page with:
 
 - a TL;DR

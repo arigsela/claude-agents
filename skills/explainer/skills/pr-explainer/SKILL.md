@@ -95,7 +95,8 @@ URL returned by the LAST successful Artifact publish in step 6. Steps 6 and 7 al
    fails to render, it is recorded as `render: source-diff` with a `render_note` that names the
    exception type. Applications are found anywhere in the repo (any `argoproj.io` `kind: Application`
    outside Helm `templates/` and `charts/`), including multi-source ones whose `$values` files
-   live in the same repo. When one app name appears in several directories (one per environment),
+   live in the same repo, and the ones an ApplicationSet's list or git-files generator creates
+   from this repo, whose `application_file` is the config file that generates them. When one app name appears in several directories (one per environment),
    its id is `<dir>/<name>` and its resources carry that directory as `scope`. If changed YAML
    matched no Application, an `apps` note says so.
 

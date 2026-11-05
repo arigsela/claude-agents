@@ -95,7 +95,9 @@ Placeholders: `<R>` is the `--repo` argument if given, otherwise `query.repo` fr
    - Any other non-zero exit: show the error and stop.
 
    `facts.json` has `mode: "service"`, `query` (names, how each app matched, `ref`, `sha`,
-   `repo`), one `apps[]` entry per matched Application per environment directory (`scope`),
+   `repo`), one `apps[]` entry per matched Application per environment directory (`scope`;
+   an Application an ApplicationSet generates carries `generated_by`, its `application_file` is
+   the config file that generates it, and an `applicationset` note says so),
    `resources[]` with action `focus` (this service) or `generated` (a Secret an ExternalSecret
    produces), each with a `summary` (image, replicas, ports, probes, env names, hosts, paths,
    backends, schedule, store and keys, size, or data keys, per kind), `edges[]`, `config[]`
