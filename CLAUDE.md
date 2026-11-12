@@ -18,6 +18,7 @@ This file provides guidance for Claude Code when working with this repository.
 | **skills/explainer/**, **skills/review-retro/** | Claude Code plugin skills | GitOps and Terraform/OpenTofu PR explainer (Artifact), with service, ticket and plan (one-pager) explainers sharing its scripts; retro of /code-review sessions |
 | **bug-investigator/** | GitHub composite action + claude-code-action + mcp-grafana | Investigates a `bug` issue (docs, code, PRs, deploy timeline, Loki/Prometheus scoped to one namespace); a script verifies every evidence link before one comment is posted; `n8n` baseline mode |
 | **skills/readiness/** | Claude Code plugin skill | `/production-readiness <repo>`: scripted facts and rule checks over app repo, deploy folder, Backstage, cluster and GitHub; model judgments checked by `verify.py`; terminal report, or with `--html` an interactive HTML page (Artifact) |
+| **skills/blog-diagrams/** | Claude Code plugin skill | Animated architecture, flow and approval diagrams for blog posts: a JSON spec in one house look, a layout check, and a 2x PNG, GIF and MP4 rendered by headless Chrome over the DevTools protocol |
 
 ## Quick Commands
 

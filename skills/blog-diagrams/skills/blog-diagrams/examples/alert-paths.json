@@ -1,0 +1,125 @@
+{
+  "name": "alert-paths",
+  "layout": "flow",
+  "size": "landscape",
+  "series": "PART 1 · LIMITS FOR AI AGENTS",
+  "title": "One alert, *two paths*",
+  "subtitle": "The implementer's verdict picks the path. Both paths wait for me.",
+  "footer": [
+    "ASELA'S HOMELAB",
+    "APPROVING A CHANGE ISN'T APPROVING AN ACTION"
+  ],
+  "groups": [
+    {
+      "id": "kagent",
+      "label": "KAGENT · AI AGENTS",
+      "color": "blue",
+      "contains": [
+        "implementer",
+        "restarter"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "grafana",
+      "col": 0,
+      "row": 0,
+      "kind": "alert",
+      "tag": "Grafana",
+      "title": "Fires an alert",
+      "desc": "Container near memory limit."
+    },
+    {
+      "id": "dispatcher",
+      "col": 0,
+      "row": 1,
+      "kind": "control",
+      "icon": "route",
+      "tag": "Dispatcher",
+      "title": "Routes it",
+      "desc": "Plain code, not a model."
+    },
+    {
+      "id": "implementer",
+      "col": 1,
+      "row": 0,
+      "kind": "agent",
+      "tag": "Implementer",
+      "title": "Reads the evidence",
+      "chip": "verdict: limit-too-low"
+    },
+    {
+      "id": "restarter",
+      "col": 1,
+      "row": 1,
+      "kind": "agent",
+      "icon": "pause",
+      "tag": "Restarter",
+      "title": "One gated delete",
+      "chip": "k8s_delete_resource",
+      "desc": "On leak or rollout-pending."
+    },
+    {
+      "id": "pr",
+      "col": 2,
+      "row": 0,
+      "kind": "git",
+      "icon": "pr",
+      "tag": "GitHub",
+      "title": "A pull request",
+      "desc": "Waits for my merge."
+    },
+    {
+      "id": "me",
+      "col": 2,
+      "row": 1,
+      "kind": "human",
+      "tag": "Me",
+      "title": "Approve or reject",
+      "desc": "On a web page or in Slack."
+    }
+  ],
+  "edges": [
+    {
+      "from": "implementer",
+      "to": "pr",
+      "label": "limit-too-low"
+    }
+  ],
+  "steps": [
+    {
+      "show": "grafana",
+      "text": "Grafana fires: a container is near its memory limit."
+    },
+    {
+      "show": "dispatcher",
+      "from": "grafana",
+      "text": "The dispatcher routes the alert to the implementer."
+    },
+    {
+      "show": "implementer",
+      "from": "dispatcher",
+      "text": "The implementer reads the evidence and ends with a verdict."
+    },
+    {
+      "show": "pr",
+      "from": "implementer",
+      "text": "Limit too low: it opens a pull request, and waits for me."
+    },
+    {
+      "show": "restarter",
+      "from": "dispatcher",
+      "text": "A leak, or a raise the pod hasn't picked up: the restarter gets one pod."
+    },
+    {
+      "show": "me",
+      "from": "restarter",
+      "text": "Its one delete waits for my approval."
+    }
+  ],
+  "final": "Either way, the agent proposes and I decide.",
+  "gap": {
+    "x": 180
+  }
+}

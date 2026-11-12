@@ -1,0 +1,6 @@
+{
+  "name": "blog-diagrams",
+  "version": "0.1.0",
+  "description": "Animated architecture and flow diagrams for blog and LinkedIn posts: a JSON spec drawn in one house look, checked for fit, and rendered by headless Chrome to a 2x PNG, a GIF and an MP4.",
+  "author": { "name": "Arisela" }
+}

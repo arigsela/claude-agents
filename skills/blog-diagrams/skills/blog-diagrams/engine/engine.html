@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>diagram</title>
+<style>
+:root {
+  --bg: #F5F7FB; --ink: #0F172A; --muted: #556074; --line: #E2E8F0; --ghost: #CBD5E1;
+  --sans: -apple-system, "SF Pro Display", "Inter", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { background: var(--bg); }
+body { overflow: hidden; font-family: var(--sans); color: var(--ink); }
+.stage { position: relative; overflow: hidden; background: var(--bg); }
+.abs { position: absolute; }
+
+.head { display: flex; flex-direction: column; align-items: flex-start; }
+.series { padding: 8px 18px; border-radius: 999px; font: 600 15px/1 var(--mono); letter-spacing: .08em;
+          background: #fff; border: 1.5px solid var(--line); color: var(--muted); white-space: nowrap; margin-bottom: 16px; }
+h1 { font-size: 64px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08; white-space: nowrap; }
+h1 em { font-style: normal; }
+.sub { font-size: 25px; color: var(--muted); line-height: 1.3; margin-top: 10px; }
+
+.lane, .group { border-radius: 24px; border: 1.5px dashed; }
+.lane-label, .group-label { font: 700 14px/1 var(--mono); letter-spacing: .08em; padding: 9px 14px; border-radius: 999px;
+                            color: #fff; white-space: nowrap; }
+
+.card { background: #fff; border-radius: 18px; border: 1.5px solid var(--line); padding: 14px 18px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06); display: flex; gap: 16px; align-items: center; overflow: hidden; }
+.card.gate { border-width: 2px; }
+.card.hub { border-width: 2.5px; box-shadow: 0 10px 30px rgba(15,23,42,.10); }
+.card .txt { flex: 1; min-width: 0; }
+.tagrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; min-height: 12.5px; }
+.tag { font: 700 12.5px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+.title { font-size: 22px; font-weight: 750; line-height: 1.15; }
+.desc { font-size: 16.5px; color: var(--muted); margin-top: 5px; line-height: 1.3; }
+.chip { display: inline-block; max-width: 100%; margin-top: 8px; padding: 4px 10px; border-radius: 8px; background: #F1F5F9;
+        font: 500 14.5px/1.2 var(--mono); color: #334155; white-space: nowrap; overflow: hidden; vertical-align: top; }
+.card.banner > .chip { margin: 0 4px 0 0; flex: none; }
+.badge { flex: none; color: #fff; padding: 5px 11px; border-radius: 999px; font: 700 13px/1 var(--sans);
+         letter-spacing: .06em; white-space: nowrap; }
+
+.icon { border-radius: 50%; display: grid; place-items: center; color: #fff; flex: none; }
+.icon.spine { box-shadow: 0 0 0 5px var(--bg); }
+.icon svg { width: 50%; height: 50%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.icon.file { background: #fff !important; border: 1.5px solid var(--line); }
+.icon.file img { width: 68%; height: 68%; object-fit: contain; }
+
+[data-state="todo"] { opacity: .2; }
+.card[data-state="active"] { box-shadow: 0 0 0 3px var(--ring), 0 10px 24px rgba(15,23,42,.12); }
+
+.edge-label { padding: 4px 9px; border-radius: 8px; background: #fff; border: 1.5px solid var(--line); max-width: 170px;
+              font: 600 13.5px/1.25 var(--mono); color: var(--muted); text-align: center; }
+
+.band { background: #fff; border: 2px solid var(--ink); border-radius: 22px; display: flex; align-items: center;
+        gap: 22px; padding: 0 26px; }
+.band-badge { width: 66px; height: 66px; flex: none; border-radius: 50%; background: var(--ink); color: #fff;
+              display: grid; place-items: center; font: 800 26px/1 var(--sans); }
+.band-body { flex: 1; min-width: 0; }
+.band-step { font: 600 14px/1 var(--mono); letter-spacing: .1em; color: var(--muted); margin-bottom: 8px; }
+.band-text { font-size: 24px; font-weight: 700; line-height: 1.2; }
+.foot { display: flex; justify-content: space-between; font: 600 14px/1 var(--mono); letter-spacing: .1em; color: #94A3B8; }
+svg.edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-robot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1"/><path d="M9 13v1M15 13v1"/><path d="M2 13v3M22 13v3"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4"/><path d="M18 14.5c2.2.8 3.5 2.8 3.5 5.5"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"/><path d="M21 21v-5h-5"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+  <symbol id="i-cube-check" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M8.5 15.5l2.2 2.2 4.3-4.4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/></symbol>
+  <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7"/><path d="M18 15.5V10a4 4 0 0 0-4-4h-3"/><path d="M13 3.5 10.5 6 13 8.5"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 7.5v9"/><path d="M18 9.5c0 4.5-6.5 3.5-10.5 7.5"/></symbol>
+  <symbol id="i-repo" viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 7h6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-cluster" viewBox="0 0 24 24"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z"/><circle cx="12" cy="12" r="3.2"/><path d="M12 5.5v3.3M12 15.2v3.3M6.4 8.8l2.8 1.6M14.8 13.6l2.8 1.6M6.4 15.2l2.8-1.6M14.8 10.4l2.8-1.6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5"/><path d="M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></symbol>
+  <symbol id="i-bucket" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="2.5"/><path d="M4 6l1.8 13.2a2 2 0 0 0 2 1.8h8.4a2 2 0 0 0 2-1.8L20 6"/></symbol>
+  <symbol id="i-function" viewBox="0 0 24 24"><path d="M6 4h3l8.5 16H20"/><path d="M11.8 10.5 6 20"/></symbol>
+  <symbol id="i-queue" viewBox="0 0 24 24"><rect x="2.5" y="8" width="5" height="8" rx="1.5"/><rect x="9.5" y="8" width="5" height="8" rx="1.5"/><rect x="16.5" y="8" width="5" height="8" rx="1.5"/></symbol>
+  <symbol id="i-gateway" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7.5 12h9M13 8.5l3.5 3.5-3.5 3.5"/></symbol>
+  <symbol id="i-split" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M7.5 12h9M7.2 10.8l9.4-4.6M7.2 13.2l9.4 4.6"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M10.8 7.2 6.2 16.8M13.2 7.2l4.6 9.6M7.5 19h9"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.6 1.6A3.5 3.5 0 0 0 7 18.5z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="M16 7l3 3"/><path d="M18 5l2 2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 6-6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><path d="M12.5 15H17"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-dollar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9.2c-.6-1-1.7-1.5-3-1.5-1.8 0-3 .9-3 2.2 0 3 6 1.6 6 4.4 0 1.4-1.3 2.3-3 2.3-1.5 0-2.7-.6-3.2-1.6"/><path d="M12 6v1.7M12 16.6V18"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7 15h10"/></symbol>
+</defs></svg>
+<svg class="edges" id="edges"></svg>
+</div>
+
+<script id="spec" type="application/json">/*__SPEC__*/{}</script>
+<script>
+(() => {
+// ---------- spec, canvas, palette ----------
+const SPEC = JSON.parse(document.getElementById('spec').textContent);
+const SIZES = { portrait: [1080, 1350], landscape: [1600, 900], square: [1080, 1080] };
+const problems = [];
+const fail = m => problems.push(m);
+if (SPEC.size && !SIZES[SPEC.size]) fail(`size "${SPEC.size}" is not one of: ${Object.keys(SIZES).join(', ')}`);
+const [W, H] = SIZES[SPEC.size] || SIZES.portrait;
+const M = 40, X0 = M, WW = W - 2 * M;
+
+const PALETTE = {
+  amber:  { c: '#D97706', lane: '#FFFBEB', edge: '#FCD34D', ring: '#FCD34D' },
+  blue:   { c: '#2563EB', lane: '#EFF6FF', edge: '#BFDBFE', ring: '#93C5FD' },
+  pink:   { c: '#DB2777', lane: '#FDF2F8', edge: '#F9A8D4', ring: '#F9A8D4' },
+  teal:   { c: '#0D9488', lane: '#F0FDFA', edge: '#99F6E4', ring: '#5EEAD4' },
+  violet: { c: '#7C3AED', lane: '#F7F5FF', edge: '#DDD6FE', ring: '#C4B5FD' },
+  slate:  { c: '#475569', lane: '#F8FAFC', edge: '#CBD5E1', ring: '#CBD5E1' },
+  green:  { c: '#16A34A', lane: '#F0FDF4', edge: '#BBF7D0', ring: '#86EFAC' },
+  red:    { c: '#DC2626', lane: '#FEF2F2', edge: '#FECACA', ring: '#FCA5A5' },
+  orange: { c: '#EA580C', lane: '#FFF7ED', edge: '#FED7AA', ring: '#FDBA74' },
+  cyan:   { c: '#0891B2', lane: '#ECFEFF', edge: '#A5F3FC', ring: '#67E8F9' },
+};
+// A kind is a role: it fixes the color and the default icon, so a role looks the same in every post.
+const KINDS = {
+  alert:    { color: 'amber',  icon: 'bell' },
+  agent:    { color: 'blue',   icon: 'robot' },
+  human:    { color: 'pink',   icon: 'person' },
+  git:      { color: 'teal',   icon: 'git' },
+  control:  { color: 'violet', icon: 'shield' },
+  workload: { color: 'slate',  icon: 'cube' },
+  ok:       { color: 'green',  icon: 'cube-check' },
+  refused:  { color: 'red',    icon: 'x' },
+  cloud:    { color: 'orange', icon: 'cloud' },
+  data:     { color: 'cyan',   icon: 'database' },
+  external: { color: 'slate',  icon: 'globe' },
+};
+const pal = name => PALETTE[name] || (fail(`unknown color "${name}"`), PALETTE.slate);
+const kindOf = n => KINDS[n.kind] || {};
+const colorOf = n => pal(n.color || kindOf(n).color || 'slate');
+const iconOf = n => n.icon || kindOf(n).icon || 'cube';
+const arr = v => v == null ? [] : Array.isArray(v) ? v : [v];
+
+const stage = document.getElementById('stage');
+for (const e of [document.body, stage]) { e.style.width = W + 'px'; e.style.height = H + 'px'; }
+document.title = SPEC.name || 'diagram';
+const NS = 'http://www.w3.org/2000/svg';
+const edgesSvg = document.getElementById('edges');
+edgesSvg.setAttribute('width', W); edgesSvg.setAttribute('height', H);
+function el(tag, cls, parent, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  if (parent) parent.append(e);
+  return e;
+}
+function svg(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.append(e);
+  return e;
+}
+const place = (e, b) => Object.assign(e.style, { left: b.x + 'px', top: b.y + 'px', width: b.w + 'px', height: b.h + 'px' });
+
+// ---------- header, band, footer ----------
+const head = el('div', 'abs head', stage);
+Object.assign(head.style, { left: M + 'px', top: '36px', width: WW + 'px' });
+if (SPEC.series) el('div', 'series', head, SPEC.series);
+let h1 = null;
+if (SPEC.title) {
+  h1 = el('h1', '', head);
+  String(SPEC.title).split('*').forEach((part, i) => {
+    if (!part) return;
+    if (i % 2) { const em = el('em', '', h1, part); em.style.color = pal(SPEC.accent || 'pink').c; }
+    else h1.append(document.createTextNode(part));
+  });
+}
+const sub = SPEC.subtitle ? el('div', 'sub', head, SPEC.subtitle) : null;
+const headBottom = (SPEC.series || SPEC.title || SPEC.subtitle) ? head.getBoundingClientRect().bottom : 10;
+
+const STEPS = arr(SPEC.steps);
+const hasBand = STEPS.length > 0 || !!SPEC.final;
+const footH = SPEC.footer ? 42 : 0;
+const bandBox = { x: M, w: WW, h: 104, y: H - (SPEC.footer ? 60 : 40) - 104 };
+let band = null, bandBadge, bandStep, bandText;
+if (hasBand) {
+  band = el('div', 'abs band', stage); place(band, bandBox);
+  bandBadge = el('div', 'band-badge', band, '1');
+  const body = el('div', 'band-body', band);
+  bandStep = el('div', 'band-step', body);
+  bandText = el('div', 'band-text', body);
+}
+const foot = [];
+if (SPEC.footer) {
+  const f = el('div', 'abs foot', stage);
+  Object.assign(f.style, { left: M + 'px', top: (H - 42) + 'px', width: WW + 'px' });
+  for (const s of arr(SPEC.footer).slice(0, 2)) foot.push(el('span', '', f, s));
+}
+const BODY = { top: headBottom + 30, bottom: hasBand ? bandBox.y - 20 : H - footH - 34 };
+
+// ---------- nodes ----------
+const NODES = arr(SPEC.nodes);
+const byId = {};
+for (const n of NODES) {
+  if (!n.id) { fail('a node has no "id"'); continue; }
+  if (byId[n.id]) fail(`duplicate id "${n.id}"`);
+  if (!n.title) fail(`${n.id}: no "title"`);
+  if (n.kind && !KINDS[n.kind]) fail(`${n.id}: unknown kind "${n.kind}"`);
+  if (n.color && !PALETTE[n.color]) fail(`${n.id}: unknown color "${n.color}"`);
+  if (!n.iconSrc && !document.getElementById('i-' + iconOf(n))) fail(`${n.id}: unknown icon "${iconOf(n)}"`);
+  byId[n.id] = n;
+}
+const GROUPS = arr(SPEC.groups);
+const groupById = Object.fromEntries(GROUPS.map(g => [g.id, g]));
+for (const g of GROUPS) if (byId[g.id]) fail(`group id "${g.id}" is also a node id`);
+const banners = NODES.filter(n => n.place === 'banner');
+const placed = NODES.filter(n => n.place !== 'banner');
+const LAYOUT = SPEC.layout || 'flow';
+
+function layoutBanners() {
+  let top = BODY.top;
+  for (const b of banners) { b.box = { x: X0, y: top, w: WW, h: b.h || 100 }; top += b.box.h + 32; }
+  return top;
+}
+
+function layoutLanes() {
+  const top = layoutBanners();
+  const lanes = arr(SPEC.lanes);
+  if (!lanes.length) { fail('layout "lanes" needs a "lanes" list'); return; }
+  const gap = 20, lw = (WW - gap * (lanes.length - 1)) / lanes.length, lh = BODY.bottom - top;
+  const laneById = {};
+  lanes.forEach((ln, i) => { ln.box = { x: X0 + i * (lw + gap), y: top, w: lw, h: lh }; laneById[ln.id] = ln; });
+  const last = {};
+  for (const n of placed) {
+    const ln = laneById[n.lane];
+    if (!ln) { fail(`${n.id}: lane "${n.lane}" is not in "lanes"`); continue; }
+    n._lane = ln;
+    n._row = n.row ?? ((last[ln.id] ?? -1) + 1);
+    last[ln.id] = Math.max(last[ln.id] ?? -1, n._row);
+  }
+  const rows = Math.max(1, ...placed.filter(n => n._lane).map(n => n._row + 1));
+  const cTop = top + 66, cBot = top + lh - 18, pitch = (cBot - cTop) / rows;
+  const ch = SPEC.card?.h ?? Math.min(pitch - 20, 140);
+  const cw = SPEC.card?.w ?? (lw - 86 - 16);
+  for (const n of placed) {
+    if (!n._lane) continue;
+    const L = n._lane.box, h = n.h ?? ch;
+    n.box = { x: L.x + 86, y: cTop + n._row * pitch, w: n.w ?? cw, h };
+    n.spine = { x: L.x + 46, y: n.box.y + h / 2, r: 30 };
+  }
+}
+
+function groupDepth(g, seen = new Set()) {
+  if (seen.has(g.id)) { fail(`group "${g.id}" contains itself`); return 1; }
+  seen.add(g.id);
+  return 1 + Math.max(0, ...arr(g.contains).filter(id => groupById[id]).map(id => groupDepth(groupById[id], new Set(seen))));
+}
+
+function layoutFlow() {
+  const top = layoutBanners();
+  const depth = Math.max(0, ...GROUPS.map(g => groupDepth(g)));
+  const PAD = 20, PAD_TOP = 50;
+  // Keep a strip free for edges routed around the outside.
+  const below = arr(SPEC.edges).some(e => e.route === 'below') ? 56 : 0, above = arr(SPEC.edges).some(e => e.route === 'above') ? 56 : 0;
+  const area = { x: X0 + PAD * depth, y: top + PAD_TOP * depth + above, w: WW - 2 * PAD * depth,
+                 h: BODY.bottom - top - (PAD_TOP + PAD) * depth - above - below };
+  for (const n of placed) if (typeof n.col !== 'number' || typeof n.row !== 'number') fail(`${n.id}: layout "flow" needs "col" and "row" numbers`);
+  const ok = placed.filter(n => typeof n.col === 'number' && typeof n.row === 'number');
+  const cols = Math.max(1, ...ok.map(n => n.col + 1)), rows = Math.max(1, ...ok.map(n => n.row + 1));
+  const cp = area.w / cols, rp = area.h / rows;
+  const cw = SPEC.card?.w ?? Math.min(cp - (SPEC.gap?.x ?? 90), 340);
+  const ch = SPEC.card?.h ?? Math.min(rp - (SPEC.gap?.y ?? 70), 132);
+  // The outer rows and columns sit on the edges of the area, so the grid fills the body.
+  const spread = (i, count, size, start, span) => count > 1 ? start + size / 2 + i * (span - size) / (count - 1) : start + span / 2;
+  for (const n of ok) {
+    const w = n.w ?? cw, h = n.h ?? ch;
+    const cx = spread(n.col, cols, cw, area.x, area.w), cy = spread(n.row, rows, ch, area.y, area.h);
+    n.box = { x: cx - w / 2, y: cy - h / 2, w, h };
+  }
+  const boxOf = (id, seen = new Set()) => {
+    if (byId[id]) return byId[id].box;
+    const g = groupById[id];
+    if (!g) { fail(`group member "${id}" is not a node or a group`); return null; }
+    if (g.box || seen.has(id)) return g.box;
+    seen.add(id);
+    const bs = arr(g.contains).map(m => boxOf(m, seen)).filter(Boolean);
+    if (!bs.length) { fail(`group "${id}" contains nothing`); return null; }
+    const x1 = Math.min(...bs.map(b => b.x)) - PAD, y1 = Math.min(...bs.map(b => b.y)) - PAD_TOP;
+    const x2 = Math.max(...bs.map(b => b.x + b.w)) + PAD, y2 = Math.max(...bs.map(b => b.y + b.h)) + PAD;
+    g.box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    return g.box;
+  };
+  for (const g of GROUPS) boxOf(g.id);
+}
+
+function layoutHub() {
+  const top = layoutBanners();
+  const hubs = placed.filter(n => n.hub);
+  if (hubs.length !== 1) { fail(`layout "hub" needs exactly one node with "hub": true (found ${hubs.length})`); if (!hubs.length) return; }
+  const hub = hubs[0], spokes = placed.filter(n => n !== hub);
+  const cx = X0 + WW / 2, cy = (top + BODY.bottom) / 2;
+  const cw = SPEC.card?.w ?? 320, ch = SPEC.card?.h ?? 128;
+  const hw = hub.w ?? 300, hh = hub.h ?? 140;
+  hub.box = { x: cx - hw / 2, y: cy - hh / 2, w: hw, h: hh };
+  // Spokes go clockwise from the top (from the top-right corner for four), on an ellipse
+  // stretched so the outermost cards touch the edges of the body.
+  const k = spokes.length, start = k === 4 ? -45 : -90;
+  const ang = spokes.map((n, i) => (n.angle ?? (start + i * 360 / k)) * Math.PI / 180);
+  const mc = Math.max(0.5, ...ang.map(a => Math.abs(Math.cos(a)))), ms = Math.max(0.5, ...ang.map(a => Math.abs(Math.sin(a))));
+  const rx = (WW / 2 - cw / 2) / mc, ry = ((BODY.bottom - top) / 2 - ch / 2) / ms;
+  spokes.forEach((n, i) => {
+    const a = ang[i];
+    const w = n.w ?? cw, h = n.h ?? ch;
+    const x = cx + rx * Math.cos(a), y = cy + ry * Math.sin(a);
+    n.box = { x: x - w / 2, y: y - h / 2, w, h };
+  });
+}
+
+if (LAYOUT === 'lanes') layoutLanes();
+else if (LAYOUT === 'flow') layoutFlow();
+else if (LAYOUT === 'hub') layoutHub();
+else fail(`layout "${LAYOUT}" is not one of: lanes, flow, hub`);
+
+// ---------- draw lanes, groups, cards ----------
+const labels = [];   // pills checked for overlap: [element, name]
+for (const ln of LAYOUT === 'lanes' ? arr(SPEC.lanes) : []) {
+  if (!ln.box) continue;
+  const c = pal(ln.color || 'slate');
+  const d = el('div', 'abs lane', stage); place(d, ln.box);
+  d.style.background = c.lane; d.style.borderColor = c.edge;
+  if (ln.label) {
+    const l = el('div', 'abs lane-label', stage, ln.label);
+    Object.assign(l.style, { left: (ln.box.x + 86) + 'px', top: (ln.box.y + 18) + 'px', background: c.c });
+    labels.push([l, `lane label "${ln.label}"`]);
+  }
+}
+const groupsSorted = GROUPS.filter(g => g.box).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+for (const g of groupsSorted) {
+  const c = pal(g.color || 'slate');
+  const d = el('div', 'abs group', stage); place(d, g.box);
+  d.style.background = c.lane; d.style.borderColor = c.edge;
+  if (g.label) {
+    const l = el('div', 'abs group-label', stage, g.label);
+    Object.assign(l.style, { left: (g.box.x + 18) + 'px', top: (g.box.y + 14) + 'px', background: c.c });
+    labels.push([l, `group label "${g.label}"`]);
+  }
+}
+stage.append(edgesSvg);   // edges above lanes and groups, below cards
+const nodesLayer = el('div', '', stage);
+
+function makeIcon(n, c, size) {
+  const d = el('div', 'icon');
+  d.style.width = d.style.height = size + 'px';
+  if (n.iconSrc) { d.classList.add('file'); const img = el('img', '', d); img.src = n.iconSrc; img.alt = ''; }
+  else {
+    const name = iconOf(n);
+    d.style.background = c.c;
+    d.innerHTML = `<svg viewBox="0 0 24 24"><use href="#i-${name}"/></svg>`;
+  }
+  return d;
+}
+
+for (const n of NODES) {
+  if (!n.box) continue;
+  const c = colorOf(n);
+  const mode = n.place === 'banner' ? 'banner' : n.spine ? 'spine' : 'inside';
+  const card = el('div', 'abs card ' + mode + (n.kind === 'human' ? ' gate' : '') + (n.hub ? ' hub' : ''), nodesLayer);
+  place(card, n.box);
+  card.style.setProperty('--ring', c.ring);
+  if (n.kind === 'human' || n.hub) card.style.borderColor = n.hub ? c.c : c.edge;
+  if (mode !== 'spine') card.append(makeIcon(n, c, mode === 'banner' ? 60 : 48));
+  const txt = el('div', 'txt', card);
+  if (n.tag || n.badge) {
+    const row = el('div', 'tagrow', txt);
+    el('div', 'tag', row, n.tag || '').style.color = c.c;
+    if (n.badge) el('div', 'badge', row, n.badge).style.background = c.c;
+  }
+  el('div', 'title', txt, n.title || '');
+  if (n.desc) el('div', 'desc', txt, n.desc);
+  if (n.chip) el('div', 'chip', mode === 'banner' ? card : txt, n.chip);
+  n.el = card; n.c = c;
+  if (mode === 'spine') {
+    const ic = makeIcon(n, c, 60);
+    ic.classList.add('abs', 'spine');
+    Object.assign(ic.style, { left: (n.spine.x - 30) + 'px', top: (n.spine.y - 30) + 'px' });
+    nodesLayer.append(ic);
+    n.iconEl = ic;
+  }
+}
+
+// ---------- edges ----------
+const EDGES = new Map();
+function addEdge(from, to, props = {}) {
+  const key = from + '>' + to;
+  if (!EDGES.has(key)) EDGES.set(key, { from, to, steps: [] });
+  return Object.assign(EDGES.get(key), props);
+}
+for (const e of arr(SPEC.edges)) {
+  const { from, to, ...rest } = e;
+  addEdge(from, to, rest);
+}
+STEPS.forEach((s, i) => {
+  if (!s.text) fail(`step ${i + 1}: no "text"`);
+  for (const id of [...arr(s.show), ...arr(s.from), ...arr(s.pulse)]) if (!byId[id]) fail(`step ${i + 1}: "${id}" is not a node id`);
+  for (const f of arr(s.from)) for (const t of arr(s.show)) addEdge(f, t).steps.push(i);
+  for (const pair of arr(s.flow)) {
+    if (!Array.isArray(pair) || pair.length !== 2) { fail(`step ${i + 1}: each "flow" item is [from, to]`); continue; }
+    addEdge(pair[0], pair[1]).steps.push(i);
+  }
+});
+
+const ctr = b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+const inside = (outer, inner) => inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+
+function routeLanes(A, B) {
+  // Spine to spine: leave the bottom of one icon, enter the top of the next.
+  if (A.place === 'banner') { const x = B.spine.x; return [[x, A.box.y + A.box.h], [x, B.spine.y - 30]]; }
+  if (!A.spine || !B.spine) return null;
+  const s = [A.spine.x, A.spine.y + 30], t = [B.spine.x, B.spine.y - 30];
+  if (s[0] === t[0] && t[1] > s[1]) return [s, t];
+  const my = (s[1] + t[1]) / 2;
+  return [s, [s[0], my], [t[0], my], t];
+}
+
+function routeOrtho(A, B, e) {
+  const a = ctr(A), b = ctr(B);
+  if (e.route === 'below' || e.route === 'above') {
+    const dn = e.route === 'below';
+    const lo = Math.min(A.x, B.x), hi = Math.max(A.x + A.w, B.x + B.w);
+    const shared = GROUPS.filter(g => g.box && inside(g.box, A) && inside(g.box, B)).map(g => g.box);
+    const obstacles = [...NODES.filter(n => n.box).map(n => n.box), ...GROUPS.filter(g => g.box && !shared.includes(g.box)).map(g => g.box)]
+      .filter(r => r.x < hi && r.x + r.w > lo);
+    const off = e.offset ?? 30;
+    const ly = dn ? Math.max(...obstacles.map(r => r.y + r.h)) + off : Math.min(...obstacles.map(r => r.y)) - off;
+    if (dn && ly > BODY.bottom) fail(`edge ${e.from}→${e.to}: no room below the diagram for "route": "below"`);
+    if (!dn && ly < BODY.top) fail(`edge ${e.from}→${e.to}: no room above the diagram for "route": "above"`);
+    return [[a.x, dn ? A.y + A.h : A.y], [a.x, ly], [b.x, ly], [b.x, dn ? B.y + B.h : B.y]];
+  }
+  const xo = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x);
+  const yo = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y);
+  if (xo > 40 && yo <= 0) {                              // stacked: one vertical line
+    let x = (Math.max(A.x, B.x) + Math.min(A.x + A.w, B.x + B.w)) / 2;
+    if (b.x > A.x + 24 && b.x < A.x + A.w - 24) x = b.x; else if (a.x > B.x + 24 && a.x < B.x + B.w - 24) x = a.x;
+    return b.y > a.y ? [[x, A.y + A.h], [x, B.y]] : [[x, A.y], [x, B.y + B.h]];
+  }
+  if (yo > 40 && xo <= 0) {                              // side by side: one horizontal line
+    let y = (Math.max(A.y, B.y) + Math.min(A.y + A.h, B.y + B.h)) / 2;
+    if (b.y > A.y + 24 && b.y < A.y + A.h - 24) y = b.y; else if (a.y > B.y + 24 && a.y < B.y + B.h - 24) y = a.y;
+    return b.x > a.x ? [[A.x + A.w, y], [B.x, y]] : [[A.x, y], [B.x + B.w, y]];
+  }
+  if (B.x >= A.x + A.w) { const mx = (A.x + A.w + B.x) / 2; return [[A.x + A.w, a.y], [mx, a.y], [mx, b.y], [B.x, b.y]]; }
+  if (B.x + B.w <= A.x) { const mx = (A.x + B.x + B.w) / 2; return [[A.x, a.y], [mx, a.y], [mx, b.y], [B.x + B.w, b.y]]; }
+  const dn = b.y > a.y, my = dn ? (A.y + A.h + B.y) / 2 : (A.y + B.y + B.h) / 2;
+  return dn ? [[a.x, A.y + A.h], [a.x, my], [b.x, my], [b.x, B.y]] : [[a.x, A.y], [a.x, my], [b.x, my], [b.x, B.y + B.h]];
+}
+
+function clip(R, toward) {
+  const c = ctr(R), dx = toward.x - c.x, dy = toward.y - c.y;
+  const t = Math.min(dx ? (R.w / 2) / Math.abs(dx) : Infinity, dy ? (R.h / 2) / Math.abs(dy) : Infinity);
+  return [c.x + dx * t, c.y + dy * t];
+}
+
+function trim(pts, startGap, endGap) {
+  const p = pts.map(q => q.slice());
+  const mv = (q, r, d) => { const L = Math.hypot(r[0] - q[0], r[1] - q[1]) || 1; q[0] += (r[0] - q[0]) / L * d; q[1] += (r[1] - q[1]) / L * d; };
+  mv(p[0], p[1], startGap);
+  mv(p[p.length - 1], p[p.length - 2], endGap);
+  return p;
+}
+
+function pathD(pts, r = 14) {
+  const p = pts.filter((q, i) => i === 0 || Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 0.5);
+  let d = `M${p[0][0]} ${p[0][1]}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const [x0, y0] = p[i - 1], [x1, y1] = p[i], [x2, y2] = p[i + 1];
+    const l1 = Math.hypot(x1 - x0, y1 - y0), l2 = Math.hypot(x2 - x1, y2 - y1), rr = Math.min(r, l1 / 2, l2 / 2);
+    d += ` L${x1 - (x1 - x0) / l1 * rr} ${y1 - (y1 - y0) / l1 * rr} Q${x1} ${y1} ${x1 + (x2 - x1) / l2 * rr} ${y1 + (y2 - y1) / l2 * rr}`;
+  }
+  const q = p[p.length - 1];
+  return d + ` L${q[0]} ${q[1]}`;
+}
+
+for (const e of EDGES.values()) {
+  const A = byId[e.from], B = byId[e.to];
+  if (!A || !B) { fail(`edge ${e.from}→${e.to}: unknown node`); e.dead = true; continue; }
+  if (!A.box || !B.box) { e.dead = true; continue; }
+  let pts;
+  if (LAYOUT === 'lanes') pts = routeLanes(A, B) || routeOrtho(A.box, B.box, e);
+  else if (LAYOUT === 'hub' && A.place !== 'banner' && B.place !== 'banner') pts = [clip(A.box, ctr(B.box)), clip(B.box, ctr(A.box))];
+  else pts = routeOrtho(A.box, B.box, e);
+  pts = trim(pts, LAYOUT === 'lanes' ? 0 : 4, 3);
+  const tip = pts[pts.length - 1], prev = pts[pts.length - 2];
+  const L = Math.hypot(tip[0] - prev[0], tip[1] - prev[1]) || 1, ux = (tip[0] - prev[0]) / L, uy = (tip[1] - prev[1]) / L;
+  const line = pts.slice(); line[line.length - 1] = [tip[0] - ux * 6, tip[1] - uy * 6];
+  const bx = tip[0] - ux * 10, by = tip[1] - uy * 10;
+  e.c = e.color ? pal(e.color) : B.c;
+  e.p = svg('path', { d: pathD(line), fill: 'none', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, edgesSvg);
+  e.head = svg('path', { d: `M${bx - uy * 7} ${by + ux * 7} L${tip[0]} ${tip[1]} L${bx + uy * 7} ${by - ux * 7}`, fill: 'none',
+                         'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, edgesSvg);
+  e.dot = svg('circle', { r: 8, fill: e.c.c, style: `filter: drop-shadow(0 0 6px ${e.c.ring}); opacity: 0` }, edgesSvg);
+  e.len = e.p.getTotalLength();
+  e.pts = pts;
+}
+// Labels go on after every card exists, at the middle of the first straight segment (longest first)
+// where the label clears all cards and labels. "labelAt" (0 to 1 along the edge) overrides.
+for (const e of EDGES.values()) {
+  if (e.dead || !e.label) continue;
+  // Wrap only at spaces: each word is unbreakable, so "rollout-pending" never splits at its hyphen.
+  const lab = el('div', 'abs edge-label', stage);
+  String(e.label).split(' ').forEach((w, i) => { if (i) lab.append(' '); el('span', '', lab, w).style.whiteSpace = 'nowrap'; });
+  const r = lab.getBoundingClientRect(), lw = r.width, lh = r.height;
+  const others = [...EDGES.values()].filter(o => o !== e && !o.dead).flatMap(o => {
+    const pts = []; for (let s = 0; s <= o.len; s += 4) { const q = o.p.getPointAtLength(s); pts.push([q.x, q.y]); } return pts; });
+  const taken = [...NODES.filter(n => n.box).map(n => n.box), ...labels.map(([l]) => { const b = l.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; })];
+  const clear = (x, y) => taken.every(b => x + lw / 2 + 4 <= b.x || x - lw / 2 - 4 >= b.x + b.w || y + lh / 2 + 4 <= b.y || y - lh / 2 - 4 >= b.y + b.h)
+    && others.every(([px, py]) => Math.abs(px - x) > lw / 2 + 3 || Math.abs(py - y) > lh / 2 + 3);
+  let at = null;
+  if (e.labelAt != null) { const p = e.p.getPointAtLength(e.len * e.labelAt); at = [p.x, p.y]; }
+  else {
+    const segs = e.pts.slice(1).map((q, i) => [e.pts[i], q]).sort((a, b) => Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]) - Math.hypot(a[1][0] - a[0][0], a[1][1] - a[0][1]));
+    for (const [p, q] of segs) { const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; if (clear(...m)) { at = m; break; } }
+    if (!at) { const p = e.p.getPointAtLength(e.len / 2); at = [p.x, p.y]; }
+  }
+  Object.assign(lab.style, { left: (at[0] - lw / 2) + 'px', top: (at[1] - lh / 2) + 'px', borderColor: e.c.edge });
+  e.labelEl = lab;
+  labels.push([lab, `edge label "${e.label}"`]);
+}
+
+// ---------- timing and render ----------
+const T = SPEC.timing || {};
+const STEP = T.step ?? 1.6, HOLD = T.hold ?? 3.4;
+const starts = []; let acc = 0;
+for (const s of STEPS) { starts.push(acc); acc += s.dur ?? STEP; }
+const TOTAL = STEPS.length ? acc + HOLD : 0;
+const revealStep = {};
+STEPS.forEach((s, i) => { for (const id of arr(s.show)) if (revealStep[id] == null) revealStep[id] = i; });
+
+const clamp = v => Math.max(0, Math.min(1, v));
+const ease = v => 1 - Math.pow(1 - v, 3);
+
+function stepAt(t) {
+  if (!STEPS.length) return { i: 0, local: 1, final: true };
+  t = ((t % TOTAL) + TOTAL) % TOTAL;
+  if (t >= acc) return { i: STEPS.length, local: 1, final: true };
+  let i = STEPS.length - 1;
+  while (i > 0 && t < starts[i]) i--;
+  return { i, local: (t - starts[i]) / (STEPS[i].dur ?? STEP), final: false };
+}
+
+function render(t) {
+  const { i, local, final } = stepAt(t);
+  const travel = clamp(local / 0.55);
+  const state = {};
+  for (const n of NODES) {
+    if (!n.el) continue;
+    const r = revealStep[n.id];
+    let st = r == null || final || r < i ? 'done' : r === i ? 'active' : 'todo';
+    const incoming = [...EDGES.values()].some(e => !e.dead && e.to === n.id && e.steps.includes(i));
+    if (st === 'active' && incoming && travel < 1) st = 'todo';
+    state[n.id] = st;
+    for (const e of [n.el, n.iconEl]) if (e) e.dataset.state = st;
+    let op = '', tf = '';
+    if (st === 'active') {
+      const k = ease(clamp(incoming ? (local - 0.55) / 0.25 : local / 0.3));
+      op = 0.2 + 0.8 * k; tf = `translateY(${(1 - k) * 10}px)`;
+    }
+    for (const e of [n.el, n.iconEl]) if (e) { e.style.opacity = op; e.style.transform = e === n.el ? tf : ''; }
+    const pulse = !final && arr(STEPS[i]?.pulse).includes(n.id) ? Math.sin(travel * Math.PI) : 0;
+    n.el.style.boxShadow = pulse ? `0 0 0 ${3 + 6 * pulse}px ${n.c.ring}` : '';
+  }
+  for (const e of EDGES.values()) {
+    if (e.dead) continue;
+    let live = false, done;
+    if (e.steps.length) {
+      live = !final && e.steps.includes(i);
+      done = final || i > e.steps[0];
+    } else done = state[e.from] !== 'todo' && state[e.to] !== 'todo' && state[e.from] && state[e.to];
+    const col = done || live ? e.c.c : 'var(--ghost)';
+    e.p.setAttribute('stroke', col); e.head.setAttribute('stroke', col);
+    e.p.setAttribute('stroke-dasharray', done ? 'none' : '2 9');
+    if (live && travel < 1) {
+      const pt = e.p.getPointAtLength(ease(travel) * e.len);
+      e.dot.setAttribute('cx', pt.x); e.dot.setAttribute('cy', pt.y); e.dot.style.opacity = 1;
+    } else e.dot.style.opacity = 0;
+    if (e.labelEl) e.labelEl.style.opacity = done || live ? 1 : 0.35;
+  }
+  if (band) {
+    if (final) {
+      bandBadge.textContent = '✓';
+      bandStep.textContent = SPEC.finalLabel || (STEPS.length ? 'THE WHOLE FLOW' : 'IN ONE LINE');
+      bandText.textContent = SPEC.final || STEPS[STEPS.length - 1]?.text || '';
+    } else {
+      bandBadge.textContent = i + 1;
+      bandStep.textContent = `STEP ${i + 1} OF ${STEPS.length}`;
+      bandText.textContent = STEPS[i].text || '';
+    }
+  }
+}
+
+// ---------- layout check ----------
+function check() {
+  const out = problems.slice();
+  render(TOTAL ? TOTAL - 0.01 : 0);
+  const R = e => e.getBoundingClientRect();
+  const lineRects = e => { const r = document.createRange(); r.selectNodeContents(e); return [...r.getClientRects()]; };
+  const hit = (a, b, pad = 0) => a.left < b.right - pad && b.left < a.right - pad && a.top < b.bottom - pad && b.top < a.bottom - pad;
+  for (const n of NODES) {
+    if (!n.el) { if (n.id && !n.box) out.push(`${n.id}: not placed (check its lane, col/row or hub)`); continue; }
+    const txt = n.el.querySelector('.txt');
+    const need = txt.scrollHeight + 16;
+    if (need > n.box.h + 1) out.push(`${n.id}: text needs ${Math.ceil(need)}px of height, the card has ${Math.round(n.box.h)}px (shorten it, or raise card.h)`);
+    if (txt.scrollWidth > txt.clientWidth + 1) out.push(`${n.id}: a word is wider than the card`);
+    const chip = n.el.querySelector('.chip');
+    if (chip && chip.scrollWidth > chip.clientWidth + 1) out.push(`${n.id}: chip "${n.chip}" is cut off`);
+    const tag = n.el.querySelector('.tag');
+    if (tag && tag.scrollWidth > tag.clientWidth + 1) out.push(`${n.id}: tag "${n.tag}" is cut off`);
+  }
+  const items = [];
+  for (const n of NODES) { if (n.el) items.push([n.el, `card ${n.id}`]); if (n.iconEl) items.push([n.iconEl, `icon ${n.id}`]); }
+  items.push(...labels);
+  for (const e of head.children) items.push([e, 'header']);
+  if (band) items.push([band, 'step band']);
+  for (const f of foot) items.push([f, 'footer']);
+  for (let a = 0; a < items.length; a++) {
+    const ra = R(items[a][0]);
+    if (ra.left < -0.5 || ra.top < -0.5 || ra.right > W + 0.5 || ra.bottom > H + 0.5) out.push(`${items[a][1]} is outside the canvas`);
+    for (let b = a + 1; b < items.length; b++) {
+      if (items[a][1] === 'header' && items[b][1] === 'header') continue;
+      if (hit(ra, R(items[b][0]), 1)) out.push(`${items[a][1]} overlaps ${items[b][1]}`);
+    }
+  }
+  if (h1 && h1.scrollWidth > WW + 1) out.push('the title is wider than the canvas');
+  if (sub && lineRects(sub).length > 2) out.push('the subtitle is longer than two lines');
+  for (const e of EDGES.values()) {
+    if (e.dead) continue;
+    const blockers = NODES.filter(n => n.el && n.id !== e.from && n.id !== e.to).flatMap(n => [[R(n.el), n.id], ...(n.iconEl ? [[R(n.iconEl), n.id]] : [])]);
+    const crossed = new Set();
+    for (let s = 8; s < e.len - 8; s += 5) {
+      const p = e.p.getPointAtLength(s);
+      for (const [r, id] of blockers) if (p.x > r.left + 2 && p.x < r.right - 2 && p.y > r.top + 2 && p.y < r.bottom - 2) crossed.add(id);
+    }
+    for (const id of crossed) out.push(`edge ${e.from}→${e.to} runs through ${id}`);
+    for (const o of EDGES.values()) {
+      if (o === e || o.dead || !o.labelEl) continue;
+      const r = R(o.labelEl);
+      for (let s = 0; s <= e.len; s += 4) {
+        const p = e.p.getPointAtLength(s);
+        if (p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom) { out.push(`edge label "${o.label}" covers edge ${e.from}→${e.to}`); break; }
+      }
+    }
+  }
+  if (band) {
+    const fits = text => { bandText.textContent = text; return bandText.scrollHeight <= 62 && bandText.scrollWidth <= bandText.clientWidth + 1; };
+    STEPS.forEach((s, i) => { if (!fits(s.text || '')) out.push(`step ${i + 1}: caption is longer than two lines`); });
+    if (SPEC.final && !fits(SPEC.final)) out.push('"final" is longer than two lines');
+  }
+  render(TOTAL ? TOTAL - 0.01 : 0);
+  return { problems: [...new Set(out)], size: [W, H], nodes: NODES.length, edges: [...EDGES.values()].filter(e => !e.dead).length,
+           steps: STEPS.length, seconds: TOTAL, stepEnds: STEPS.map((s, i) => starts[i] + (s.dur ?? STEP)) };
+}
+
+window.__TOTAL = TOTAL;
+window.__FINAL = TOTAL ? TOTAL - 0.01 : 0;
+window.__SIZE = [W, H];
+window.__setT = render;
+window.__check = check;
+if (new URLSearchParams(location.search).has('capture') || !TOTAL) render(window.__FINAL);
+else { const t0 = performance.now(); const loop = now => { render((now - t0) / 1000); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
+})();
+</script>
+</body>
+</html>
