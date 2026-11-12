@@ -5,6 +5,10 @@ spec instead of drawn by hand. One engine draws every spec in the same flat, lig
 rounded cards with icons, colors that stand for roles, a dot travelling along each arrow, and a
 step band whose caption changes as each card appears.
 
+| Lanes, the finished still | Hub, the animated GIF |
+|---|---|
+| ![Two lanes of cards, one for a merge in Git and one for a pod restart, each ending in a pink YES card](assets/two-approvals.png) | ![A dispatcher card in the middle, with six cards around it lighting up one at a time as a dot travels along each arrow](assets/dispatcher-hub.gif) |
+
 One command renders a spec to:
 
 - a 2x PNG of the finished diagram, for an article
