@@ -1,0 +1,47 @@
+{
+  "name": "two-approvals",
+  "layout": "lanes",
+  "size": "portrait",
+  "series": "PART 1 · LIMITS FOR AI AGENTS",
+  "title": "One fix, *two approvals*",
+  "subtitle": "How my AI agents fix a memory alert, and the two places I say yes.",
+  "footer": ["ASELA'S HOMELAB", "APPROVING A CHANGE ISN'T APPROVING AN ACTION"],
+  "lanes": [
+    { "id": "git", "label": "APPROVAL 1 · A CHANGE IN GIT", "color": "teal" },
+    { "id": "cluster", "label": "APPROVAL 2 · AN ACTION ON THE CLUSTER", "color": "violet" }
+  ],
+  "nodes": [
+    { "id": "alert", "place": "banner", "kind": "alert", "tag": "Grafana alert", "title": "Container near memory limit", "chip": "logging/prometheus-0" },
+    { "id": "pr", "lane": "git", "kind": "agent", "icon": "pr", "tag": "Implementer", "title": "Opens a pull request",
+      "desc": "The limit is too low, so it raises it in Git.", "chip": "verdict: limit-too-low" },
+    { "id": "merge", "lane": "git", "kind": "human", "tag": "Me", "title": "I merge it", "badge": "YES #1",
+      "desc": "A yes to a change to one file." },
+    { "id": "sync", "lane": "git", "kind": "git", "icon": "sync", "tag": "Argo CD", "title": "Syncs Git to the cluster",
+      "desc": "The StatefulSet gets the new limit." },
+    { "id": "pod-old", "lane": "git", "kind": "workload", "tag": "Pod", "title": "Keeps the old limit",
+      "desc": "It changes only when it is deleted.", "chip": "updateStrategy: OnDelete" },
+    { "id": "again", "lane": "cluster", "kind": "agent", "tag": "Implementer", "title": "Checks again",
+      "desc": "Git and the pod disagree. No new pull request.", "chip": "verdict: rollout-pending" },
+    { "id": "check", "lane": "cluster", "kind": "control", "tag": "Dispatcher", "title": "Checks the target",
+      "desc": "Protected namespace? Restart budget left?" },
+    { "id": "pause", "lane": "cluster", "kind": "agent", "icon": "pause", "tag": "Restarter", "title": "Pauses on one delete",
+      "desc": "Matched to the alert's pod.", "chip": "k8s_delete_resource" },
+    { "id": "approve", "lane": "cluster", "kind": "human", "tag": "Me", "title": "I approve the call", "badge": "YES #2",
+      "desc": "A yes to one delete, with its arguments." },
+    { "id": "pod-new", "lane": "cluster", "kind": "ok", "tag": "Pod", "title": "Back with the new limit",
+      "desc": "The StatefulSet rebuilds it from Git." }
+  ],
+  "steps": [
+    { "show": "alert", "text": "Grafana fires a memory alert. The dispatcher routes it." },
+    { "show": "pr", "from": "alert", "text": "The implementer opens a pull request. It cannot merge it." },
+    { "show": "merge", "from": "pr", "text": "Yes #1: I merge the change." },
+    { "show": "sync", "from": "merge", "text": "Argo CD syncs the StatefulSet from Git." },
+    { "show": "pod-old", "from": "sync", "text": "The running pod keeps its old limit." },
+    { "show": "again", "from": "alert", "pulse": "alert", "text": "The alert fires again. Verdict: rollout-pending." },
+    { "show": "check", "from": "again", "text": "The dispatcher checks the namespace and the budget." },
+    { "show": "pause", "from": "check", "text": "The restarter pauses on one delete of the alert's pod." },
+    { "show": "approve", "from": "pause", "text": "Yes #2: I approve that one call." },
+    { "show": "pod-new", "from": "approve", "text": "The pod comes back with the new limit." }
+  ],
+  "final": "One fix, two approvals: a merge for the change, a yes for the delete."
+}

@@ -1,0 +1,104 @@
+{
+  "name": "dispatcher-hub",
+  "layout": "hub",
+  "size": "portrait",
+  "series": "PART 1 · LIMITS FOR AI AGENTS",
+  "title": "Before I can *say yes*",
+  "subtitle": "What the dispatcher checks before it offers me an approval.",
+  "footer": [
+    "ASELA'S HOMELAB",
+    "APPROVING A CHANGE ISN'T APPROVING AN ACTION"
+  ],
+  "nodes": [
+    {
+      "id": "dispatcher",
+      "hub": true,
+      "kind": "control",
+      "icon": "route",
+      "tag": "Dispatcher",
+      "title": "Plain code, not a model"
+    },
+    {
+      "id": "alert",
+      "kind": "alert",
+      "tag": "Grafana",
+      "title": "Sends the alert",
+      "chip": "logging/prometheus-0"
+    },
+    {
+      "id": "implementer",
+      "kind": "agent",
+      "tag": "Implementer",
+      "title": "Gives a verdict",
+      "chip": "rollout-pending"
+    },
+    {
+      "id": "protected",
+      "kind": "refused",
+      "tag": "Protected",
+      "title": "Never restarted",
+      "desc": "Such as kube-system or kagent."
+    },
+    {
+      "id": "budget",
+      "kind": "control",
+      "icon": "clock",
+      "tag": "Restart budget",
+      "title": "Two in 24 hours",
+      "desc": "One per workload."
+    },
+    {
+      "id": "restarter",
+      "kind": "agent",
+      "icon": "pause",
+      "tag": "Restarter",
+      "title": "Pauses on one delete",
+      "chip": "k8s_delete_resource"
+    },
+    {
+      "id": "me",
+      "kind": "human",
+      "tag": "Me",
+      "title": "Approve or reject",
+      "badge": "YES",
+      "desc": "If the call matches the alert."
+    }
+  ],
+  "steps": [
+    {
+      "show": "alert",
+      "text": "Grafana fires: a container is near its memory limit."
+    },
+    {
+      "show": "dispatcher",
+      "from": "alert",
+      "text": "The dispatcher gets the alert. It's plain code, not a model."
+    },
+    {
+      "show": "implementer",
+      "from": "dispatcher",
+      "text": "It routes the alert to the implementer, which returns a verdict."
+    },
+    {
+      "show": "protected",
+      "from": "dispatcher",
+      "text": "It refuses any pod in a protected namespace."
+    },
+    {
+      "show": "budget",
+      "from": "dispatcher",
+      "text": "It counts: two restarter sessions in 24 hours, one per workload."
+    },
+    {
+      "show": "restarter",
+      "from": "dispatcher",
+      "text": "It opens one restarter session, naming one pod."
+    },
+    {
+      "show": "me",
+      "from": "dispatcher",
+      "text": "If the pending call matches the alert, I'm offered an approval."
+    }
+  ],
+  "final": "The dispatcher never approves anything itself."
+}
