@@ -32,6 +32,7 @@ Each skill is a standalone Claude Code plugin. Add the marketplace, then install
 | [review-retro](./review-retro/) | 0.1.0 | development | Retro of a /code-review session against later fixes: misses, causes, cost, proposals |
 | [readiness](./readiness/) | 0.3.0 | development | `/production-readiness <repo>`: readiness review of an app repo (verdict, top fixes, findings per Well-Architected pillar); `--html` publishes it as an interactive page |
 | [blog-diagrams](./blog-diagrams/) | 0.1.0 | documentation | Animated architecture and flow diagrams for blog posts: JSON spec, layout check, 2x PNG, GIF and MP4 |
+| [tmux-orchestrator](./tmux-orchestrator/) | 0.1.0 | automation | One Claude Code session runs agent sessions in tmux panes, with state on pane borders. Manual install (symlink, shell function, hooks), not a marketplace plugin: see its README |
 
 ## Legacy CLI
 
