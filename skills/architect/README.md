@@ -21,8 +21,9 @@ platforms.
 | Agentic platform | Agent infrastructure and governance: identity, tools and approvals, sandboxes, evals, model gateway, autonomy levels | `references/agentic-platform.md` |
 
 `SKILL.md` holds the shared consulting workflow and a table for picking the lens. When the
-`codex` skill is installed, the workflow can send a finished draft to Codex (consult mode)
-for an adversarial review before delivery; it skips that step otherwise. Each
+`codex` skill is installed, the workflow sends each finished design or review to Codex
+(consult mode) for an adversarial review before delivery, from a temporary git repository
+when the working folder isn't one. When the review doesn't run, the reply says why. Each
 lens's `workflow.md` and deeper files load only when a question needs them, so the
 skill's always-loaded description stays one entry instead of four.
 
